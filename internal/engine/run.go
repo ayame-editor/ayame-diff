@@ -196,7 +196,7 @@ func assembleOutput(ctx context.Context, outputPath string, parts []string, head
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(dir, ".fcsv-diff-output-*.tmp")
+	temp, err := os.CreateTemp(dir, ".ayame-diff-output-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func replaceFile(source, destination string) error {
 
 func createWorkRoot(cfg Config) (string, bool, error) {
 	if cfg.WorkDir == "" {
-		path, err := os.MkdirTemp(cfg.TempDir, "fcsv-diff-")
+		path, err := os.MkdirTemp(cfg.TempDir, "ayame-diff-")
 		return path, true, err
 	}
 	path, err := filepath.Abs(cfg.WorkDir)

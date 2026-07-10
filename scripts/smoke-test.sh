@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-BINARY=${1:-./dist/fcsv-diff}
-TMP=${TMPDIR:-/tmp}/fcsv-diff-smoke-$$
+BINARY=${1:-./dist/ayame-diff}
+TMP=${TMPDIR:-/tmp}/ayame-diff-smoke-$$
 trap 'rm -rf "$TMP"' EXIT INT TERM
 mkdir -p "$TMP"
 

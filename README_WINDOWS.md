@@ -1,9 +1,9 @@
-# fcsv-diff for Windows
+# ayame-diff for Windows
 
-`fcsv-diff.exe` は、行順が異なる巨大な CSV / TSV を比較する Windows ネイティブのコンソールアプリです。
+`ayame-diff.exe` は、行順が異なる巨大な CSV / TSV を比較する Windows ネイティブのコンソールアプリです。
 
-- Windows x64: ZIP直下の `fcsv-diff.exe`
-- Windows ARM64: `arm64\fcsv-diff.exe`
+- Windows x64: ZIP直下の `ayame-diff.exe`
+- Windows ARM64: `arm64\ayame-diff.exe`
 - Go / Python / WSL / Java / 外部データベースは不要
 - CSV / TSV / CSV.GZ / TSV.GZ 入力
 - TSV / TSV.GZ 差分出力
@@ -16,13 +16,13 @@ ZIP内の `start-interactive.cmd` をダブルクリックします。
 PowerShellからは、引数なしで起動できます。
 
 ```powershell
-.\fcsv-diff.exe
+.\ayame-diff.exe
 ```
 
 明示的に指定する場合です。
 
 ```powershell
-.\fcsv-diff.exe --interactive
+.\ayame-diff.exe --interactive
 ```
 
 ウィザードで次を設定できます。
@@ -65,11 +65,11 @@ PowerShellからは、引数なしで起動できます。
 ## 2. 起動確認
 
 ```powershell
-.\fcsv-diff.exe --version
-.\fcsv-diff.exe --help
+.\ayame-diff.exe --version
+.\ayame-diff.exe --help
 ```
 
-`fcsv-diff.exe` はWindowsのUnicode Console APIを使うネイティブコンソールEXEです。日本語ヘッダー、日本語パス、矢印キー、Spaceキーを扱うための追加DLLは不要です。
+`ayame-diff.exe` はWindowsのUnicode Console APIを使うネイティブコンソールEXEです。日本語ヘッダー、日本語パス、矢印キー、Spaceキーを扱うための追加DLLは不要です。
 
 WezTerm、Windows Terminalなどで標準入出力がConPTY経由になっている場合も、必要に応じて`CONIN$` / `CONOUT$`から実際のコンソールbufferを取得して対話モードを開始します。
 
@@ -78,7 +78,7 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 キーオプションを指定しない場合、全列をキーとして行の多重集合差分を取ります。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.csv" `
   --out "D:\data\diff.tsv"
@@ -91,7 +91,7 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 `updated_at` と `checksum` 以外の全列をキーにする例です。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --exclude-key updated_at `
@@ -102,7 +102,7 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 列番号で除外する例です。既定は0始まりです。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.csv" `
   --right "D:\data\new.csv" `
   --exclude-key-index 3 `
@@ -115,7 +115,7 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 ## 5. 非対話モード: キーに含める列を明示指定
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --key customer_id `
@@ -128,7 +128,7 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 ## 6. ヘッダーなし
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --header=false `
@@ -143,13 +143,13 @@ WezTerm、Windows Terminalなどで標準入出力がConPTY経由になってい
 一時領域には高速なローカルNVMeを指定してください。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --exclude-key updated_at `
   --exclude-key checksum `
   --out "D:\data\diff.tsv.gz" `
-  --temp-dir "E:\fcsv-diff-temp" `
+  --temp-dir "E:\ayame-diff-temp" `
   --memory 32GiB `
   --partitions 512 `
   --parse-workers 24 `
@@ -170,8 +170,8 @@ Goをインストールしてから、ソースのルートで実行します。
 成果物:
 
 ```text
-dist\fcsv-diff-windows-amd64.exe
-dist\fcsv-diff-windows-arm64.exe
+dist\ayame-diff-windows-amd64.exe
+dist\ayame-diff-windows-arm64.exe
 dist\SHA256SUMS-WINDOWS.txt
 ```
 

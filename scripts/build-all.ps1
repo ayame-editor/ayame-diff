@@ -16,16 +16,16 @@ $Targets = @(
 Push-Location $Root
 try {
     foreach ($Target in $Targets) {
-        $Output = Join-Path $Dist ("fcsv-diff-{0}-{1}{2}" -f $Target.OS, $Target.Arch, $Target.Ext)
+        $Output = Join-Path $Dist ("ayame-diff-{0}-{1}{2}" -f $Target.OS, $Target.Arch, $Target.Ext)
         Write-Host "building $Output"
         $env:CGO_ENABLED = "0"
         $env:GOOS = $Target.OS
         $env:GOARCH = $Target.Arch
-        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o $Output ./cmd/fcsv-diff
+        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o $Output ./cmd/ayame-diff
         if ($LASTEXITCODE -ne 0) { throw "go build failed" }
     }
 
-    $Lines = Get-ChildItem $Dist -Filter "fcsv-diff-*" -File | Sort-Object Name | ForEach-Object {
+    $Lines = Get-ChildItem $Dist -Filter "ayame-diff-*" -File | Sort-Object Name | ForEach-Object {
         $Hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
         "$Hash  $($_.Name)"
     }

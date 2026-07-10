@@ -1,6 +1,6 @@
-# fcsv-diff
+# ayame-diff
 
-[![CI](https://github.com/hjosugi/fcsv-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/fcsv-diff/actions/workflows/build.yml)
+[![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 行順が異なる巨大な CSV / TSV を比較し、差分行を TSV に出力するネイティブ CLI です。
@@ -28,16 +28,16 @@
 
 ## インストール
 
-Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https://github.com/hjosugi/fcsv-diff/releases/latest) からOSとCPUに合うアーカイブを取得してください。
+Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https://github.com/hjosugi/ayame-diff/releases/latest) からOSとCPUに合うアーカイブを取得してください。
 
-- Windows x64 / ARM64: `fcsv-diff-<version>-windows.zip`
-- Linux x64 / ARM64: `fcsv-diff-<version>-linux-<arch>.tar.gz`
-- macOS Intel / Apple Silicon: `fcsv-diff-<version>-darwin-<arch>.tar.gz`
+- Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
+- Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
+- macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
 
 Go 1.23以降がある場合は、ソースから直接インストールできます。
 
 ```bash
-go install github.com/hjosugi/fcsv-diff/cmd/fcsv-diff@latest
+go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ```
 
 ダウンロードしたアーカイブと同じReleaseにある `SHA256SUMS` で、ファイルの完全性を確認できます。
@@ -49,13 +49,13 @@ go install github.com/hjosugi/fcsv-diff/cmd/fcsv-diff@latest
 Windows PowerShell:
 
 ```powershell
-.\fcsv-diff.exe
+.\ayame-diff.exe
 ```
 
 明示的に起動する場合:
 
 ```powershell
-.\fcsv-diff.exe --interactive
+.\ayame-diff.exe --interactive
 ```
 
 左ファイル、右ファイル、出力先、ヘッダー有無を入力すると、左右の最初の論理レコードだけを読みます。巨大ファイル全体を走査してから選択画面を出すことはありません。CSVのヘッダーに引用された区切り文字や改行がある場合も、`rfc4180` パーサーなら1つの論理レコードとして読み取ります。
@@ -104,7 +104,7 @@ Windows PowerShell:
 キーオプションを省略すると、すべての列をキーとして行の多重集合差分を取ります。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.csv" `
   --out "D:\data\diff.tsv"
@@ -117,7 +117,7 @@ Windows PowerShell:
 たとえば `updated_at` と `checksum` 以外をキーにする場合です。除外列も完全な行比較と差分出力には残ります。同じ残存キーで除外列だけが違えば、左右の行を `CHANGED` として出力します。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --exclude-key updated_at `
@@ -128,7 +128,7 @@ Windows PowerShell:
 列番号で除外する場合です。
 
 ```powershell
-.\fcsv-diff.exe `
+.\ayame-diff.exe `
   --left "D:\data\old.tsv" `
   --right "D:\data\new.tsv" `
   --exclude-key-index 3 `
@@ -141,7 +141,7 @@ Windows PowerShell:
 ヘッダー名を複数指定します。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.tsv \
   --right new.csv \
   --key customer_id \
@@ -152,7 +152,7 @@ fcsv-diff \
 列番号を複数指定する場合です。列番号は既定で 0 始まりです。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.tsv \
   --right new.tsv \
   --key-index 0 \
@@ -163,7 +163,7 @@ fcsv-diff \
 1 始まりにする場合です。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.csv \
   --right new.csv \
   --key-index 1 \
@@ -175,7 +175,7 @@ fcsv-diff \
 ヘッダーがない場合です。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.tsv \
   --right new.tsv \
   --header=false \
@@ -187,30 +187,30 @@ fcsv-diff \
 gzip 出力は拡張子で有効になります。
 
 ```bash
-fcsv-diff --left old.csv.gz --right new.tsv.gz --key id --out diff.tsv.gz
+ayame-diff --left old.csv.gz --right new.tsv.gz --key id --out diff.tsv.gz
 ```
 
 ## Windowsネイティブ実行
 
-配布ZIP内の `fcsv-diff.exe` は Windows x64 用のネイティブコンソールEXEです。Go、Python、WSL、Java、外部DLLの追加インストールは不要です。
+配布ZIP内の `ayame-diff.exe` は Windows x64 用のネイティブコンソールEXEです。Go、Python、WSL、Java、外部DLLの追加インストールは不要です。
 
 PowerShell:
 
 ```powershell
-.\fcsv-diff.exe                 # 対話モード
-.\fcsv-diff.exe --interactive   # 対話モードを明示
-.\fcsv-diff.exe --version
-.\fcsv-diff.exe --help
+.\ayame-diff.exe                 # 対話モード
+.\ayame-diff.exe --interactive   # 対話モードを明示
+.\ayame-diff.exe --version
+.\ayame-diff.exe --help
 ```
 
 コマンドプロンプト:
 
 ```bat
-fcsv-diff.exe --version
-fcsv-diff.exe --help
+ayame-diff.exe --version
+ayame-diff.exe --help
 ```
 
-ARM64 Windows では `arm64\fcsv-diff.exe` を使います。バイナリは `CGO_ENABLED=0` でビルドしています。コード署名証明書は付いていないため、環境によっては初回実行時にWindowsの警告が表示されることがあります。
+ARM64 Windows では `arm64\ayame-diff.exe` を使います。バイナリは `CGO_ENABLED=0` でビルドしています。コード署名証明書は付いていないため、環境によっては初回実行時にWindowsの警告が表示されることがあります。
 
 ## 差分出力
 
@@ -257,7 +257,7 @@ CHANGED	right	30	Carol	350
 引用符を使わないCSVも高速化できます。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.csv --right new.csv \
   --left-parser simple --right-parser simple \
   --key id --out diff.tsv
@@ -268,7 +268,7 @@ fcsv-diff \
 引用符、区切り文字を含むフィールド、フィールド内改行を扱います。TSVでも引用されたタブや改行を扱う必要がある場合は明示します。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left old.tsv --right new.tsv \
   --left-parser rfc4180 --right-parser rfc4180 \
   --key id --out diff.tsv
@@ -298,13 +298,13 @@ right: amount,id,name
 実際の最適値は、平均行長、キー偏り、CPU数、NVMe帯域、空きディスク、ファイルディスクリプタ上限で変わります。最初に数千万行の実データ断片で計測してください。
 
 ```bash
-fcsv-diff \
+ayame-diff \
   --left /data/old.tsv \
   --right /data/new.tsv \
   --key tenant_id \
   --key record_id \
   --out /data/diff.tsv.gz \
-  --temp-dir /local-nvme/fcsv-diff \
+  --temp-dir /local-nvme/ayame-diff \
   --memory 32GiB \
   --partitions 512 \
   --parse-workers 24 \
@@ -370,7 +370,7 @@ fcsv-diff \
 全オプションは次で確認できます。
 
 ```bash
-fcsv-diff --help
+ayame-diff --help
 ```
 
 ## 終了コード
@@ -393,7 +393,7 @@ Go 1.23 以降を使います。外部依存はありません。
 現在のOS向け:
 
 ```bash
-go build -trimpath -o fcsv-diff ./cmd/fcsv-diff
+go build -trimpath -o ayame-diff ./cmd/ayame-diff
 ```
 
 Linux、macOS、Windows向けをまとめて作る場合:

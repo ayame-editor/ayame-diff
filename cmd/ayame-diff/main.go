@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hjosugi/fcsv-diff/internal/engine"
-	"github.com/hjosugi/fcsv-diff/internal/interactive"
+	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/interactive"
 )
 
 var version = "dev"
@@ -60,7 +60,7 @@ func main() {
 		os.Exit(2)
 	}
 	if showVersion {
-		fmt.Printf("fcsv-diff %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+		fmt.Printf("ayame-diff %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return
 	}
 
@@ -121,10 +121,10 @@ func parseFlags(args []string) (engine.Config, bool, bool, error) {
 	var excludeKeyIndexes intList
 	var showVersion bool
 	var interactiveMode bool
-	fs := flag.NewFlagSet("fcsv-diff", flag.ContinueOnError)
+	fs := flag.NewFlagSet("ayame-diff", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `fcsv-diff compares huge CSV/TSV files whose row order differs.
+		fmt.Fprintln(fs.Output(), `ayame-diff compares huge CSV/TSV files whose row order differs.
 
 Run with no arguments, or use --interactive, to open the header selection wizard.
 The wizard reads both headers and supports Space-key multi-selection.

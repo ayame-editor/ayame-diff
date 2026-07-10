@@ -34,9 +34,9 @@ jobs:
         run: >-
           go build -trimpath
           -ldflags "-s -w -X main.version=v0.3.1"
-          -o fcsv-diff.exe
-          ./cmd/fcsv-diff
-      - run: .\fcsv-diff.exe --version
+          -o ayame-diff.exe
+          ./cmd/ayame-diff
+      - run: .\ayame-diff.exe --version
 
   build:
     runs-on: ubuntu-latest
@@ -76,10 +76,10 @@ jobs:
         run: >-
           go build -trimpath
           -ldflags "-s -w -X main.version=v0.3.1"
-          -o "fcsv-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
-          ./cmd/fcsv-diff
+          -o "ayame-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          ./cmd/ayame-diff
       - uses: actions/upload-artifact@v7
         with:
-          name: fcsv-diff-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: fcsv-diff-*
+          name: ayame-diff-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ayame-diff-*
           if-no-files-found: error

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hjosugi/fcsv-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
 func TestNormalizePathInputQuotes(t *testing.T) {

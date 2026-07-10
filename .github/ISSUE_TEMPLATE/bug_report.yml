@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: '`fcsv-diff --version` の出力'
-      placeholder: fcsv-diff v0.3.0 (windows/amd64, go1.26.5)
+      description: '`ayame-diff --version` の出力'
+      placeholder: ayame-diff v0.3.0 (windows/amd64, go1.26.5)
     validations:
       required: true
   - type: dropdown

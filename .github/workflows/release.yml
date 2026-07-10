@@ -35,4 +35,4 @@ jobs:
           release/*
           --verify-tag
           --generate-notes
-          --title "fcsv-diff ${GITHUB_REF_NAME}"
+          --title "ayame-diff ${GITHUB_REF_NAME}"

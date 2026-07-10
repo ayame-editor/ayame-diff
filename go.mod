@@ -1,3 +1,3 @@
-module github.com/hjosugi/fcsv-diff
+module github.com/hjosugi/ayame-diff
 
 go 1.23

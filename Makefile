@@ -5,7 +5,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 build:
 	mkdir -p dist
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/fcsv-diff ./cmd/fcsv-diff
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/ayame-diff ./cmd/ayame-diff
 
 test:
 	go test ./...

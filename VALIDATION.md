@@ -16,10 +16,10 @@ go vet ./...
 Packages checked:
 
 ```text
-github.com/hjosugi/fcsv-diff/cmd/fcsv-diff
-github.com/hjosugi/fcsv-diff/internal/engine
-github.com/hjosugi/fcsv-diff/internal/interactive
-github.com/hjosugi/fcsv-diff/internal/tui
+github.com/hjosugi/ayame-diff/cmd/ayame-diff
+github.com/hjosugi/ayame-diff/internal/engine
+github.com/hjosugi/ayame-diff/internal/interactive
+github.com/hjosugi/ayame-diff/internal/tui
 ```
 
 Covered interactive cases include:
@@ -136,12 +136,12 @@ windows/arm64
 Binary inspection result:
 
 ```text
-fcsv-diff-linux-amd64:       ELF 64-bit x86-64, statically linked
-fcsv-diff-linux-arm64:       ELF 64-bit ARM aarch64, statically linked
-fcsv-diff-darwin-amd64:      Mach-O 64-bit x86_64
-fcsv-diff-darwin-arm64:      Mach-O 64-bit arm64
-fcsv-diff-windows-amd64.exe: PE32+ Windows console executable, x86-64
-fcsv-diff-windows-arm64.exe: PE32+ Windows console executable, ARM64
+ayame-diff-linux-amd64:       ELF 64-bit x86-64, statically linked
+ayame-diff-linux-arm64:       ELF 64-bit ARM aarch64, statically linked
+ayame-diff-darwin-amd64:      Mach-O 64-bit x86_64
+ayame-diff-darwin-arm64:      Mach-O 64-bit arm64
+ayame-diff-windows-amd64.exe: PE32+ Windows console executable, x86-64
+ayame-diff-windows-arm64.exe: PE32+ Windows console executable, ARM64
 ```
 
 The Windows interactive terminal implementation uses native Unicode Win32 console calls. The amd64 executable imports Windows system APIs from `kernel32.dll`; no third-party runtime DLL is required.

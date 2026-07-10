@@ -1,9 +1,9 @@
 /dist/
 /release/
-/fcsv-diff
-/fcsv-diff.exe
+/ayame-diff
+/ayame-diff.exe
 *.out
 *.prof
 *.test
 .DS_Store
-.fcsv-diff-*
+.ayame-diff-*

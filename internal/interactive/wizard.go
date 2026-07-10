@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hjosugi/fcsv-diff/internal/engine"
-	"github.com/hjosugi/fcsv-diff/internal/tui"
+	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/tui"
 )
 
 var ErrCancelled = tui.ErrCancelled
@@ -39,7 +39,7 @@ func Run(cfg engine.Config, version string) (result engine.Config, resultErr err
 	w := &wizard{
 		terminal: terminal,
 		cfg:      cfg,
-		title:    "fcsv-diff " + version + " - Interactive setup",
+		title:    "ayame-diff " + version + " - Interactive setup",
 	}
 	defer func() {
 		if closeErr := terminal.Close(); resultErr == nil && closeErr != nil {

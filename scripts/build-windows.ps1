@@ -5,8 +5,8 @@ $Dist = Join-Path $Root "dist"
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 $Targets = @(
-    @{ Arch = "amd64"; Name = "fcsv-diff-windows-amd64.exe" },
-    @{ Arch = "arm64"; Name = "fcsv-diff-windows-arm64.exe" }
+    @{ Arch = "amd64"; Name = "ayame-diff-windows-amd64.exe" },
+    @{ Arch = "arm64"; Name = "ayame-diff-windows-arm64.exe" }
 )
 
 Push-Location $Root
@@ -17,7 +17,7 @@ try {
         $env:CGO_ENABLED = "0"
         $env:GOOS = "windows"
         $env:GOARCH = $Target.Arch
-        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o $Output ./cmd/fcsv-diff
+        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o $Output ./cmd/ayame-diff
         if ($LASTEXITCODE -ne 0) { throw "go build failed for windows/$($Target.Arch)" }
     }
 
