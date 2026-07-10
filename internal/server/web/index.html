@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ayame-diff</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ayame-diff</h1>
+      <span class="tag" id="version">web</span>
+    </header>
+
+    <main>
+      <section class="setup" id="setup">
+        <div class="paths">
+          <label>
+            <span>OLD</span>
+            <input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" />
+          </label>
+          <label>
+            <span>NEW</span>
+            <input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" />
+          </label>
+        </div>
+        <div class="opts">
+          <label class="opt">
+            <span>mode</span>
+            <select id="mode">
+              <option value="text">text</option>
+              <option value="sorted">sorted</option>
+            </select>
+          </label>
+          <label class="opt"><span>window</span><input id="window" type="number" value="128" min="1" /></label>
+          <label class="opt"><span>max hunks</span><input id="maxHunks" type="number" value="200" min="1" /></label>
+          <label class="opt"><span>max lines/hunk</span><input id="maxLines" type="number" value="200" min="1" /></label>
+          <label class="opt check"><input id="word" type="checkbox" checked /><span>word highlight</span></label>
+          <label class="opt check" id="numericWrap" hidden><input id="numeric" type="checkbox" /><span>numeric</span></label>
+          <label class="opt check" id="reverseWrap" hidden><input id="reverse" type="checkbox" /><span>reverse</span></label>
+          <button id="compare" type="button">Compare</button>
+        </div>
+      </section>
+
+      <section class="status" id="status" hidden></section>
+
+      <section class="summary" id="summary" hidden></section>
+
+      <section class="result" id="result"></section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

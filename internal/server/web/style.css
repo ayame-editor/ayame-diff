@@ -1,0 +1,116 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1c2128;
+  --muted: #6b7480;
+  --border: #d7dce1;
+  --panel: #f6f8fa;
+  --add-bg: #e6ffec;
+  --add-fg: #0a6b28;
+  --del-bg: #ffebe9;
+  --del-fg: #a71d2a;
+  --chg-bg: #fff5d6;
+  --word-add: #a6f3b8;
+  --word-del: #ffc2c0;
+  --accent: #8250df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --border: #30363d;
+    --panel: #161b22;
+    --add-bg: #12261a;
+    --add-fg: #56d364;
+    --del-bg: #2d1214;
+    --del-fg: #f85149;
+    --chg-bg: #2b2413;
+    --word-add: #1a5a2a;
+    --word-del: #6e2429;
+    --accent: #a371f7;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.01em; }
+.tag {
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
+
+.setup { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.paths { display: grid; gap: 0.6rem; }
+.paths label { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: 0.6rem; }
+.paths span { color: var(--muted); font-size: 0.8rem; }
+input[type="text"] {
+  width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--border);
+  border-radius: 7px; background: var(--bg); color: var(--fg);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.opts { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: end; margin-top: 0.9rem; }
+.opt { display: grid; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
+.opt input[type="number"], .opt select {
+  padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); width: 6.5rem;
+}
+.opt.check { display: flex; align-items: center; gap: 0.35rem; }
+button {
+  margin-left: auto; padding: 0.5rem 1.1rem; border: 0; border-radius: 7px;
+  background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+
+.status { margin-top: 0.9rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border); }
+.status.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }
+.status.busy { color: var(--muted); }
+
+.summary {
+  margin-top: 0.9rem; display: flex; gap: 1.2rem; flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.summary .stat b { font-size: 1.05rem; }
+.summary .add b { color: var(--add-fg); }
+.summary .del b { color: var(--del-fg); }
+.summary .note { color: var(--muted); }
+
+.result { margin-top: 1rem; display: grid; gap: 0.8rem; }
+.hunk { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.hunk-head {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem;
+  padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.rows { overflow-x: auto; }
+.row { display: grid; grid-template-columns: 1fr 1fr; }
+.cell {
+  display: grid; grid-template-columns: 3.2rem 1fr; gap: 0.5rem;
+  padding: 0.1rem 0.5rem; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.82rem; white-space: pre-wrap; word-break: break-word;
+  border-top: 1px solid var(--border);
+}
+.cell:first-child { border-right: 1px solid var(--border); }
+.cell .ln { color: var(--muted); text-align: right; user-select: none; }
+.cell.add { background: var(--add-bg); }
+.cell.del { background: var(--del-bg); }
+.cell.chg { background: var(--chg-bg); }
+.cell.empty { background: transparent; }
+.w-add { background: var(--word-add); border-radius: 3px; }
+.w-del { background: var(--word-del); border-radius: 3px; }
+.empty-state { color: var(--muted); text-align: center; padding: 2rem; }

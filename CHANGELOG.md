@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Added a `serve` subcommand and local web UI (#10, #11). `ayame-diff serve`
+  starts a localhost web app for comparing files in the browser: enter two
+  paths, pick `text` or `sorted` mode plus options, and browse the diff as a
+  side-by-side grid with per-hunk headers, line numbers, and word-level
+  highlighting. Backed by a JSON `/api/diff` endpoint and an embedded,
+  framework-free frontend (dependency-zero).
+- Extracted the line-sort logic into `internal/linesort`, now shared by the
+  `sorted` subcommand and the server.
+
 ## v0.3.4 - 2026-07-10
 
 - Added `--word` to the `text` and `sorted` subcommands: in unified output it

@@ -5,12 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
 )
 
@@ -119,8 +117,16 @@ Note: v1 sorts in memory.`)
 		return
 	}
 
-	oldLines := sortedLines(fs.Arg(0), numeric, reverse)
-	newLines := sortedLines(fs.Arg(1), numeric, reverse)
+	oldLines, err := linesort.Sorted(fs.Arg(0), numeric, reverse)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+	newLines, err := linesort.Sorted(fs.Arg(1), numeric, reverse)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
 	emitDiff(oldLines, newLines, d)
 }
 
@@ -148,43 +154,4 @@ func openLines(path string) *linesrc.FileLines {
 		os.Exit(2)
 	}
 	return f
-}
-
-// sortedLines reads every line of path and returns them sorted.
-func sortedLines(path string, numeric, reverse bool) linediff.StringLines {
-	src := openLines(path)
-	defer src.Close()
-	n := src.Count()
-	lines := make([]string, 0, n)
-	for i := uint64(0); i < n; i++ {
-		s, _ := src.Line(i)
-		lines = append(lines, s)
-	}
-	less := lexLess
-	if numeric {
-		less = numericLess
-	}
-	sort.SliceStable(lines, func(a, b int) bool {
-		if reverse {
-			return less(lines[b], lines[a])
-		}
-		return less(lines[a], lines[b])
-	})
-	return linediff.StringLines(lines)
-}
-
-func lexLess(a, b string) bool { return a < b }
-
-// numericLess compares by parsed numeric value, falling back to lexical order
-// when either side is not a number (mirroring `sort -n`).
-func numericLess(a, b string) bool {
-	fa, ea := strconv.ParseFloat(strings.TrimSpace(a), 64)
-	fb, eb := strconv.ParseFloat(strings.TrimSpace(b), 64)
-	if ea == nil && eb == nil {
-		if fa != fb {
-			return fa < fb
-		}
-		return a < b
-	}
-	return a < b
 }

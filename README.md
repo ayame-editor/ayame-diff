@@ -48,6 +48,7 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（既定）
 ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
 ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
+ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
 ```
 
 サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
@@ -73,6 +74,17 @@ ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
 ayame-diff sorted old.txt new.txt
 ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ```
+
+### `serve` — ブラウザ GUI
+
+ローカル Web アプリを起動し、ブラウザ上で 2 ファイルを比較します。既定で localhost にのみバインドします（入力したパスをそのまま開くため、ローカル利用専用）。
+
+```bash
+ayame-diff serve                       # http://127.0.0.1:8080
+ayame-diff serve --addr 127.0.0.1:9000
+```
+
+OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・語単位ハイライト付きの side-by-side グリッドで差分を表示します。
 
 ## キーの選び方
 
