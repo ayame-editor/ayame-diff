@@ -1,0 +1,60 @@
+name: Bug report
+description: 不具合や予期しない差分結果を報告する
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        機密情報を含まない最小入力で再現できる形にしてください。巨大な実データは添付しないでください。
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: '`fcsv-diff --version` の出力'
+      placeholder: fcsv-diff v0.3.0 (windows/amd64, go1.26.5)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows x64
+        - Windows ARM64
+        - Linux x64
+        - Linux ARM64
+        - macOS Intel
+        - macOS Apple Silicon
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or interactive settings
+      description: パスやデータを匿名化して記載してください。
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: 最小の左入力、右入力、再現手順を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: エラー、終了コード、summary JSONなどを記載してください。
+    validations:
+      required: true

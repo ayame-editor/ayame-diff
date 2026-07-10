@@ -1,0 +1,25 @@
+name: Feature request
+description: 新機能や性能改善を提案する
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: どの作業が難しいか、現在の回避策も含めて説明してください。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: 希望するCLI、対話操作、入出力の例を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: scale
+    attributes:
+      label: Data scale and environment
+      description: 行数、平均行長、ファイル形式、OS、CPU、RAM、ストレージを分かる範囲で記載してください。
