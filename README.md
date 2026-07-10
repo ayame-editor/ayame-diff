@@ -9,6 +9,7 @@
 
 ## 主な機能
 
+- CSV/TSV キー比較（`csv`）に加え、テキスト行 diff（`text`）とソート済み比較（`sorted`）
 - CSV、TSV、`.csv.gz`、`.tsv.gz` に対応
 - 左右で形式が異なる組み合わせにも対応
 - キー指定なしなら全列をキーとして比較
@@ -40,6 +41,38 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ```
 
 ダウンロードしたアーカイブと同じReleaseにある `SHA256SUMS` で、ファイルの完全性を確認できます。
+
+## サブコマンド
+
+```
+ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（既定）
+ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
+ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
+```
+
+サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
+
+### `text` — 行 diff
+
+行順どおりに 2 つのテキストファイル（`.gz` 可）を比較します。bounded resync window 方式で、巨大ファイルでも線形・メモリ有界です。
+
+```bash
+ayame-diff text old.txt new.txt                 # unified（既定）
+ayame-diff text --side-by-side old.txt new.txt  # 2 カラム表示
+ayame-diff text --json old.txt new.txt          # 機械可読 JSON
+ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
+```
+
+`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。
+
+### `sorted` — ソート済み比較
+
+行順が違うだけで同じ内容を持つファイル向けに、両者を行単位でソートしてから比較します。`--numeric` / `-n`、`--reverse` / `-r` に対応（v1 はメモリ内ソート、外部ソートは #7）。
+
+```bash
+ayame-diff sorted old.txt new.txt
+ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
+```
 
 ## キーの選び方
 

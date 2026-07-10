@@ -59,6 +59,44 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	if len(args) > 0 && (args[0] == "--version" || args[0] == "-version" || args[0] == "version") {
+		printVersion()
+		return
+	}
+
+	// Subcommand dispatch (ADR 0002). A bare invocation (or one that starts
+	// with a flag) stays on the CSV/TSV key comparison for backward
+	// compatibility; new line-oriented modes live under explicit subcommands.
+	switch subcommand(args) {
+	case "text":
+		runText(args[1:])
+	case "sorted":
+		runSorted(args[1:])
+	case "csv":
+		runCSV(args[1:])
+	default:
+		runCSV(args)
+	}
+}
+
+// subcommand returns args[0] when it names a known subcommand, else "".
+func subcommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	switch args[0] {
+	case "csv", "text", "sorted":
+		return args[0]
+	}
+	return ""
+}
+
+func printVersion() {
+	fmt.Printf("ayame-diff %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+// runCSV is the CSV/TSV key-comparison mode (the original behavior).
+func runCSV(args []string) {
 	cfg, showVersion, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -68,13 +106,13 @@ func main() {
 		os.Exit(2)
 	}
 	if showVersion {
-		fmt.Printf("ayame-diff %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+		printVersion()
 		return
 	}
 
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "ayame-diff: no arguments given; --left, --right, and --out are required.")
-		fmt.Fprintln(os.Stderr, "Run 'ayame-diff --help' for usage.")
+		fmt.Fprintln(os.Stderr, "Run 'ayame-diff --help' for usage, or 'ayame-diff text|sorted' for line diff.")
 		os.Exit(2)
 	}
 

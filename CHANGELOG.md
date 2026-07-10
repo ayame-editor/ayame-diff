@@ -1,10 +1,37 @@
 # Changelog
 
-## Unreleased
+## v0.3.3 - 2026-07-10
 
-- **Breaking:** Removed the interactive terminal UI — the setup wizard, the `--interactive` flag, and the `internal/tui` / `internal/interactive` packages. Running with no arguments now prints usage and exits with code 2; pass `--left`, `--right`, and `--out` (plus any key options) directly. The project is moving toward a GUI (see #25 and #10–#14), so the terminal wizard is retired rather than maintained alongside it.
-- Removed the now-unused `engine.InspectInputs` header-inspection helper (it existed only to feed the wizard) and the Windows `start-interactive.cmd` launcher.
-- Preserved the wcwidth/CJK display-width logic from the removed TUI as a new dependency-free `internal/textwidth` package, for upcoming side-by-side diff output (#6, #37).
+### Added — line diff (migrated from ayame-editor)
+
+- Added a `text` subcommand: line-level diff of two text files (plain or `.gz`)
+  by row order, using a bounded resync window that stays linear and
+  memory-bounded on huge inputs (no O(n·m) LCS matrix). Output as unified
+  (default), `--side-by-side`, `--json`, or `--summary`, controlled by
+  `--max-hunks`, `--max-lines`, `--window`, `--width`. (#5, #6)
+- Added a `sorted` subcommand: sort both files line-wise (`--numeric`,
+  `--reverse`) then diff — for files that hold the same rows in a different
+  order. v1 sorts in memory; a memory-bounded external sort is tracked in #7.
+- Introduced subcommands `csv` / `text` / `sorted`. A bare invocation, or one
+  that starts with a flag, stays on the existing CSV/TSV key comparison for
+  backward compatibility (ADR 0002).
+- New dependency-free internal packages ported from ayame-editor: `linediff`
+  (diff engine + parity tests), `diffout` (unified/side-by-side/JSON/summary),
+  `linesrc` (bounded-memory plain/gzip line source), `worddiff` (LCS word diff,
+  #8 — CLI rendering to follow).
+
+### Changed
+
+- **Breaking:** Removed the interactive terminal UI — the setup wizard, the
+  `--interactive` flag, and the `internal/tui` / `internal/interactive`
+  packages. A bare invocation now prints usage and exits 2; pass `--left`,
+  `--right`, `--out` (plus key options) directly, or use `text` / `sorted`.
+  `--interactive` prints a migration pointer. The project is moving to a GUI
+  (#10–#14, #37). (#25, #37)
+- Removed the now-unused `engine.InspectInputs` header-inspection helper and the
+  Windows `start-interactive.cmd` launcher.
+- Preserved the removed TUI's wcwidth/CJK display-width logic as the new
+  `internal/textwidth` package, now used for `--side-by-side` alignment. (#6, #37)
 
 ## v0.3.2 - 2026-07-10
 
