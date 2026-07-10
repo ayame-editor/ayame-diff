@@ -19,6 +19,7 @@ import (
 
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/textwidth"
+	"github.com/hjosugi/ayame-diff/internal/worddiff"
 )
 
 // Format selects the rendering of a diff result.
@@ -42,6 +43,10 @@ type Options struct {
 	Format   Format
 	MaxLines uint64 // per-hunk line cap; 0 means default 200
 	Width    int    // side-by-side total width; <=0 means default 160
+	// Word, in Unified format, highlights the changed words within a Replace
+	// hunk using git-style [-removed-] / {+added+} markers instead of plain
+	// -/+ lines. Ignored for the other formats.
+	Word bool
 }
 
 const (
@@ -80,7 +85,7 @@ func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linedif
 		}
 		return writeSummary(summaryW, res)
 	default: // Unified
-		if err := writeUnified(w, old, new, res, maxLines); err != nil {
+		if err := writeUnified(w, old, new, res, maxLines, opts.Word); err != nil {
 			return err
 		}
 		return writeSummary(summaryW, res)
@@ -141,10 +146,15 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 	return err
 }
 
-func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64) error {
+func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64, word bool) error {
 	bw := bufio.NewWriter(w)
 	for _, h := range res.Hunks {
 		writeHeader(bw, h)
+
+		if word && h.Kind == linediff.Replace {
+			writeWordReplace(bw, old, new, h, maxLines)
+			continue
+		}
 
 		shownOld := min(h.OldLen, maxLines)
 		for n := h.OldStart; n < h.OldStart+shownOld; n++ {
@@ -163,6 +173,59 @@ func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, max
 		}
 	}
 	return bw.Flush()
+}
+
+// writeWordReplace renders a Replace hunk with intra-line word markers. It pairs
+// old line k with new line k and highlights the differing words with git-style
+// [-removed-] / {+added+} markers; lines whose word diff is skipped (identical
+// after trimming, or too large — see worddiff limits) fall back to plain -/+.
+// The current diff algorithm always emits 1:1 replaces, but the leftover
+// branches keep this correct if that ever changes.
+func writeWordReplace(bw *bufio.Writer, old, new linediff.Lines, h linediff.Hunk, maxLines uint64) {
+	pairs := min(h.OldLen, h.NewLen)
+	shown := min(pairs, maxLines)
+	for k := uint64(0); k < shown; k++ {
+		ol := lineAt(old, h.OldStart+k)
+		nl := lineAt(new, h.NewStart+k)
+		if wd, ok := worddiff.Diff(ol, nl); ok {
+			fmt.Fprintln(bw, renderWordLine('-', wd.Old, "[-", "-]"))
+			fmt.Fprintln(bw, renderWordLine('+', wd.New, "{+", "+}"))
+		} else {
+			fmt.Fprintf(bw, "-%s\n+%s\n", ol, nl)
+		}
+	}
+	if pairs > shown {
+		fmt.Fprintf(bw, "... %d more changed line(s)\n", pairs-shown)
+	}
+	writeExtra(bw, old, '-', h.OldStart+pairs, h.OldLen-pairs, maxLines)
+	writeExtra(bw, new, '+', h.NewStart+pairs, h.NewLen-pairs, maxLines)
+}
+
+// writeExtra prints up to maxLines tagged lines starting at start, plus a
+// "more line(s)" note when capped. count may be zero (nothing is printed).
+func writeExtra(bw *bufio.Writer, lines linediff.Lines, tag byte, start, count, maxLines uint64) {
+	shown := min(count, maxLines)
+	for n := start; n < start+shown; n++ {
+		fmt.Fprintf(bw, "%c%s\n", tag, lineAt(lines, n))
+	}
+	if count > shown {
+		fmt.Fprintf(bw, "%c... %d more line(s)\n", tag, count-shown)
+	}
+}
+
+func renderWordLine(prefix byte, segs []worddiff.Segment, openMark, closeMark string) string {
+	var b strings.Builder
+	b.WriteByte(prefix)
+	for _, s := range segs {
+		if s.Changed {
+			b.WriteString(openMark)
+			b.WriteString(s.Text)
+			b.WriteString(closeMark)
+		} else {
+			b.WriteString(s.Text)
+		}
+	}
+	return b.String()
 }
 
 func writeSideBySide(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64, width int) error {

@@ -149,6 +149,21 @@ func (f *FileLines) readLine() (string, bool) {
 	return normalizeLine(chunk), true
 }
 
+// skipUTF8BOM discards a leading UTF-8 byte-order mark (EF BB BF) if present, so
+// the first line is not prefixed with a stray BOM. It must be applied
+// identically in the count and streaming passes so the two agree (a file that is
+// only a BOM must count as zero lines in both).
+func skipUTF8BOM(br *bufio.Reader) error {
+	prefix, err := br.Peek(3)
+	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
+		return err
+	}
+	if len(prefix) == 3 && prefix[0] == 0xEF && prefix[1] == 0xBB && prefix[2] == 0xBF {
+		_, _ = br.Discard(3)
+	}
+	return nil
+}
+
 // normalizeLine strips the line's trailing "\n" and then a single trailing
 // "\r", exactly as linediff.SplitLines trims each field.
 func normalizeLine(chunk string) string {
@@ -175,6 +190,9 @@ func countLines(path string, gzipped bool) (uint64, error) {
 		r = gz
 	}
 	br := bufio.NewReaderSize(r, readerBufSize)
+	if err := skipUTF8BOM(br); err != nil {
+		return 0, err
+	}
 
 	var count uint64
 	for {
@@ -212,6 +230,10 @@ func (f *FileLines) reset() error {
 	f.file = file
 	f.gz = gz
 	f.reader = bufio.NewReaderSize(r, readerBufSize)
+	if err := skipUTF8BOM(f.reader); err != nil {
+		file.Close()
+		return err
+	}
 	f.buf = nil
 	f.bufStart = 0
 	f.next = 0

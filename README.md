@@ -63,7 +63,7 @@ ayame-diff text --json old.txt new.txt          # 機械可読 JSON
 ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
 ```
 
-`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。
+`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わった語だけを `[-削除-]` / `{+追加+}` のマーカーで強調します。
 
 ### `sorted` — ソート済み比較
 

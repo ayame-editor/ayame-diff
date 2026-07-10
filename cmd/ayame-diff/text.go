@@ -24,6 +24,7 @@ type diffFlags struct {
 	maxLines uint64
 	window   uint64
 	width    int
+	word     bool
 }
 
 func (d *diffFlags) register(fs *flag.FlagSet) {
@@ -31,6 +32,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.side, "side-by-side", false, "two-column (old | new) output")
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
+	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -54,7 +56,7 @@ func (d *diffFlags) format() diffout.Format {
 // go to stdout, the summary to stderr, matching the CSV mode's split.
 func emitDiff(old, new linediff.Lines, d diffFlags) {
 	res := linediff.Diff(old, new, d.maxHunks, d.window)
-	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width}
+	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width, Word: d.word}
 	if err := diffout.Write(os.Stdout, os.Stderr, old, new, res, opts); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)

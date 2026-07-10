@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.4 - 2026-07-10
+
+- Added `--word` to the `text` and `sorted` subcommands: in unified output it
+  highlights the changed words inside a Replace hunk with git-style
+  `[-removed-]` / `{+added+}` markers, using the new `worddiff` LCS engine.
+  Unchanged words stay plain; very large or identical lines fall back to plain
+  `-`/`+`. (#8)
+- `text` / `sorted` now strip a leading UTF-8 byte-order mark (BOM) so the first
+  line is not prefixed with a stray marker. (#9, partial — Shift_JIS / EUC-JP /
+  UTF-16 support is pending a dependency decision on #9.)
+
 ## v0.3.3 - 2026-07-10
 
 ### Added — line diff (migrated from ayame-editor)
