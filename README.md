@@ -9,7 +9,6 @@
 
 ## 主な機能
 
-- 引数なし、または `--interactive` で対話式セットアップを起動
 - CSV、TSV、`.csv.gz`、`.tsv.gz` に対応
 - 左右で形式が異なる組み合わせにも対応
 - キー指定なしなら全列をキーとして比較
@@ -41,53 +40,6 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ```
 
 ダウンロードしたアーカイブと同じReleaseにある `SHA256SUMS` で、ファイルの完全性を確認できます。
-
-## 対話モード
-
-引数を付けずに起動するか、`--interactive` を指定すると、CSV / TSV のヘッダーを読み込んで対話式に設定できます。
-
-Windows PowerShell:
-
-```powershell
-.\ayame-diff.exe
-```
-
-明示的に起動する場合:
-
-```powershell
-.\ayame-diff.exe --interactive
-```
-
-左ファイル、右ファイル、出力先、ヘッダー有無を入力すると、左右の最初の論理レコードだけを読みます。巨大ファイル全体を走査してから選択画面を出すことはありません。CSVのヘッダーに引用された区切り文字や改行がある場合も、`rfc4180` パーサーなら1つの論理レコードとして読み取ります。
-
-キー選択では次の3モードから選べます。
-
-1. すべての列をキーにする
-2. キーに含める列を複数選択する
-3. キーから除外する列を複数選択する
-
-ヘッダー選択画面の操作:
-
-| キー | 動作 |
-|---|---|
-| `↑` / `↓` | カーソル移動 |
-| `Space` | 現在の列を選択・解除 |
-| `PageUp` / `PageDown` | 1画面単位で移動 |
-| `Home` / `End` | 先頭・末尾へ移動 |
-| `A` | 現在表示中の列をすべて選択 |
-| `N` | 現在表示中の列をすべて解除 |
-| `I` | 現在表示中の列を反転 |
-| `/` | ヘッダー名の部分一致検索 |
-| `C` | 検索条件を解除 |
-| `Enter` | 選択を確定 |
-| `Esc` | キャンセル |
-| `Ctrl+C` | 対話モードを中断 |
-
-検索で絞り込んでから `A`、`N`、`I` を使うと、列数が多いファイルでもまとめて操作できます。日本語ヘッダーと日本語パスに対応します。Windows版はUnicode対応のWin32 Console APIを直接使用します。
-
-確認画面から、ファイル、キー、CSV / TSVパーサー、区切り文字、メモリ、一時ディレクトリ、分割数、並列度などを編集してから比較を開始できます。
-
-非対話モードの既存オプションもそのまま利用できます。
 
 ## キーの選び方
 
@@ -197,8 +149,6 @@ ayame-diff --left old.csv.gz --right new.tsv.gz --key id --out diff.tsv.gz
 PowerShell:
 
 ```powershell
-.\ayame-diff.exe                 # 対話モード
-.\ayame-diff.exe --interactive   # 対話モードを明示
 .\ayame-diff.exe --version
 .\ayame-diff.exe --help
 ```
@@ -334,7 +284,6 @@ ayame-diff \
 ## 主要オプション
 
 ```text
---interactive
 --left PATH
 --right PATH
 --out PATH

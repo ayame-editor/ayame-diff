@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/engine"
-	"github.com/hjosugi/ayame-diff/internal/interactive"
 )
 
 var version = "dev"
@@ -51,7 +50,7 @@ func (s *intList) Set(v string) error {
 
 func main() {
 	args := os.Args[1:]
-	cfg, showVersion, interactiveMode, err := parseFlags(args)
+	cfg, showVersion, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -64,22 +63,10 @@ func main() {
 		return
 	}
 
-	if interactiveMode || len(args) == 0 {
-		cfg, err = interactive.Run(cfg, version)
-		if err != nil {
-			switch {
-			case interactive.IsCancelled(err):
-				fmt.Fprintln(os.Stderr, "interactive setup cancelled")
-				return
-			case interactive.IsInterrupted(err):
-				fmt.Fprintln(os.Stderr, "interactive setup interrupted")
-				os.Exit(130)
-			default:
-				fmt.Fprintln(os.Stderr, "error:", err)
-				os.Exit(2)
-			}
-		}
-		fmt.Fprintln(os.Stderr, "interactive setup complete; starting comparison")
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "ayame-diff: no arguments given; --left, --right, and --out are required.")
+		fmt.Fprintln(os.Stderr, "Run 'ayame-diff --help' for usage.")
+		os.Exit(2)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -113,23 +100,19 @@ func main() {
 	}
 }
 
-func parseFlags(args []string) (engine.Config, bool, bool, error) {
+func parseFlags(args []string) (engine.Config, bool, error) {
 	var cfg engine.Config
 	var keys stringList
 	var keyIndexes intList
 	var excludeKeys stringList
 	var excludeKeyIndexes intList
 	var showVersion bool
-	var interactiveMode bool
 	fs := flag.NewFlagSet("ayame-diff", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff compares huge CSV/TSV files whose row order differs.
 
-Run with no arguments, or use --interactive, to open the header selection wizard.
-The wizard reads both headers and supports Space-key multi-selection.
-
-Required in non-interactive mode:
+Required:
   --left PATH                 Left/old input file
   --right PATH                Right/new input file
   --out PATH                  Diff output TSV (use .gz for gzip)
@@ -180,19 +163,18 @@ rows: one for the left row and one for the right row.`)
 	fs.StringVar(&cfg.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
 	fs.BoolVar(&cfg.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
 	fs.BoolVar(&cfg.OutputHeader, "output-header", true, "write a header to the output TSV")
-	fs.BoolVar(&interactiveMode, "interactive", false, "open the interactive file/header/key selection wizard")
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
-		return cfg, false, false, err
+		return cfg, false, err
 	}
 	if fs.NArg() != 0 {
-		return cfg, false, false, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
+		return cfg, false, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
 	cfg.KeyNames = append([]string(nil), keys...)
 	cfg.KeyIndexes = append([]int(nil), keyIndexes...)
 	cfg.ExcludeKeyNames = append([]string(nil), excludeKeys...)
 	cfg.ExcludeKeyIndexes = append([]int(nil), excludeKeyIndexes...)
-	return cfg, showVersion, interactiveMode, nil
+	return cfg, showVersion, nil
 }
 
 func min(a, b int) int {

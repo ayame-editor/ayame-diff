@@ -56,7 +56,6 @@ windows_stage="$RELEASE/$windows_name"
 mkdir -p "$windows_stage/arm64"
 cp "$DIST/ayame-diff-windows-amd64.exe" "$windows_stage/ayame-diff.exe"
 cp "$DIST/ayame-diff-windows-arm64.exe" "$windows_stage/arm64/ayame-diff.exe"
-cp "$ROOT/packaging/windows/start-interactive.cmd" "$windows_stage/"
 cp "$ROOT/README_WINDOWS.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$windows_stage/"
 (
   cd "$RELEASE"

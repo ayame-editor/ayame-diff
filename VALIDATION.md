@@ -1,11 +1,11 @@
 # Validation report
 
 Validation date: 2026-07-10
-Release: v0.3.0
+Applies to: main after the interactive TUI removal (post-v0.3.2)
 
 ## Automated checks
 
-The following commands passed after the interactive-mode changes:
+The following commands passed after removing the interactive TUI:
 
 ```bash
 go test -count=1 ./...
@@ -18,28 +18,9 @@ Packages checked:
 ```text
 github.com/hjosugi/ayame-diff/cmd/ayame-diff
 github.com/hjosugi/ayame-diff/internal/engine
-github.com/hjosugi/ayame-diff/internal/interactive
-github.com/hjosugi/ayame-diff/internal/tui
 ```
 
-Covered interactive cases include:
-
-- no-argument and `--interactive` mode selection
-- reading reordered CSV/TSV headers without scanning all data rows
-- gzip CSV header inspection
-- RFC 4180 quoted delimiters and a multiline header field
-- Japanese/CJK display-width handling
-- escaping tabs, newlines, and control characters in the one-line header list
-- long-path horizontal scrolling with the edit cursor visible
-- Space-key multi-selection
-- case-insensitive search and clearing the search
-- select-visible, clear-visible, and invert-visible operations
-- immediate maximum-selection enforcement in exclude mode
-- rejection of excluding every column from the key
-- preserving selected header names in the generated engine configuration
-- headerless synthetic names such as `column_0`
-
-The existing engine tests also cover:
+The engine tests cover:
 
 - default all-column key selection
 - `--exclude-key` and `--exclude-key-index`
@@ -51,40 +32,6 @@ The existing engine tests also cover:
 - gzip input and gzip output
 - memory-bounded external merge sorting
 - xxHash64 reference vectors
-
-## Automated interactive PTY smoke test
-
-The Linux amd64 v0.3.0 binary was launched with no arguments in a pseudo-terminal. The test entered two Japanese-header TSV paths, accepted header-name alignment, selected exclude mode, searched for two headers, toggled each with Space, cleared the filters, confirmed the review screen, and started the comparison.
-
-Selected excluded headers:
-
-```text
-updated_at
-value
-```
-
-The right input used a different column order. The resulting summary was:
-
-```text
-left_rows:      2
-right_rows:     2
-equal_rows:     1
-left_only:      0
-right_only:     0
-changed_left:   1
-changed_right:  1
-diff_rows:      2
-```
-
-Resulting TSV:
-
-```text
-_diff	_side	id	名前	updated_at	value
-CHANGED	left	2	大阪	2026-01-01	B
-CHANGED	right	2	大阪	2026-01-02	C
-```
-
-This test exercised arrow-key mode selection, `/` search, Space toggling, `C` filter clearing, Enter confirmation, Japanese terminal rendering, header alignment, and the handoff from the wizard to the comparison engine.
 
 ## Larger external-sort regression test
 
@@ -144,7 +91,7 @@ ayame-diff-windows-amd64.exe: PE32+ Windows console executable, x86-64
 ayame-diff-windows-arm64.exe: PE32+ Windows console executable, ARM64
 ```
 
-The Windows interactive terminal implementation uses native Unicode Win32 console calls. The amd64 executable imports Windows system APIs from `kernel32.dll`; no third-party runtime DLL is required.
+The amd64 executable imports Windows system APIs from `kernel32.dll`; no third-party runtime DLL is required.
 
 The Windows executables were cross-compiled, structurally inspected, and compile-time checked for the Win32 structure ABI in this Linux build environment. They were not executed on a physical or virtual Windows host during this validation.
 

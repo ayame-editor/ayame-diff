@@ -38,13 +38,16 @@ window）とデータモデル（Insert/Delete/Replace ハンク）をそのま�
 ayame-diff csv    [flags] --left A --right B   # 既存: CSV/TSV キー比較
 ayame-diff text   [flags] OLD NEW              # 新規(#5): 行 diff（resync window）
 ayame-diff sorted [flags] OLD NEW              # 新規(#7): 外部ソート後に text diff
-ayame-diff        [flags]                      # 無印 = csv 互換（後方互換・対話モード）
+ayame-diff        [flags]                      # 無印 = csv 互換（後方互換）
 ```
+
+> 補足（2026-07-10）: 対話式 TUI ウィザードは #25 で撤去済み。現状の無印・引数なし
+> 起動は使い方を表示して終了する。サブコマンド実装（#5）で無印を csv に割り当てる。
 
 **安全なデフォルト + 上級者向け逃げ道**（Sindre Sorhus 流）:
 
 - 既存ユーザーの `ayame-diff --left ... --right ...` は **無印 = csv** に
-  ディスパッチして壊さない。対話モード（引数なし）も csv のまま。
+  ディスパッチして壊さない（サブコマンド実装後）。
 - 新機能は明示的なサブコマンドの下に置き、無関係なフラグが混ざらないように
   する（`--mode` フラグ方式を採らない理由：モードごとに有効フラグが違うため、
   サブコマンドで名前空間を分けた方がヘルプ・検証が明快になる）。

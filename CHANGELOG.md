@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** Removed the interactive terminal UI — the setup wizard, the `--interactive` flag, and the `internal/tui` / `internal/interactive` packages. Running with no arguments now prints usage and exits with code 2; pass `--left`, `--right`, and `--out` (plus any key options) directly. The project is moving toward a GUI (see #25 and #10–#14), so the terminal wizard is retired rather than maintained alongside it.
+- Removed the now-unused `engine.InspectInputs` header-inspection helper (it existed only to feed the wizard) and the Windows `start-interactive.cmd` launcher.
+
 ## v0.3.2 - 2026-07-10
 
 - Renamed the project to `ayame-diff` to align with its sister project ayame-editor. The Go module path is now `github.com/hjosugi/ayame-diff`, the binary is `ayame-diff`, and the entry point is `cmd/ayame-diff`.

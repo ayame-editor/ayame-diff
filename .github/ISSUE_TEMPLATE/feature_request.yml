@@ -15,7 +15,7 @@ body:
     id: proposal
     attributes:
       label: Proposed behavior
-      description: 希望するCLI、対話操作、入出力の例を記載してください。
+      description: 希望するCLI、GUI、入出力の例を記載してください。
     validations:
       required: true
   - type: textarea
