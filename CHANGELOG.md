@@ -4,6 +4,7 @@
 
 - **Breaking:** Removed the interactive terminal UI — the setup wizard, the `--interactive` flag, and the `internal/tui` / `internal/interactive` packages. Running with no arguments now prints usage and exits with code 2; pass `--left`, `--right`, and `--out` (plus any key options) directly. The project is moving toward a GUI (see #25 and #10–#14), so the terminal wizard is retired rather than maintained alongside it.
 - Removed the now-unused `engine.InspectInputs` header-inspection helper (it existed only to feed the wizard) and the Windows `start-interactive.cmd` launcher.
+- Preserved the wcwidth/CJK display-width logic from the removed TUI as a new dependency-free `internal/textwidth` package, for upcoming side-by-side diff output (#6, #37).
 
 ## v0.3.2 - 2026-07-10
 
