@@ -50,6 +50,15 @@ func (s *intList) Set(v string) error {
 
 func main() {
 	args := os.Args[1:]
+	// Migration aid: the interactive TUI was removed (#37). Give former
+	// --interactive users a clear pointer instead of a bare flag-parse error.
+	for _, a := range args {
+		if a == "--interactive" || a == "-interactive" {
+			fmt.Fprintln(os.Stderr, "ayame-diff: the interactive setup UI was removed.")
+			fmt.Fprintln(os.Stderr, "Pass --left, --right, and --out (plus any key options) directly. See --help.")
+			os.Exit(2)
+		}
+	}
 	cfg, showVersion, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
