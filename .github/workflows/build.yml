@@ -33,7 +33,7 @@ jobs:
       - name: Build native Windows executable
         run: >-
           go build -trimpath
-          -ldflags "-s -w -X main.version=v0.3.1"
+          -ldflags "-s -w -X main.version=v0.3.2"
           -o ayame-diff.exe
           ./cmd/ayame-diff
       - run: .\ayame-diff.exe --version
@@ -75,7 +75,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: >-
           go build -trimpath
-          -ldflags "-s -w -X main.version=v0.3.1"
+          -ldflags "-s -w -X main.version=v0.3.2"
           -o "ayame-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
           ./cmd/ayame-diff
       - uses: actions/upload-artifact@v7

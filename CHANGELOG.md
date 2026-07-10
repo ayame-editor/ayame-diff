@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.2 - 2026-07-10
+
+- Renamed the project to `ayame-diff` to align with its sister project ayame-editor. The Go module path is now `github.com/hjosugi/ayame-diff`, the binary is `ayame-diff`, and the entry point is `cmd/ayame-diff`.
+- **Breaking:** `go install github.com/hjosugi/fcsv-diff/cmd/fcsv-diff@latest` no longer works. Use `go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest`. The `fcsv-diff` binary name is deprecated; the `fcsv` name is retained only for the internal CSV engine.
+- No change to CLI flags, CSV/TSV comparison behavior, or output — this is a pure identifier rename.
+- Recorded the naming and diff/sortdiff acceptance-architecture decisions as ADRs under `docs/adr/`.
+
 ## v0.3.1 - 2026-07-10
 
 - Fixed interactive startup in WezTerm and other ConPTY hosts when stdout is not a console screen-buffer handle.
