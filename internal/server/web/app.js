@@ -2,6 +2,48 @@
 
 const $ = (id) => document.getElementById(id);
 
+// ---- i18n (JA/EN) ----
+const I18N = {
+  ja: {
+    mode: "モード", window: "ウィンドウ", maxHunks: "最大ハンク数",
+    maxLines: "ハンクあたり最大行", word: "語ハイライト", numeric: "数値",
+    reverse: "逆順", compare: "比較",
+    hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
+    omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
+    comparing: "比較中…", noDiff: "差分はありません。",
+    enterPaths: "OLD と NEW のパスを入力してください。",
+    langButton: "EN",
+  },
+  en: {
+    mode: "mode", window: "window", maxHunks: "max hunks",
+    maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
+    reverse: "reverse", compare: "Compare",
+    hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
+    omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
+    comparing: "Comparing…", noDiff: "No differences.",
+    enterPaths: "Enter both OLD and NEW paths.",
+    langButton: "日本語",
+  },
+};
+let lang = localStorage.getItem("ayame-lang");
+if (lang !== "ja" && lang !== "en") {
+  lang = (navigator.language || "").startsWith("ja") ? "ja" : "en";
+}
+
+function t(key, arg) {
+  const v = (I18N[lang] || I18N.ja)[key];
+  return typeof v === "function" ? v(arg) : v != null ? v : key;
+}
+function applyLang(next) {
+  lang = next;
+  localStorage.setItem("ayame-lang", lang);
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  }
+  $("lang").textContent = t("langButton");
+}
+
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 const INLINE_MAX_CHARS = 2000;
 const INLINE_MAX_TOKENS = 260;
@@ -128,15 +170,15 @@ function renderSummary(res) {
     return s;
   };
   el.append(
-    stat("", "hunks", res.hunk_count),
-    stat("add", "added", res.added),
-    stat("del", "deleted", res.deleted),
-    stat("chg", "modified", res.modified),
+    stat("", t("hunks"), res.hunk_count),
+    stat("add", t("added"), res.added),
+    stat("del", t("deleted"), res.deleted),
+    stat("chg", t("modified"), res.modified),
   );
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
-    n.textContent = `(${res.omitted_hunks.toLocaleString()} hunks omitted; raise max hunks)`;
+    n.textContent = t("omitted", res.omitted_hunks.toLocaleString());
     el.append(n);
   }
   el.hidden = false;
@@ -162,11 +204,11 @@ async function compare() {
     reverse: $("reverse").checked,
   };
   if (!body.old || !body.new) {
-    setStatus("Enter both OLD and NEW paths.", "error");
+    setStatus(t("enterPaths"), "error");
     return;
   }
   $("compare").disabled = true;
-  setStatus("Comparing…", "busy");
+  setStatus(t("comparing"), "busy");
   $("summary").hidden = true;
   $("result").innerHTML = "";
   try {
@@ -181,7 +223,10 @@ async function compare() {
     renderSummary(data);
     const result = $("result");
     if (!data.hunks.length) {
-      result.innerHTML = `<div class="empty-state">No differences.</div>`;
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = t("noDiff");
+      result.append(empty);
       return;
     }
     const useWord = $("word").checked;
@@ -203,7 +248,9 @@ function syncModeOpts() {
 
 $("compare").addEventListener("click", compare);
 $("mode").addEventListener("change", syncModeOpts);
+$("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
+applyLang(lang);
 
 fetch("/api/health")
   .then((r) => r.json())

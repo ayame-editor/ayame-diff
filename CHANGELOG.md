@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 - 2026-07-10 — GUI (web) debut
 
 - Added a `serve` subcommand and local web UI (#10, #11). `ayame-diff serve`
   starts a localhost web app for comparing files in the browser: enter two
@@ -8,8 +8,13 @@
   side-by-side grid with per-hunk headers, line numbers, and word-level
   highlighting. Backed by a JSON `/api/diff` endpoint and an embedded,
   framework-free frontend (dependency-zero).
+- Bilingual (Japanese / English) UI with a language toggle, defaulting to the
+  browser locale and remembered across visits. (#15)
 - Extracted the line-sort logic into `internal/linesort`, now shared by the
   `sorted` subcommand and the server.
+
+Follow-ups tracked for the GUI: native desktop window (#14), progress/cancel
+for long runs (#13), and GUI packaging/docs (#23, #17).
 
 ## v0.3.4 - 2026-07-10
 
