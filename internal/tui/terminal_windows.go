@@ -43,6 +43,13 @@ const (
 	vkDown   = 0x28
 	vkDelete = 0x2e
 	vkC      = 0x43
+
+	genericRead     = 0x80000000
+	genericWrite    = 0x40000000
+	fileShareRead   = 0x00000001
+	fileShareWrite  = 0x00000002
+	openExisting    = 3
+	invalidHandle   = ^uintptr(0)
 )
 
 var (
@@ -57,6 +64,8 @@ var (
 	procWriteConsoleW              = kernel32.NewProc("WriteConsoleW")
 	procGetConsoleCursorInfo       = kernel32.NewProc("GetConsoleCursorInfo")
 	procSetConsoleCursorInfo       = kernel32.NewProc("SetConsoleCursorInfo")
+	procCreateFileW                = kernel32.NewProc("CreateFileW")
+	procCloseHandle                = kernel32.NewProc("CloseHandle")
 )
 
 type windowsTerminal struct {
@@ -69,6 +78,8 @@ type windowsTerminal struct {
 	repeatCount   uint16
 	pendingHigh   uint16
 	queuedKey     *Key
+	closeInput    bool
+	closeOutput   bool
 	closed        bool
 }
 
@@ -127,14 +138,31 @@ func Open() (Terminal, error) {
 	outHandle := syscall.Handle(os.Stdout.Fd())
 	oldInputMode, err := getConsoleMode(inHandle)
 	if err != nil {
-		return nil, fmt.Errorf("interactive mode requires a Windows console on stdin: %w", err)
+		inHandle, oldInputMode, err = openConsoleDevice("CONIN$")
+		if err != nil {
+			return nil, fmt.Errorf("interactive mode requires a Windows console on stdin: %w", err)
+		}
 	}
+	closeInput := inHandle != syscall.Handle(os.Stdin.Fd())
 	oldOutputMode, err := getConsoleMode(outHandle)
 	if err != nil {
-		return nil, fmt.Errorf("interactive mode requires a Windows console on stdout: %w", err)
+		outHandle, oldOutputMode, err = openConsoleDevice("CONOUT$")
+		if err != nil {
+			if closeInput {
+				_ = closeConsoleHandle(inHandle)
+			}
+			return nil, fmt.Errorf("interactive mode requires a Windows console on stdout: %w", err)
+		}
 	}
+	closeOutput := outHandle != syscall.Handle(os.Stdout.Fd())
 	cursorInfo, err := getConsoleCursorInfo(outHandle)
 	if err != nil {
+		if closeInput {
+			_ = closeConsoleHandle(inHandle)
+		}
+		if closeOutput {
+			_ = closeConsoleHandle(outHandle)
+		}
 		return nil, fmt.Errorf("read Windows console cursor state: %w", err)
 	}
 
@@ -142,6 +170,12 @@ func Open() (Terminal, error) {
 	inputMode |= enableExtendedFlags | enableWindowInput
 	inputMode &^= enableProcessedInput | enableLineInput | enableEchoInput | enableMouseInput | enableQuickEditMode | enableInsertMode
 	if err := setConsoleMode(inHandle, inputMode); err != nil {
+		if closeInput {
+			_ = closeConsoleHandle(inHandle)
+		}
+		if closeOutput {
+			_ = closeConsoleHandle(outHandle)
+		}
 		return nil, fmt.Errorf("enable Windows console raw input: %w", err)
 	}
 
@@ -149,6 +183,12 @@ func Open() (Terminal, error) {
 	hidden.Visible = 0
 	if err := setConsoleCursorInfo(outHandle, hidden); err != nil {
 		_ = setConsoleMode(inHandle, oldInputMode)
+		if closeInput {
+			_ = closeConsoleHandle(inHandle)
+		}
+		if closeOutput {
+			_ = closeConsoleHandle(outHandle)
+		}
 		return nil, fmt.Errorf("hide Windows console cursor: %w", err)
 	}
 
@@ -158,6 +198,8 @@ func Open() (Terminal, error) {
 		oldInputMode:  oldInputMode,
 		oldOutputMode: oldOutputMode,
 		oldCursorInfo: cursorInfo,
+		closeInput:    closeInput,
+		closeOutput:   closeOutput,
 	}, nil
 }
 
@@ -170,6 +212,13 @@ func (t *windowsTerminal) Close() error {
 	inputErr := setConsoleMode(t.inHandle, t.oldInputMode)
 	outputErr := setConsoleMode(t.outHandle, t.oldOutputMode)
 	cursorErr := setConsoleCursorInfo(t.outHandle, t.oldCursorInfo)
+	var inputCloseErr, outputCloseErr error
+	if t.closeInput {
+		inputCloseErr = closeConsoleHandle(t.inHandle)
+	}
+	if t.closeOutput {
+		outputCloseErr = closeConsoleHandle(t.outHandle)
+	}
 	switch {
 	case clearErr != nil:
 		return clearErr
@@ -177,8 +226,12 @@ func (t *windowsTerminal) Close() error {
 		return inputErr
 	case outputErr != nil:
 		return outputErr
-	default:
+	case cursorErr != nil:
 		return cursorErr
+	case inputCloseErr != nil:
+		return inputCloseErr
+	default:
+		return outputCloseErr
 	}
 }
 
@@ -356,6 +409,40 @@ func getConsoleMode(handle syscall.Handle) (uint32, error) {
 
 func setConsoleMode(handle syscall.Handle, mode uint32) error {
 	r1, _, callErr := procSetConsoleMode.Call(uintptr(handle), uintptr(mode))
+	if r1 == 0 {
+		return windowsCallError(callErr)
+	}
+	return nil
+}
+
+func openConsoleDevice(name string) (syscall.Handle, uint32, error) {
+	path, err := syscall.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, 0, err
+	}
+	r1, _, callErr := procCreateFileW.Call(
+		uintptr(unsafe.Pointer(path)),
+		uintptr(genericRead|genericWrite),
+		uintptr(fileShareRead|fileShareWrite),
+		0,
+		openExisting,
+		0,
+		0,
+	)
+	if r1 == invalidHandle || r1 == 0 {
+		return 0, 0, windowsCallError(callErr)
+	}
+	handle := syscall.Handle(r1)
+	mode, err := getConsoleMode(handle)
+	if err != nil {
+		_ = closeConsoleHandle(handle)
+		return 0, 0, err
+	}
+	return handle, mode, nil
+}
+
+func closeConsoleHandle(handle syscall.Handle) error {
+	r1, _, callErr := procCloseHandle.Call(uintptr(handle))
 	if r1 == 0 {
 		return windowsCallError(callErr)
 	}

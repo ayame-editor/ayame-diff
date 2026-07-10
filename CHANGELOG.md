@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.1 - 2026-07-10
+
+- Fixed interactive startup in WezTerm and other ConPTY hosts when stdout is not a console screen-buffer handle.
+- Added `CONIN$` / `CONOUT$` fallback handles for redirected Windows standard input and output.
+- Preserved the native Unicode Win32 input and drawing path after resolving the active console devices.
+
 ## v0.3.0 - 2026-07-10
 
 - Added a full-screen interactive setup wizard, launched with no arguments or `--interactive`.

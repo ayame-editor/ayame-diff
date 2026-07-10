@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-VERSION="${VERSION:-v0.3.0}"
+VERSION="${VERSION:-v0.3.1}"
 case "$VERSION" in
   v[0-9]*) ;;
   *)

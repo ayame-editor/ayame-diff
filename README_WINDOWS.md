@@ -71,6 +71,8 @@ PowerShellからは、引数なしで起動できます。
 
 `fcsv-diff.exe` はWindowsのUnicode Console APIを使うネイティブコンソールEXEです。日本語ヘッダー、日本語パス、矢印キー、Spaceキーを扱うための追加DLLは不要です。
 
+WezTerm、Windows Terminalなどで標準入出力がConPTY経由になっている場合も、必要に応じて`CONIN$` / `CONOUT$`から実際のコンソールbufferを取得して対話モードを開始します。
+
 ## 3. 非対話モード: 全列をキーにする
 
 キーオプションを指定しない場合、全列をキーとして行の多重集合差分を取ります。

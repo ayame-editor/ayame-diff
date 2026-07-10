@@ -43,8 +43,9 @@ type Key struct {
 }
 
 // Terminal is the small cross-platform terminal surface used by the wizard.
-// The Windows implementation uses the native Unicode Console API. Unix-like
-// systems use raw terminal input and ANSI screen control.
+// The Windows implementation uses the native Unicode Console API and resolves
+// CONIN$/CONOUT$ when a terminal redirects a standard handle. Unix-like systems
+// use raw terminal input and ANSI screen control.
 type Terminal interface {
 	ReadKey() (Key, error)
 	Size() (width, height int)
