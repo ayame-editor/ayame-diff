@@ -13,6 +13,8 @@ const I18N = {
     showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
+    diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
+    navHelpText: "差分移動: Alt+↓ 次 / Alt+↑ 前 / Alt+End 最後 / Alt+Home 最初",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -28,6 +30,8 @@ const I18N = {
     showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
+    diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
+    navHelpText: "Navigate: Alt+↓ next / Alt+↑ previous / Alt+End last / Alt+Home first",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -52,6 +56,7 @@ function applyLang(next) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
   $("lang").textContent = t("langButton");
+  if (lastData) updateCounter();
 }
 
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
@@ -104,6 +109,9 @@ let currentAbort = null;
 // Display prefs read at render time.
 let showWS = false;
 let lastData = null; // last diff response, for re-render on a display-option change
+let currentHunk = -1;
+let readHunks = new Set();
+let navObserver = null;
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -157,9 +165,12 @@ function row(left, right) {
   return r;
 }
 
-function renderHunk(h, useWord) {
+function renderHunk(h, useWord, index) {
   const box = document.createElement("div");
   box.className = "hunk";
+  box.id = `hunk-${index}`;
+  box.dataset.hunk = String(index);
+  box.tabIndex = -1;
   const head = document.createElement("div");
   head.className = "hunk-head";
   const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
@@ -224,6 +235,7 @@ function renderResult(data) {
   renderSummary(data);
   const result = $("result");
   result.innerHTML = "";
+  setupNavigation(data);
   if (!data.hunks.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
@@ -233,8 +245,97 @@ function renderResult(data) {
   }
   const useWord = $("word").checked;
   const frag = document.createDocumentFragment();
-  for (const h of data.hunks) frag.append(renderHunk(h, useWord));
+  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], useWord, i));
   result.append(frag);
+  observeHunks();
+  updateMinimapViewport();
+}
+
+function updateCounter() {
+  const total = lastData?.hunks?.length || 0;
+  const unread = Math.max(0, total - readHunks.size);
+  $("diffCounter").textContent = t("diffCounter", {
+    current: currentHunk >= 0 ? currentHunk + 1 : "–", total, unread,
+  });
+  for (const button of [$("firstDiff"), $("prevDiff"), $("nextDiff"), $("lastDiff")])
+    button.disabled = total === 0;
+}
+
+function jumpToHunk(index) {
+  const total = lastData?.hunks?.length || 0;
+  if (!total) return;
+  index = Math.max(0, Math.min(total - 1, index));
+  document.querySelector(".hunk.current")?.classList.remove("current");
+  document.querySelector(".minimap-marker.current")?.classList.remove("current");
+  currentHunk = index;
+  readHunks.add(index);
+  const hunk = $(`hunk-${index}`);
+  hunk.classList.add("current", "read");
+  hunk.focus({ preventScroll: true });
+  hunk.scrollIntoView({ behavior: "smooth", block: "center" });
+  document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("current", "read");
+  updateCounter();
+}
+
+function buildMinimap(data) {
+  const map = $("minimap");
+  map.querySelectorAll(".minimap-marker").forEach((el) => el.remove());
+  const totalLines = Math.max(1, data.old_lines, data.new_lines);
+  data.hunks.forEach((h, index) => {
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = `minimap-marker ${h.kind}`;
+    marker.dataset.hunk = String(index);
+    marker.title = `${index + 1}: ${h.kind}`;
+    marker.style.top = `${Math.min(99, (Math.max(h.old_start, h.new_start) / totalLines) * 100)}%`;
+    marker.style.height = `${Math.max(0.7, (Math.max(h.old_len, h.new_len, 1) / totalLines) * 100)}%`;
+    marker.addEventListener("click", () => jumpToHunk(index));
+    map.append(marker);
+  });
+}
+
+function updateMinimapViewport() {
+  const result = $("result");
+  const map = $("minimap");
+  if (map.hidden || !result.offsetHeight) return;
+  const rect = result.getBoundingClientRect();
+  const visibleTop = Math.max(0, -rect.top);
+  const visibleBottom = Math.min(rect.height, window.innerHeight - rect.top);
+  const top = Math.min(1, visibleTop / rect.height);
+  const height = Math.max(0.03, Math.min(1 - top, (visibleBottom - visibleTop) / rect.height));
+  $("minimapViewport").style.top = `${top * 100}%`;
+  $("minimapViewport").style.height = `${height * 100}%`;
+}
+
+function setupNavigation(data) {
+  navObserver?.disconnect();
+  navObserver = null;
+  currentHunk = -1;
+  readHunks = new Set();
+  const hasHunks = data.hunks.length > 0;
+  $("diffNav").hidden = !hasHunks;
+  $("minimap").hidden = !hasHunks;
+  if (hasHunks) buildMinimap(data);
+  updateCounter();
+  updateMinimapViewport();
+}
+
+function observeHunks() {
+  navObserver = new IntersectionObserver((entries) => {
+    let changed = false;
+    for (const entry of entries) {
+      if (!entry.isIntersecting || entry.intersectionRatio < 0.55) continue;
+      const index = Number(entry.target.dataset.hunk);
+      if (!readHunks.has(index)) {
+        readHunks.add(index);
+        entry.target.classList.add("read");
+        document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("read");
+        changed = true;
+      }
+    }
+    if (changed) updateCounter();
+  }, { threshold: [0.55] });
+  document.querySelectorAll(".hunk").forEach((hunk) => navObserver.observe(hunk));
 }
 
 function setStatus(msg, cls) {
@@ -370,6 +471,29 @@ $("exportPatch").addEventListener("click", exportPatch);
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
 $("patchFormat").addEventListener("change", syncPatchOpts);
+$("firstDiff").addEventListener("click", () => jumpToHunk(0));
+$("prevDiff").addEventListener("click", () => jumpToHunk(currentHunk <= 0 ? 0 : currentHunk - 1));
+$("nextDiff").addEventListener("click", () => jumpToHunk(currentHunk + 1));
+$("lastDiff").addEventListener("click", () => jumpToHunk((lastData?.hunks?.length || 1) - 1));
+$("navHelp").addEventListener("click", () => alert(t("navHelpText")));
+document.addEventListener("keydown", (event) => {
+  if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
+  let target = null;
+  if (event.key === "ArrowDown") target = currentHunk + 1;
+  else if (event.key === "ArrowUp") target = currentHunk <= 0 ? 0 : currentHunk - 1;
+  else if (event.key === "Home") target = 0;
+  else if (event.key === "End") target = lastData.hunks.length - 1;
+  if (target != null) {
+    event.preventDefault();
+    jumpToHunk(target);
+  }
+});
+let viewportFrame = 0;
+window.addEventListener("scroll", () => {
+  if (viewportFrame) return;
+  viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
+}, { passive: true });
+window.addEventListener("resize", updateMinimapViewport);
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {

@@ -63,6 +63,16 @@ context-line count, then use **Export patch** to download an applyable
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
 
+### Navigating differences
+
+The sticky navigation bar jumps to the first, previous, next, or last hunk and
+shows the current/total and unread count. Keyboard shortcuts are `Alt+Down`,
+`Alt+Up`, `Alt+End`, and `Alt+Home`; the `?` button shows this list in the UI.
+The location bar on the right draws markers directly from hunk indexes, supports
+click-to-jump, and overlays the current viewport. Left/right text stays vertically
+and horizontally synchronized because each hunk is rendered as one shared grid
+and scroll row rather than two independent panes.
+
 ## HTTP API
 
 The GUI is a thin client over a small JSON API. You can call it directly.

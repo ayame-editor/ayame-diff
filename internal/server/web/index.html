@@ -93,7 +93,20 @@
 
       <section class="summary" id="summary" hidden></section>
 
-      <section class="result" id="result"></section>
+      <nav class="diff-nav" id="diffNav" aria-label="Difference navigation" hidden>
+        <button id="firstDiff" type="button" title="First difference">⇤</button>
+        <button id="prevDiff" type="button" title="Previous difference">↑</button>
+        <span id="diffCounter" aria-live="polite"></span>
+        <button id="nextDiff" type="button" title="Next difference">↓</button>
+        <button id="lastDiff" type="button" title="Last difference">⇥</button>
+        <button id="navHelp" type="button" class="nav-help" title="Keyboard shortcuts">?</button>
+      </nav>
+      <div class="diff-layout">
+        <section class="result" id="result"></section>
+        <aside class="minimap" id="minimap" aria-label="Difference map" hidden>
+          <div class="minimap-viewport" id="minimapViewport"></div>
+        </aside>
+      </div>
     </main>
 
     <script src="app.js"></script>

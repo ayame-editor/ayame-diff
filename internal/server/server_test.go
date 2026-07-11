@@ -45,8 +45,10 @@ func TestIndexServed(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "ayame-diff") {
-		t.Fatal("index.html not served")
+	for _, marker := range []string{"ayame-diff", `id="diffNav"`, `id="minimap"`, `id="nextDiff"`} {
+		if !strings.Contains(rec.Body.String(), marker) {
+			t.Fatalf("index.html missing %s", marker)
+		}
 	}
 }
 
