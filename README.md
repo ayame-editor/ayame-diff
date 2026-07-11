@@ -70,6 +70,8 @@ ayame-diff text old.txt new.txt                 # unified（既定）
 ayame-diff text --side-by-side old.txt new.txt  # 2 カラム表示
 ayame-diff text --json old.txt new.txt          # 機械可読 JSON
 ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
+ayame-diff text --normal old.txt new.txt        # GNU normal-diff（パッチ）
+ayame-diff text --html report.html old.txt new.txt  # 自己完結 HTML レポート
 ayame-diff text --encoding shift_jis a.txt b.txt  # 文字コードを明示（既定 auto）
 ```
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.3 - 2026-07-11
+
+- Added `--html <file>` to `text`/`sorted`: write a self-contained HTML diff
+  report (inline CSS, light/dark, side-by-side with word highlighting) you can
+  share or archive. (#33)
+
 ## v0.7.2 - 2026-07-11
 
 - Added `--normal` to `text`/`sorted`: GNU normal-diff (patch) output

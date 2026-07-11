@@ -10,6 +10,7 @@ import (
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/encoding"
+	"github.com/hjosugi/ayame-diff/internal/htmlreport"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
@@ -27,6 +28,7 @@ type diffFlags struct {
 	width      int
 	word       bool
 	normal     bool
+	html       string
 	encoding   string
 	ignoreCase bool
 	whitespace string
@@ -38,6 +40,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.normal, "normal", false, "GNU normal-diff (patch) output")
+	fs.StringVar(&d.html, "html", "", "write a self-contained HTML report to this file")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
@@ -77,13 +80,30 @@ func whitespaceMode(s string) linediff.Whitespace {
 
 // emitDiff runs the line diff and writes it in the selected format. Hunks/JSON
 // go to stdout, the summary to stderr, matching the CSV mode's split.
-func emitDiff(old, new linediff.Lines, d diffFlags) {
+func emitDiff(old, new linediff.Lines, d diffFlags, title string) {
 	res := linediff.DiffWith(old, new, linediff.Options{
 		MaxHunks:   d.maxHunks,
 		Window:     d.window,
 		IgnoreCase: d.ignoreCase,
 		Whitespace: whitespaceMode(d.whitespace),
 	})
+	if d.html != "" {
+		f, err := os.Create(d.html)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(2)
+		}
+		if err := htmlreport.Write(f, old, new, res, title); err != nil {
+			f.Close()
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(2)
+		}
+		f.Close()
+		// Still print the one-line summary to stderr; the HTML is the report.
+		_ = diffout.Write(io.Discard, os.Stderr, old, new, res, diffout.Options{Format: diffout.Summary})
+		fmt.Fprintf(os.Stderr, "wrote %s\n", d.html)
+		return
+	}
 	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width, Word: d.word}
 	if err := diffout.Write(os.Stdout, os.Stderr, old, new, res, opts); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -114,7 +134,7 @@ inputs. OLD or NEW may be - to read standard input.`)
 	defer closeOld()
 	newSrc, closeNew := openSource(fs.Arg(1), d.encoding)
 	defer closeNew()
-	emitDiff(oldSrc, newSrc, d)
+	emitDiff(oldSrc, newSrc, d, fs.Arg(0)+" vs "+fs.Arg(1))
 }
 
 // runSorted implements: ayame-diff sorted [flags] OLD NEW
@@ -153,7 +173,7 @@ Note: v1 sorts in memory.`)
 	defer closeNew()
 	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
 	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
-	emitDiff(oldLines, newLines, d)
+	emitDiff(oldLines, newLines, d, fs.Arg(0)+" vs "+fs.Arg(1)+" (sorted)")
 }
 
 // parseDiffArgs parses fs and validates the two positional OLD NEW paths.
