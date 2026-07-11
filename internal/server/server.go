@@ -7,15 +7,20 @@ package server
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
+	"github.com/hjosugi/ayame-diff/internal/engine"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
@@ -41,7 +46,307 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/diff", s.handleDiff)
 	s.mux.HandleFunc("/api/patch", s.handlePatch)
+	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
+	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
+	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
+	s.mux.HandleFunc("/api/files", s.handleFiles)
 	return s, nil
+}
+
+type csvRequest struct {
+	Old                 string                   `json:"old"`
+	New                 string                   `json:"new"`
+	HasHeader           bool                     `json:"hasHeader"`
+	AlignColumnsByName  bool                     `json:"alignColumnsByName"`
+	KeyMode             string                   `json:"keyMode"`
+	KeyNames            []string                 `json:"keyNames"`
+	KeyIndexes          []int                    `json:"keyIndexes"`
+	ExcludeKeyNames     []string                 `json:"excludeKeyNames"`
+	ExcludeKeyIndexes   []int                    `json:"excludeKeyIndexes"`
+	IndexBase           int                      `json:"indexBase"`
+	LeftFormat          string                   `json:"leftFormat"`
+	RightFormat         string                   `json:"rightFormat"`
+	LeftDelimiter       string                   `json:"leftDelimiter"`
+	RightDelimiter      string                   `json:"rightDelimiter"`
+	LeftParser          string                   `json:"leftParser"`
+	RightParser         string                   `json:"rightParser"`
+	LazyQuotes          bool                     `json:"lazyQuotes"`
+	TrimLeadingSpace    bool                     `json:"trimLeadingSpace"`
+	IgnoreCase          bool                     `json:"ignoreCase"`
+	Whitespace          string                   `json:"whitespace"`
+	LineFilters         []string                 `json:"lineFilters"`
+	IgnoreColumnNames   []string                 `json:"ignoreColumnNames"`
+	IgnoreColumnIndexes []int                    `json:"ignoreColumnIndexes"`
+	Tolerance           *float64                 `json:"tolerance"`
+	ColumnTolerances    []engine.ColumnTolerance `json:"columnTolerances"`
+	Partitions          int                      `json:"partitions"`
+	ParseWorkers        int                      `json:"parseWorkers"`
+	Workers             int                      `json:"workers"`
+	Memory              string                   `json:"memory"`
+	PartitionBuffer     string                   `json:"partitionBuffer"`
+	MergeFanIn          int                      `json:"mergeFanIn"`
+	MaxRecordBytes      string                   `json:"maxRecordBytes"`
+	TempDir             string                   `json:"tempDir"`
+	KeepTemp            bool                     `json:"keepTemp"`
+	MaxRows             int                      `json:"maxRows"`
+	Output              string                   `json:"output"`
+	OutputFormat        string                   `json:"outputFormat"`
+	OutputHeader        bool                     `json:"outputHeader"`
+}
+
+type csvCellChange struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Old   string `json:"old"`
+	New   string `json:"new"`
+}
+type csvDifference struct {
+	Kind           string          `json:"kind"`
+	Old            []string        `json:"old,omitempty"`
+	New            []string        `json:"new,omitempty"`
+	ChangedColumns []csvCellChange `json:"changed_columns,omitempty"`
+}
+type csvResponse struct {
+	Header      []string               `json:"header"`
+	Inspection  engine.InputInspection `json:"inspection"`
+	Summary     engine.Summary         `json:"summary"`
+	Differences []csvDifference        `json:"differences"`
+	Truncated   bool                   `json:"truncated"`
+}
+
+func csvConfig(req csvRequest, output string) engine.Config {
+	workers := min(runtime.NumCPU(), 8)
+	if req.ParseWorkers <= 0 {
+		req.ParseWorkers = workers
+	}
+	if req.Workers <= 0 {
+		req.Workers = workers
+	}
+	if req.Partitions == 0 {
+		req.Partitions = 8
+	}
+	if req.MergeFanIn == 0 {
+		req.MergeFanIn = 8
+	}
+	if req.Memory == "" {
+		req.Memory = "512MiB"
+	}
+	if req.PartitionBuffer == "" {
+		req.PartitionBuffer = "64KiB"
+	}
+	if req.MaxRecordBytes == "" {
+		req.MaxRecordBytes = "256MiB"
+	}
+	if req.LeftFormat == "" {
+		req.LeftFormat = "auto"
+	}
+	if req.RightFormat == "" {
+		req.RightFormat = "auto"
+	}
+	if req.LeftParser == "" {
+		req.LeftParser = "auto"
+	}
+	if req.RightParser == "" {
+		req.RightParser = "auto"
+	}
+	if req.Whitespace == "" {
+		req.Whitespace = "none"
+	}
+	cfg := engine.Config{
+		LeftPath: req.Old, RightPath: req.New, OutputPath: output,
+		KeyNames: req.KeyNames, KeyIndexes: req.KeyIndexes, ExcludeKeyNames: req.ExcludeKeyNames, ExcludeKeyIndexes: req.ExcludeKeyIndexes,
+		IndexBase: req.IndexBase, HasHeader: req.HasHeader, AlignColumnsByName: req.AlignColumnsByName,
+		LeftFormat: req.LeftFormat, RightFormat: req.RightFormat, LeftDelimiter: req.LeftDelimiter, RightDelimiter: req.RightDelimiter,
+		LeftParser: req.LeftParser, RightParser: req.RightParser, LazyQuotes: req.LazyQuotes, TrimLeadingSpace: req.TrimLeadingSpace,
+		IgnoreCase: req.IgnoreCase, IgnoreWhitespace: req.Whitespace, LineFilters: req.LineFilters,
+		IgnoreColumnNames: req.IgnoreColumnNames, IgnoreColumnIndexes: req.IgnoreColumnIndexes,
+		ColumnTolerances: req.ColumnTolerances, Partitions: req.Partitions, ParseWorkers: req.ParseWorkers, Workers: req.Workers,
+		MemoryText: req.Memory, PartitionBufferText: req.PartitionBuffer, MergeFanIn: req.MergeFanIn, MaxRecordText: req.MaxRecordBytes,
+		TempDir: req.TempDir, KeepTemp: req.KeepTemp, OutputHeader: false, CellDiff: true, OutputFormat: "jsonl",
+	}
+	if req.Tolerance != nil {
+		cfg.Tolerance, cfg.ToleranceSet = *req.Tolerance, true
+	}
+	return cfg
+}
+
+func decodeCSVRequest(w http.ResponseWriter, r *http.Request) (csvRequest, bool) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return csvRequest{}, false
+	}
+	var req csvRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return csvRequest{}, false
+	}
+	if req.Old == "" || req.New == "" {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
+		return csvRequest{}, false
+	}
+	return req, true
+}
+
+func validateCSVKeys(w http.ResponseWriter, req csvRequest) bool {
+	if req.KeyMode == "include" && len(req.KeyNames)+len(req.KeyIndexes) == 0 {
+		writeError(w, http.StatusBadRequest, "select at least one key column")
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleCSVInspect(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeCSVRequest(w, r)
+	if !ok {
+		return
+	}
+	inspection, err := engine.InspectInputs(csvConfig(req, "inspect.tmp"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
+}
+
+func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeCSVRequest(w, r)
+	if !ok {
+		return
+	}
+	if !validateCSVKeys(w, req) {
+		return
+	}
+	dir, err := os.MkdirTemp("", "ayame-diff-gui-")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer os.RemoveAll(dir)
+	output := filepath.Join(dir, "diff.jsonl")
+	cfg := csvConfig(req, output)
+	inspection, err := engine.InspectInputs(cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	summary, err := engine.Run(r.Context(), cfg)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, r.Context().Err()) {
+			status = 499
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer file.Close()
+	maxRows := req.MaxRows
+	if maxRows <= 0 {
+		maxRows = 500
+	}
+	if maxRows > 5000 {
+		maxRows = 5000
+	}
+	response := csvResponse{Header: inspection.Header, Inspection: inspection, Summary: summary}
+	decoder := json.NewDecoder(file)
+	for {
+		var difference csvDifference
+		err := decoder.Decode(&difference)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if len(response.Differences) >= maxRows {
+			response.Truncated = true
+			break
+		}
+		response.Differences = append(response.Differences, difference)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleCSVExport(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeCSVRequest(w, r)
+	if !ok {
+		return
+	}
+	if !validateCSVKeys(w, req) {
+		return
+	}
+	if strings.TrimSpace(req.Output) == "" {
+		writeError(w, http.StatusBadRequest, "output path is required")
+		return
+	}
+	cfg := csvConfig(req, req.Output)
+	cfg.OutputFormat, cfg.OutputHeader = req.OutputFormat, req.OutputHeader
+	if cfg.OutputFormat == "" {
+		cfg.OutputFormat = "tsv"
+	}
+	summary, err := engine.Run(r.Context(), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Output  string         `json:"output"`
+		Summary engine.Summary `json:"summary"`
+	}{Output: req.Output, Summary: summary})
+}
+
+type fileEntry struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Directory bool   `json:"directory"`
+	Size      int64  `json:"size,omitempty"`
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "use GET")
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		path, _ = os.Getwd()
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result := struct {
+		Path    string      `json:"path"`
+		Parent  string      `json:"parent"`
+		Entries []fileEntry `json:"entries"`
+	}{Path: abs, Parent: filepath.Dir(abs)}
+	for _, entry := range entries {
+		if len(result.Entries) == 2000 {
+			break
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		result.Entries = append(result.Entries, fileEntry{Name: entry.Name(), Path: filepath.Join(abs, entry.Name()), Directory: entry.IsDir(), Size: info.Size()})
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Handler exposes the routes for http.ListenAndServe (and tests).

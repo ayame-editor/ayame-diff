@@ -68,6 +68,7 @@ nav:
   - Usage: usage.md
   - Encoding: encoding.md
   - GUI: gui.md
+  - GUI setup parity: gui-setup-parity.md
   - Comparison options: comparison-options.md
   - 日本語:
       - ホーム: ja/index.md

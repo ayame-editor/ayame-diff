@@ -53,7 +53,8 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 
 ## Using the web UI
 
-Enter the **OLD** and **NEW** file paths, choose the mode (`text` or `sorted`)
+Enter the **OLD** and **NEW** file paths (or use the server-side file picker),
+choose the mode (`text`, `sorted`, or `csv / tsv`)
 and options (encoding, resync window, ignore-case, whitespace handling, EOL
 controls, repeatable regex filters entered one per line, and for
 `sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
@@ -96,6 +97,23 @@ collapsed dashed headers, are excluded from next/previous navigation and unread
 counts, and can be restored. Patch export omits them and records the count in
 the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
 auditable; use declarative line filters (#28) for a permanent rule.
+
+### CSV / TSV setup and table result
+
+Choose `csv / tsv`, then **Inspect headers**. The server reads only the first
+logical record and reports detected format/parser and aligned columns. The
+searchable column list supports all-column, selected-key, and excluded-key
+modes plus Select all / Invert. Parsing, delimiter, compatibility, ignore,
+tolerance, resource, temporary-storage, and output settings are available in
+the same screen; **Review settings** summarizes the effective run.
+
+The result is paged in groups of 100 logical differences. Changed cells alone
+use the modification color, header badges show per-column change counts, and
+**changed columns only** hides wide unchanged columns. The server caps the
+browser response at 5,000 logical differences; **Run and export** writes the
+complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
+
+See the [former TUI parity checklist](gui-setup-parity.md) for the full mapping.
 
 ## HTTP API
 
@@ -203,3 +221,18 @@ Accepts the same path, inline-text, mode, encoding and comparison fields as
 The response is `text/x-diff` with `Content-Disposition: attachment`. Valid
 formats are `normal`, `context`, and `unified`; `context` is non-negative and
 defaults to 3 when omitted.
+
+### CSV and file APIs
+
+- `GET /api/files?path=...` lists up to 2,000 local directory entries for the
+  setup file picker.
+- `POST /api/csv/inspect` accepts CSV setup JSON and returns first-record schema
+  inspection without scanning data rows.
+- `POST /api/csv/diff` runs the complete comparison and returns headers,
+  summary/ranking, and at most `maxRows` logical JSON cell differences (`500`
+  by default, hard cap `5,000`).
+- `POST /api/csv/export` uses the same request plus `output`, `outputFormat`
+  (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
+
+These endpoints deliberately accept local paths and are subject to the same
+localhost-only warning as the rest of the GUI.

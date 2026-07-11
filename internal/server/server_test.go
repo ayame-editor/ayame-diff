@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/hjosugi/ayame-diff/internal/engine"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 )
 
@@ -51,6 +54,67 @@ func TestIndexServed(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), marker) {
 			t.Fatalf("index.html missing %s", marker)
 		}
+	}
+}
+
+func TestCSVInspectDiffAndFileBrowser(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	if err := os.WriteFile(left, []byte("id,name,value\n1,old,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(right, []byte("id,name,value\n1,new,11\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestServer(t)
+	request := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}, MaxRows: 20}
+	body, _ := json.Marshal(request)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/csv/inspect", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("inspect status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var inspection engine.InputInspection
+	if err := json.Unmarshal(rec.Body.Bytes(), &inspection); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inspection.Header, []string{"id", "name", "value"}) {
+		t.Fatalf("inspection=%+v", inspection)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/csv/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var result csvResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Differences) != 1 || len(result.Differences[0].ChangedColumns) != 2 || result.Summary.DiffRows != 2 {
+		t.Fatalf("result=%+v", result)
+	}
+
+	request.Output, request.OutputFormat, request.OutputHeader = filepath.Join(dir, "export.tsv"), "tsv", true
+	body, _ = json.Marshal(request)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/csv/export", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	exported, err := os.ReadFile(request.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(exported), "_changed_cols") || !strings.Contains(string(exported), "name,value") {
+		t.Fatalf("export=%s", exported)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/files?path="+url.QueryEscape(dir), nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "left.csv") {
+		t.Fatalf("files status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

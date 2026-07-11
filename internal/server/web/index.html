@@ -19,11 +19,11 @@
         <div class="paths" id="paths">
           <label>
             <span>OLD</span>
-            <input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" />
+			<span class="path-control"><input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" /><button class="browse" data-target="old" type="button">…</button></span>
           </label>
           <label>
             <span>NEW</span>
-            <input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" />
+			<span class="path-control"><input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button">…</button></span>
           </label>
         </div>
         <div class="scratch-area" id="scratchArea" hidden>
@@ -36,6 +36,7 @@
             <select id="mode">
               <option value="text">text</option>
               <option value="sorted">sorted</option>
+			  <option value="csv">csv / tsv</option>
             </select>
           </label>
           <label class="opt">
@@ -92,6 +93,54 @@
           <button id="compare" type="button" data-i18n="compare">Compare</button>
           <button id="cancel" type="button" class="cancel" data-i18n="cancel" hidden>Cancel</button>
         </div>
+		<fieldset id="csvOptions" class="csv-options" hidden>
+		  <legend data-i18n="csvSetup">CSV / TSV setup</legend>
+		  <div class="csv-actions"><button id="inspectCSV" type="button" data-i18n="inspect">Inspect headers</button><span id="inspection"></span></div>
+		  <div class="csv-grid">
+			<label class="opt"><span data-i18n="leftFormat">left format</span><select id="leftFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			<label class="opt"><span data-i18n="rightFormat">right format</span><select id="rightFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			<label class="opt"><span data-i18n="leftParser">left parser</span><select id="leftParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			<label class="opt"><span data-i18n="rightParser">right parser</span><select id="rightParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			<label class="opt"><span data-i18n="leftDelimiter">left delimiter</span><input id="leftDelimiter" spellcheck="false" /></label>
+			<label class="opt"><span data-i18n="rightDelimiter">right delimiter</span><input id="rightDelimiter" spellcheck="false" /></label>
+			<label class="opt check"><input id="hasHeader" type="checkbox" checked /><span data-i18n="hasHeader">header row</span></label>
+			<label class="opt check"><input id="alignColumns" type="checkbox" checked /><span data-i18n="alignColumns">align by name</span></label>
+			<label class="opt check"><input id="lazyQuotes" type="checkbox" /><span data-i18n="lazyQuotes">lazy quotes</span></label>
+			<label class="opt check"><input id="trimLeadingSpace" type="checkbox" /><span data-i18n="trimLeadingSpace">trim leading space</span></label>
+		  </div>
+		  <section id="keySetup" class="key-setup" hidden>
+			<div class="key-toolbar">
+			  <label class="opt"><span data-i18n="keyMode">key mode</span><select id="keyMode"><option value="all" data-i18n="allColumns">all columns</option><option value="include" data-i18n="includeKeys">selected keys</option><option value="exclude" data-i18n="excludeKeys">exclude selected</option></select></label>
+			  <input id="columnSearch" type="search" data-i18n-placeholder="searchColumns" placeholder="search columns" />
+			  <button id="selectAllColumns" type="button" data-i18n="selectAll">Select all</button><button id="invertColumns" type="button" data-i18n="invert">Invert</button>
+			</div>
+			<div id="columnList" class="column-list"></div>
+		  </section>
+		  <details class="csv-advanced" open>
+			<summary data-i18n="csvCompareOptions">Comparison and performance</summary>
+			<div class="csv-grid">
+			  <label class="opt"><span data-i18n="ignoreColumns">ignore columns</span><input id="ignoreColumns" placeholder="updated_at, checksum" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="tolerance">numeric tolerance</span><input id="tolerance" type="number" min="0" step="any" /></label>
+			  <label class="opt"><span data-i18n="columnTolerances">column tolerances</span><input id="columnTolerances" placeholder="price=0.01, amount=0.1" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="maxRows">max displayed rows</span><input id="csvMaxRows" type="number" value="500" min="1" max="5000" /></label>
+			  <label class="opt"><span data-i18n="memory">memory</span><input id="memory" value="512MiB" /></label>
+			  <label class="opt"><span data-i18n="tempDir">temp directory</span><input id="tempDir" /></label>
+			  <label class="opt"><span data-i18n="partitions">partitions</span><input id="partitions" type="number" value="8" min="2" max="1024" /></label>
+			  <label class="opt"><span data-i18n="parseWorkers">input readers</span><input id="parseWorkers" type="number" value="4" min="1" /></label>
+			  <label class="opt"><span data-i18n="workers">workers</span><input id="workers" type="number" value="4" min="1" /></label>
+			  <label class="opt"><span data-i18n="mergeFanIn">merge fan-in</span><input id="mergeFanIn" type="number" value="8" min="2" max="256" /></label>
+			  <label class="opt"><span data-i18n="partitionBuffer">partition buffer</span><input id="partitionBuffer" value="64KiB" /></label>
+			  <label class="opt"><span data-i18n="maxRecordBytes">max record size</span><input id="maxRecordBytes" value="256MiB" /></label>
+			  <label class="opt"><span data-i18n="outputPath">output path</span><input id="csvOutput" placeholder="/path/to/diff.tsv" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="outputFormat">output format</span><select id="csvOutputFormat"><option value="tsv">tsv</option><option value="jsonl">jsonl</option></select></label>
+			  <label class="opt check"><input id="keepTemp" type="checkbox" /><span data-i18n="keepTemp">keep temporary files</span></label>
+			  <label class="opt check"><input id="outputHeader" type="checkbox" checked /><span data-i18n="outputHeader">output header</span></label>
+			  <label class="opt check"><input id="changedColumnsOnly" type="checkbox" /><span data-i18n="changedColumnsOnly">changed columns only</span></label>
+			</div>
+		  </details>
+		  <details id="csvReview"><summary data-i18n="review">Review settings</summary><pre id="reviewText"></pre></details>
+		  <button id="exportCSV" type="button" data-i18n="runExport">Run and export</button>
+		</fieldset>
       </section>
 
       <section class="status" id="status" hidden></section>
@@ -119,6 +168,12 @@
         </aside>
       </div>
     </main>
+
+	<dialog id="fileBrowser" class="file-browser">
+	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" aria-label="Close">×</button></header></form>
+	  <div class="browser-path"><button id="browserUp" type="button">↑</button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
+	  <div id="browserEntries" class="browser-entries"></div>
+	</dialog>
 
     <script src="app.js"></script>
   </body>

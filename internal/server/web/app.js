@@ -26,6 +26,20 @@ const I18N = {
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
     enterPaths: "OLD と NEW のパスを入力してください。",
+	csvSetup: "CSV / TSV セットアップ", inspect: "ヘッダー検査", leftFormat: "左形式", rightFormat: "右形式",
+	leftParser: "左パーサー", rightParser: "右パーサー", leftDelimiter: "左区切り", rightDelimiter: "右区切り",
+	hasHeader: "ヘッダーあり", alignColumns: "列名で整列", lazyQuotes: "不正引用を許可", trimLeadingSpace: "先頭空白を除去",
+	keyMode: "キーモード", allColumns: "全列", includeKeys: "選択列をキー", excludeKeys: "選択列をキーから除外",
+	searchColumns: "列を検索", selectAll: "全選択", invert: "反転", csvCompareOptions: "比較・性能設定",
+	ignoreColumns: "比較から無視する列", tolerance: "数値許容差", columnTolerances: "列別許容差", maxRows: "最大表示行",
+	memory: "メモリ", tempDir: "一時ディレクトリ", partitions: "パーティション", parseWorkers: "入力リーダー", workers: "ワーカー",
+	mergeFanIn: "マージ fan-in", partitionBuffer: "分割バッファ", maxRecordBytes: "最大レコード", keepTemp: "一時ファイルを保持",
+	changedColumnsOnly: "変更列だけ表示", outputPath: "出力パス", outputFormat: "出力形式", outputHeader: "ヘッダーを出力",
+	review: "設定レビュー", runExport: "実行して書き出す", chooseFile: "ファイルを選択", open: "開く",
+	inspectionDone: (v) => `${v.column_count} 列 — 左 ${v.left_format}/${v.left_parser}、右 ${v.right_format}/${v.right_parser}`,
+	csvNoDiff: "CSV 差分はありません。", csvTruncated: "表示上限に達しました。全件は書き出しを使用してください。",
+	selectKey: "キー列を1つ以上選択してください。",
+	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
     langButton: "EN",
   },
   en: {
@@ -50,6 +64,20 @@ const I18N = {
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
     enterPaths: "Enter both OLD and NEW paths.",
+	csvSetup: "CSV / TSV setup", inspect: "Inspect headers", leftFormat: "left format", rightFormat: "right format",
+	leftParser: "left parser", rightParser: "right parser", leftDelimiter: "left delimiter", rightDelimiter: "right delimiter",
+	hasHeader: "header row", alignColumns: "align by name", lazyQuotes: "lazy quotes", trimLeadingSpace: "trim leading space",
+	keyMode: "key mode", allColumns: "all columns", includeKeys: "selected keys", excludeKeys: "exclude selected",
+	searchColumns: "search columns", selectAll: "Select all", invert: "Invert", csvCompareOptions: "Comparison and performance",
+	ignoreColumns: "ignored value columns", tolerance: "numeric tolerance", columnTolerances: "column tolerances", maxRows: "max displayed rows",
+	memory: "memory", tempDir: "temp directory", partitions: "partitions", parseWorkers: "input readers", workers: "workers",
+	mergeFanIn: "merge fan-in", partitionBuffer: "partition buffer", maxRecordBytes: "max record size", keepTemp: "keep temporary files",
+	changedColumnsOnly: "changed columns only", outputPath: "output path", outputFormat: "output format", outputHeader: "output header",
+	review: "Review settings", runExport: "Run and export", chooseFile: "Choose a file", open: "Open",
+	inspectionDone: (v) => `${v.column_count} columns — left ${v.left_format}/${v.left_parser}, right ${v.right_format}/${v.right_parser}`,
+	csvNoDiff: "No CSV differences.", csvTruncated: "Display limit reached. Use export for the complete result.",
+	selectKey: "Select at least one key column.",
+	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
     langButton: "日本語",
   },
 };
@@ -69,8 +97,10 @@ function applyLang(next) {
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
+	for (const el of document.querySelectorAll("[data-i18n-placeholder]")) el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
   $("lang").textContent = t("langButton");
   if (lastData) updateCounter();
+	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 }
 
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
@@ -129,6 +159,11 @@ let navObserver = null;
 let syncSelection = { old: null, new: null };
 let syncPoints = [];
 let ignoredHunks = new Set();
+let csvInspection = null;
+let csvData = null;
+let csvPage = 0;
+const CSV_PAGE_SIZE = 100;
+let browserTarget = null;
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -504,7 +539,180 @@ function setStatus(msg, cls) {
   el.hidden = false;
 }
 
+function splitList(value) {
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function selectedCSVColumns() {
+  return [...document.querySelectorAll("#columnList input:checked")].map((input) => ({ name: input.dataset.name, index: Number(input.dataset.index) }));
+}
+
+function csvRequestBody() {
+  const hasHeader = $("hasHeader").checked;
+  const selected = selectedCSVColumns();
+  const keyMode = $("keyMode").value;
+  const body = {
+    old: $("old").value.trim(), new: $("new").value.trim(), hasHeader,
+    alignColumnsByName: $("alignColumns").checked,
+    keyNames: [], keyIndexes: [], excludeKeyNames: [], excludeKeyIndexes: [], indexBase: 0, keyMode,
+    leftFormat: $("leftFormat").value, rightFormat: $("rightFormat").value,
+    leftParser: $("leftParser").value, rightParser: $("rightParser").value,
+    leftDelimiter: $("leftDelimiter").value, rightDelimiter: $("rightDelimiter").value,
+    lazyQuotes: $("lazyQuotes").checked, trimLeadingSpace: $("trimLeadingSpace").checked,
+    ignoreCase: $("ignoreCase").checked, whitespace: $("whitespace").value,
+    lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+    ignoreColumnNames: [], ignoreColumnIndexes: [], tolerance: $("tolerance").value === "" ? null : Number($("tolerance").value),
+    columnTolerances: [], partitions: Number($("partitions").value), parseWorkers: Number($("parseWorkers").value),
+    workers: Number($("workers").value), memory: $("memory").value.trim(), tempDir: $("tempDir").value.trim(),
+    partitionBuffer: $("partitionBuffer").value.trim(), mergeFanIn: Number($("mergeFanIn").value),
+    maxRecordBytes: $("maxRecordBytes").value.trim(), keepTemp: $("keepTemp").checked,
+    maxRows: Number($("csvMaxRows").value), output: $("csvOutput").value.trim(),
+    outputFormat: $("csvOutputFormat").value, outputHeader: $("outputHeader").checked,
+  };
+  if (keyMode === "include") body[hasHeader ? "keyNames" : "keyIndexes"] = selected.map((item) => hasHeader ? item.name : item.index);
+  if (keyMode === "exclude") body[hasHeader ? "excludeKeyNames" : "excludeKeyIndexes"] = selected.map((item) => hasHeader ? item.name : item.index);
+  const ignored = splitList($("ignoreColumns").value);
+  if (hasHeader) body.ignoreColumnNames = ignored;
+  else {
+	body.ignoreColumnIndexes = ignored.map(Number);
+	if (body.ignoreColumnIndexes.some((value) => !Number.isInteger(value) || value < 0)) body._validationError = `${t("ignoreColumns")}: invalid index`;
+  }
+  for (const spec of splitList($("columnTolerances").value)) {
+    const pos = spec.lastIndexOf("=");
+	if (pos < 1) { body._validationError = `${t("columnTolerances")}: ${spec}`; continue; }
+    const selector = spec.slice(0, pos).trim(), value = Number(spec.slice(pos + 1));
+	if (!Number.isFinite(value) || value < 0 || (!hasHeader && (!Number.isInteger(Number(selector)) || Number(selector) < 0))) { body._validationError = `${t("columnTolerances")}: ${spec}`; continue; }
+    body.columnTolerances.push(hasHeader ? { name: selector, value } : { index: Number(selector), by_index: true, value });
+  }
+  return body;
+}
+
+function updateCSVReview() {
+  const body = csvRequestBody();
+  const mode = $("keyMode").value;
+  const keys = mode === "all" ? t("allColumns") : selectedCSVColumns().map((item) => item.name).join(", ") || "—";
+  $("reviewText").textContent = [
+    `OLD: ${body.old || "—"}`, `NEW: ${body.new || "—"}`,
+    `${body.leftFormat}/${body.leftParser} ↔ ${body.rightFormat}/${body.rightParser}`,
+    `${t("keyMode")}: ${mode} (${keys})`,
+    `${t("memory")}: ${body.memory}; ${t("partitions")}: ${body.partitions}; ${t("workers")}: ${body.workers}`,
+    `${t("outputPath")}: ${body.output || "browser result"}`,
+  ].join("\n");
+}
+
+function renderColumnSelection(inspection) {
+  const list = $("columnList");
+  list.innerHTML = "";
+  inspection.header.forEach((name, index) => {
+    const label = document.createElement("label");
+    label.className = "column-choice";
+    const input = document.createElement("input");
+    input.type = "checkbox"; input.dataset.name = name; input.dataset.index = String(index);
+    input.addEventListener("change", updateCSVReview);
+    const text = document.createElement("span");
+    text.textContent = `${index}: ${name}`;
+    label.append(input, text); list.append(label);
+  });
+  $("keySetup").hidden = false;
+  syncKeyMode();
+}
+
+async function inspectCSV() {
+  const body = csvRequestBody();
+  if (!validateInputs(body, false)) return false;
+  $("inspectCSV").disabled = true;
+  setStatus(t("comparing"), "busy");
+  try {
+    const resp = await fetch("/api/csv/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    csvInspection = data;
+    $("inspection").textContent = t("inspectionDone", data);
+    renderColumnSelection(data);
+    setStatus("");
+    updateCSVReview();
+    return true;
+  } catch (err) { setStatus(String(err.message || err), "error"); return false; }
+  finally { $("inspectCSV").disabled = false; }
+}
+
+function renderCSVSummary(data) {
+  const summary = data.summary, el = $("summary");
+  el.innerHTML = "";
+  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = Number(value || 0).toLocaleString(); item.append(b, ` ${label}`); el.append(item); };
+  add("left only", summary.left_only, "del"); add("right only", summary.right_only, "add");
+  add("changed", Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add("equal", summary.equal_rows);
+  for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
+  if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
+  el.hidden = false;
+}
+
+function renderCSV(data) {
+  csvData = data;
+  lastData = null;
+  $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
+  renderCSVSummary(data);
+  const result = $("result"); result.innerHTML = "";
+  if (!data.differences.length) { const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = t("csvNoDiff"); result.append(empty); return; }
+  const changedSet = new Set((data.summary.column_changes || []).map((column) => column.index));
+  const columns = data.header.map((_, index) => index).filter((index) => !$("changedColumnsOnly").checked || changedSet.has(index));
+  const pageCount = Math.max(1, Math.ceil(data.differences.length / CSV_PAGE_SIZE));
+  csvPage = Math.max(0, Math.min(csvPage, pageCount - 1));
+  const controls = document.createElement("div"); controls.className = "csv-pages";
+  const prev = document.createElement("button"); prev.type = "button"; prev.textContent = "←"; prev.disabled = csvPage === 0; prev.onclick = () => { csvPage--; renderCSV(data); };
+  const next = document.createElement("button"); next.type = "button"; next.textContent = "→"; next.disabled = csvPage + 1 >= pageCount; next.onclick = () => { csvPage++; renderCSV(data); };
+  const counter = document.createElement("span"); counter.textContent = t("page", { current: csvPage + 1, total: pageCount }); controls.append(prev, counter, next); result.append(controls);
+  const wrap = document.createElement("div"); wrap.className = "csv-table-wrap";
+  const table = document.createElement("table"); table.className = "csv-table";
+  const head = document.createElement("thead"), headerRow = document.createElement("tr"), sideHead = document.createElement("th"); sideHead.textContent = "_side"; headerRow.append(sideHead);
+  const counts = new Map((data.summary.column_changes || []).map((column) => [column.index, column.count]));
+  for (const index of columns) { const th = document.createElement("th"); th.textContent = data.header[index]; if (counts.has(index)) { const badge = document.createElement("b"); badge.textContent = counts.get(index); th.append(badge); } headerRow.append(th); }
+  head.append(headerRow); table.append(head);
+  const tbody = document.createElement("tbody");
+  const appendRow = (values, side, kind, changed) => {
+    if (!values?.length) return;
+    const tr = document.createElement("tr"); tr.className = `csv-${kind.toLowerCase()} csv-${side}`;
+    const sideCell = document.createElement("th"); sideCell.textContent = side; tr.append(sideCell);
+    for (const index of columns) { const td = document.createElement("td"); td.textContent = values[index] ?? ""; td.title = values[index] ?? ""; if (changed.has(index)) td.classList.add("csv-cell-changed"); tr.append(td); }
+    tbody.append(tr);
+  };
+  for (const diff of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE)) {
+    const changed = new Set((diff.changed_columns || []).map((column) => column.index));
+    appendRow(diff.old, "left", diff.kind, changed); appendRow(diff.new, "right", diff.kind, changed);
+  }
+  table.append(tbody); wrap.append(table); result.append(wrap);
+}
+
+async function compareCSV() {
+	let body = csvRequestBody();
+	if (!csvInspection) {
+	  if (!validateInputs(body, false) || !(await inspectCSV())) return;
+	  body = csvRequestBody();
+	}
+	if (!validateInputs(body)) return;
+  const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false;
+  const started = Date.now(), tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy"); tick();
+  const timer = setInterval(tick, 100);
+  try {
+    const resp = await fetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
+    const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    csvPage = 0; renderCSV(data); setStatus("");
+  } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
+  finally { clearInterval(timer); $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
+}
+
+async function exportCSV() {
+	let body = csvRequestBody();
+	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
+	if (!validateInputs(body)) return;
+  if (!body.output) { setStatus(`${t("outputPath")}: required`, "error"); return; }
+  $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
+  try { const resp = await fetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
+  catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
+}
+
 async function compare() {
+  if ($("mode").value === "csv") { await compareCSV(); return; }
   const body = requestBody();
   if (!validateInputs(body)) return;
   ignoredHunks = new Set();
@@ -579,7 +787,9 @@ function activeFilters() {
 	return filters;
 }
 
-function validateInputs(body) {
+function validateInputs(body, validateKeys = true) {
+	if (body._validationError) { setStatus(body._validationError, "error"); return false; }
+	if (validateKeys && body.keyMode === "include" && !(body.keyNames?.length || body.keyIndexes?.length)) { setStatus(t("selectKey"), "error"); return false; }
   if (!body.inline && (!body.old || !body.new)) {
     setStatus(t("enterPaths"), "error");
     return false;
@@ -624,9 +834,51 @@ async function exportPatch() {
 
 function syncModeOpts() {
   const sorted = $("mode").value === "sorted";
+	const csv = $("mode").value === "csv";
   $("numericWrap").hidden = !sorted;
   $("reverseWrap").hidden = !sorted;
-  $("exportPatch").disabled = sorted;
+	$("csvOptions").hidden = !csv;
+	$("scratch").closest("label").hidden = csv;
+	if (csv && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
+	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "exportPatch", "wrap", "showWs"]) {
+		const node = $(id), holder = node?.closest("label") || node;
+		if (holder) holder.hidden = csv;
+	}
+	$("exportPatch").disabled = sorted || csv;
+	if (csv) updateCSVReview();
+}
+
+function syncKeyMode() {
+  const disabled = $("keyMode").value === "all";
+  document.querySelectorAll("#columnList input").forEach((input) => { input.disabled = disabled; });
+  $("selectAllColumns").disabled = disabled; $("invertColumns").disabled = disabled;
+  updateCSVReview();
+}
+
+function filterColumns() {
+  const needle = $("columnSearch").value.toLocaleLowerCase();
+  document.querySelectorAll("#columnList .column-choice").forEach((label) => { label.hidden = !label.textContent.toLocaleLowerCase().includes(needle); });
+}
+
+async function loadBrowser(path) {
+  const resp = await fetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  $("browserPath").value = data.Path || data.path; $("browserUp").dataset.path = data.Parent || data.parent;
+  const entries = $("browserEntries"); entries.innerHTML = "";
+  for (const item of (data.Entries || data.entries || [])) {
+    const button = document.createElement("button"); button.type = "button"; button.className = item.directory ? "directory" : "file";
+    button.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
+    const itemPath = item.Path || item.path;
+    button.addEventListener("click", async () => { if (item.directory) { await loadBrowser(itemPath); } else { $(browserTarget).value = itemPath; csvInspection = null; $("fileBrowser").close(); updateCSVReview(); } });
+    entries.append(button);
+  }
+}
+
+async function openBrowser(target) {
+  browserTarget = target;
+  $("fileBrowser").showModal();
+  try { await loadBrowser($(target).value ? $(target).value.replace(/[\\/][^\\/]*$/, "") : ""); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
 }
 function syncPatchOpts() {
   $("patchContextWrap").hidden = $("patchFormat").value === "normal";
@@ -646,8 +898,19 @@ function applyWrap(on) {
 
 $("compare").addEventListener("click", compare);
 $("exportPatch").addEventListener("click", exportPatch);
+$("inspectCSV").addEventListener("click", inspectCSV);
+$("exportCSV").addEventListener("click", exportCSV);
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("keyMode").addEventListener("change", syncKeyMode);
+$("columnSearch").addEventListener("input", filterColumns);
+$("selectAllColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = true; }); updateCSVReview(); });
+$("invertColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = !input.checked; }); updateCSVReview(); });
+$("changedColumnsOnly").addEventListener("change", () => { if (csvData) { csvPage = 0; renderCSV(csvData); } });
+document.querySelectorAll(".browse").forEach((button) => button.addEventListener("click", () => openBrowser(button.dataset.target)));
+$("browserGo").addEventListener("click", async () => { try { await loadBrowser($("browserPath").value); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserUp").addEventListener("click", async () => { try { await loadBrowser($("browserUp").dataset.path); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
 $("patchFormat").addEventListener("change", syncPatchOpts);
 $("firstDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]); });
 $("prevDiff").addEventListener("click", () => stepHunk(-1));
@@ -681,6 +944,10 @@ $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   if (lastData) renderResult(lastData); // re-render so the change is immediate
 });
+for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
+for (const id of ["old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
+	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
+}
 function applyScratch() {
   const on = $("scratch").checked;
   $("paths").hidden = on;
