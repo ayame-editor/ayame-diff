@@ -65,6 +65,9 @@ Open the browser GUI and pick a free local port automatically:
 ayame-diff gui
 ```
 
+For Explorer, Finder, Linux file managers, drag-and-drop, and bare `A B`
+invocations, see [File-manager and quick launch](shell-integration.md).
+
 !!! tip "Bare invocation defaults to `csv`"
     Running `ayame-diff --left A --right B --out D` with no subcommand behaves
     exactly like `ayame-diff csv ...`, for backward compatibility.

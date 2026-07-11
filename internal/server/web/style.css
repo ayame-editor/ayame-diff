@@ -56,6 +56,14 @@ body {
   background: var(--bg);
   color: var(--fg);
 }
+body.drag-active::after {
+  content: "Drop OLD and NEW here / OLD と NEW をドロップ";
+  position: fixed; inset: 1rem; z-index: 100; display: grid; place-items: center;
+  border: 3px dashed var(--accent); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--accent-bright); font-size: 1.1rem; font-weight: 700;
+  pointer-events: none;
+}
 .topbar {
   display: flex;
   align-items: baseline;

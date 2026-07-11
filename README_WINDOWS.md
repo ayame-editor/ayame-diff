@@ -6,6 +6,9 @@ DLLs are not required.
 - x64: `ayame-diff.exe` in the ZIP root
 - ARM64: `arm64\ayame-diff.exe`
 - GUI: double-click `start-gui.cmd`, or run `ayame-diff.exe gui`
+- Explorer integration: double-click `install-shell.cmd` (remove it later with
+  `uninstall-shell.cmd`). The first context-menu selection is remembered; the
+  second opens the comparison. SendTo also accepts two selected items.
 - CLI check: `ayame-diff.exe --version` and `ayame-diff.exe --help`
 
 Complete installation, comparison, encoding, and large-file tuning guidance is

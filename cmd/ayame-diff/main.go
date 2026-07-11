@@ -28,6 +28,8 @@ Subcommands:
   text    line diff of two text files
   sorted  sort both files, then line-diff
   serve   local web GUI    gui   web GUI + open browser
+  shell-install  register file-manager integration
+  shell-uninstall remove file-manager integration
   update  self-update      remove  uninstall
 Run 'ayame-diff <subcommand> --help' for a subcommand's options.
 
@@ -175,6 +177,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		printVersion(stdout)
 		return 0
 	}
+	if paths, gui, ok := quickLaunchArgs(args); ok {
+		if gui {
+			return runGUI(paths, stdout, stderr)
+		}
+		left, leftErr := os.Stat(paths[0])
+		right, rightErr := os.Stat(paths[1])
+		if leftErr == nil && rightErr == nil && left.IsDir() && right.IsDir() {
+			return runDir(paths, stdout, stderr)
+		}
+		return runText(paths, stdout, stderr)
+	}
 
 	// Subcommand dispatch (ADR 0002). A bare invocation (or one that starts
 	// with a flag) stays on the CSV/TSV key comparison for backward
@@ -196,11 +209,42 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runUpdate(args[1:], stdout, stderr)
 	case "remove":
 		return runRemove(args[1:], stdout, stderr)
+	case "shell-install":
+		return runShellInstall(args[1:], stdout, stderr)
+	case "shell-uninstall":
+		return runShellUninstall(args[1:], stdout, stderr)
+	case "shell-select":
+		return runShellSelect(args[1:], stdout, stderr)
 	case "csv":
 		return runCSV(args[1:], stdout, stderr)
 	default:
 		return runCSV(args, stdout, stderr)
 	}
+}
+
+// quickLaunchArgs recognizes the file-manager-friendly forms A B and
+// --gui A B (also A B --gui). Other flags retain the legacy CSV behavior.
+func quickLaunchArgs(args []string) (paths []string, gui, ok bool) {
+	if len(args) > 0 && subcommand(args) != "" {
+		return nil, false, false
+	}
+	positional := false
+	for _, arg := range args {
+		switch {
+		case !positional && arg == "--gui":
+			gui = true
+		case !positional && arg == "--":
+			positional = true
+		case !positional && strings.HasPrefix(arg, "-"):
+			return nil, false, false
+		default:
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) == 2 || (gui && len(paths) == 1) {
+		return paths, gui, true
+	}
+	return nil, false, false
 }
 
 // subcommand returns args[0] when it names a known subcommand, else "".
@@ -209,7 +253,7 @@ func subcommand(args []string) string {
 		return ""
 	}
 	switch args[0] {
-	case "csv", "text", "sorted", "dir", "bin", "serve", "gui", "update", "remove":
+	case "csv", "text", "sorted", "dir", "bin", "serve", "gui", "update", "remove", "shell-install", "shell-uninstall", "shell-select":
 		return args[0]
 	}
 	return ""

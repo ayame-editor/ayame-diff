@@ -57,11 +57,17 @@ ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカ�
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
 ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
 ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
+ayame-diff shell-install                               # ファイルマネージャ連携を登録
+ayame-diff shell-uninstall                             # ファイルマネージャ連携を解除
 ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
 ayame-diff remove [--yes]                              # スタンドアロン版をアンインストール
 ```
 
 サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
+2つの裸パス `ayame-diff A B` はファイルなら text、ディレクトリなら dir
+を自動選択します。`ayame-diff --gui A B` は GUI を開いて即比較します。
+GUIへの2項目ドロップと Explorer / Finder / Linux ファイルマネージャ連携は
+`ayame-diff shell-install` で有効にできます（解除は `shell-uninstall`）。
 
 ### `text` — 行 diff
 

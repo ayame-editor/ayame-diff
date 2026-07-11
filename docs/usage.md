@@ -1,18 +1,26 @@
 # Usage
 
-`ayame-diff` has three comparison subcommands plus two that launch the web GUI.
+`ayame-diff` provides comparison, web GUI, packaging, and maintenance commands.
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
 ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
 ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
+ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
+ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
 ayame-diff serve  [--addr host:port]                   # local web GUI
-ayame-diff gui    [--addr host:port] [--no-open]       # serve on a free port and open the browser
+ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
+ayame-diff shell-install                               # file-manager integration
+ayame-diff shell-uninstall                             # remove integration
 ```
 
 Invoking `ayame-diff` with `--left ... --right ...` and no subcommand runs as
 `csv` for backward compatibility. The `serve` and `gui` subcommands are covered
 in [GUI](gui.md).
+
+Two bare paths are a quick-launch form: files use `text`, directories use
+`dir`, and adding `--gui` opens and immediately runs the browser GUI. See
+[File-manager and quick launch](shell-integration.md).
 
 ---
 

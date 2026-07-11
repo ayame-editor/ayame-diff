@@ -991,6 +991,91 @@ function applyWrap(on) {
   $("wrap").checked = on;
 }
 
+function droppedPaths(dataTransfer) {
+  const uriList = dataTransfer.getData("text/uri-list");
+  const fromURIs = uriList.split(/\r?\n/).filter((line) => line && !line.startsWith("#")).map((line) => {
+    try {
+      const value = new URL(line);
+      if (value.protocol !== "file:") return "";
+      let path = decodeURIComponent(value.pathname);
+      if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
+      return path;
+    } catch (_) { return ""; }
+  }).filter(Boolean);
+  if (fromURIs.length) return fromURIs;
+  return [...dataTransfer.files].map((file) => file.path || "").filter(Boolean);
+}
+
+async function uploadDrop(file, session, relative, directory = false) {
+  const query = new URLSearchParams({ session, relative });
+  if (directory) query.set("directory", "1");
+  const response = await fetch(`/api/drop?${query}`, { method: "POST", body: directory ? new Blob([]) : file });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data.path;
+}
+
+function entryFile(entry) { return new Promise((resolve, reject) => entry.file(resolve, reject)); }
+async function readDirectory(reader) {
+  const all = [];
+  for (;;) {
+    const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    if (!batch.length) return all;
+    all.push(...batch);
+  }
+}
+async function uploadEntry(entry, session, relative) {
+  if (entry.isFile) return uploadDrop(await entryFile(entry), session, relative);
+  const root = await uploadDrop(null, session, relative, true);
+  for (const child of await readDirectory(entry.createReader())) await uploadEntry(child, session, `${relative}/${child.name}`);
+  return root;
+}
+
+async function droppedItems(dataTransfer) {
+  const native = droppedPaths(dataTransfer);
+  if (native.length) return native;
+  const session = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const entries = [...dataTransfer.items].map((item) => item.webkitGetAsEntry?.()).filter(Boolean).slice(0, 2);
+  if (entries.length) {
+    const paths = [];
+    for (const entry of entries) paths.push(await uploadEntry(entry, session, entry.name));
+    return paths;
+  }
+  const paths = [];
+  for (const file of [...dataTransfer.files].slice(0, 2)) paths.push(await uploadDrop(file, session, file.name));
+  return paths;
+}
+
+async function setDroppedPaths(paths) {
+  if (!paths.length) return;
+  if (paths.length >= 2) {
+    $("old").value = paths[0]; $("new").value = paths[1];
+  } else if (!$("old").value) $("old").value = paths[0];
+  else $("new").value = paths[0];
+  csvInspection = null;
+  if ($("old").value && $("new").value) {
+    try {
+      const info = await Promise.all(["old", "new"].map(async (id) => {
+        const response = await fetch(`/api/path-info?path=${encodeURIComponent($(id).value)}`);
+        return response.ok ? response.json() : null;
+      }));
+      $("mode").value = info.every((item) => item?.directory) ? "dir" : "text";
+    } catch (_) { $("mode").value = "text"; }
+    syncModeOpts();
+    await compare();
+  }
+}
+
+let dragDepth = 0;
+document.addEventListener("dragenter", (event) => { event.preventDefault(); dragDepth++; document.body.classList.add("drag-active"); });
+document.addEventListener("dragover", (event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; });
+document.addEventListener("dragleave", (event) => { event.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("drag-active"); } });
+document.addEventListener("drop", async (event) => {
+  event.preventDefault(); dragDepth = 0; document.body.classList.remove("drag-active");
+  try { await setDroppedPaths((await droppedItems(event.dataTransfer)).slice(0, 2)); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
+});
+
 $("compare").addEventListener("click", compare);
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);
@@ -1062,6 +1147,13 @@ $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja")
 syncModeOpts();
 syncPatchOpts();
 applyLang(lang);
+
+const launch = new URLSearchParams(location.search);
+if (launch.has("old")) $("old").value = launch.get("old");
+if (launch.has("new")) $("new").value = launch.get("new");
+if (["text", "sorted", "csv", "dir"].includes(launch.get("mode"))) $("mode").value = launch.get("mode");
+if (launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
+if (launch.get("autorun") === "1" && $("old").value && $("new").value) queueMicrotask(compare);
 
 fetch("/api/health")
   .then((r) => r.json())

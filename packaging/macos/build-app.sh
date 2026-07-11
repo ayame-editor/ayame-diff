@@ -22,7 +22,7 @@ chmod 0755 "$app/Contents/MacOS/ayame-diff"
 cat > "$app/Contents/MacOS/launcher" <<'LAUNCH'
 #!/bin/sh
 dir="$(cd "$(dirname "$0")" && pwd)"
-exec "$dir/ayame-diff" gui
+exec "$dir/ayame-diff" --gui "$@"
 LAUNCH
 chmod 0755 "$app/Contents/MacOS/launcher"
 
@@ -44,6 +44,12 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>${plist_version}</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleDocumentTypes</key>
+  <array><dict>
+    <key>CFBundleTypeName</key><string>Files and folders</string>
+    <key>CFBundleTypeRole</key><string>Viewer</string>
+    <key>LSItemContentTypes</key><array><string>public.item</string></array>
+  </dict></array>
   ${iconkey}
 </dict>
 </plist>

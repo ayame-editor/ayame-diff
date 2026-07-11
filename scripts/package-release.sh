@@ -83,6 +83,7 @@ while read -r os arch ext; do
   cp "$DIST/ayame-diff-${os}-${arch}${ext}" "$destination"
 done < "$TARGETS"
 cp "$ROOT/packaging/windows/start-gui.cmd" "$windows_stage/"
+cp "$ROOT/packaging/windows/install-shell.cmd" "$ROOT/packaging/windows/uninstall-shell.cmd" "$windows_stage/"
 cp "$ICONS/ayame-diff.ico" "$windows_stage/"
 cp "$ROOT/README_WINDOWS.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$windows_stage/"
 (

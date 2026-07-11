@@ -136,6 +136,26 @@ func TestCSVInspectDiffAndFileBrowser(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "left.csv") {
 		t.Fatalf("files status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/path-info?path="+url.QueryEscape(dir), nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"directory":true`) {
+		t.Fatalf("path-info status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/drop?session=test&relative=dropped.txt", strings.NewReader("dropped content")))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("drop status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var dropped struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &dropped); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(dropped.Path)) })
+	if content, err := os.ReadFile(dropped.Path); err != nil || string(content) != "dropped content" {
+		t.Fatalf("drop content=%q err=%v", content, err)
+	}
 }
 
 func TestDirectoryDiffAPI(t *testing.T) {

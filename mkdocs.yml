@@ -69,6 +69,7 @@ nav:
   - Encoding: encoding.md
   - GUI: gui.md
   - GUI setup parity: gui-setup-parity.md
+  - File-manager integration: shell-integration.md
   - Ayame family design: design.md
   - Comparison projects: projects.md
   - Comparison options: comparison-options.md

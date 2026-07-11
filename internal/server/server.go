@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
@@ -35,6 +36,8 @@ var webFS embed.FS
 type Server struct {
 	version string
 	mux     *http.ServeMux
+	dropMu  sync.Mutex
+	drops   map[string]string
 }
 
 // New returns a Server. version is reported by /api/health.
@@ -43,7 +46,7 @@ func New(version string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{version: version, mux: http.NewServeMux()}
+	s := &Server{version: version, mux: http.NewServeMux(), drops: make(map[string]string)}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/diff", s.handleDiff)
@@ -52,10 +55,114 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
 	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
+	s.mux.HandleFunc("/api/drop", s.handleDrop)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
 	return s, nil
+}
+
+// handleDrop streams browser-dropped files to a private local cache. Browsers
+// intentionally hide native absolute paths, so the GUI cannot otherwise pass
+// a dropped File to the existing path-based comparison engines.
+func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	session := r.URL.Query().Get("session")
+	relative := filepath.Clean(filepath.FromSlash(r.URL.Query().Get("relative")))
+	if session == "" || strings.ContainsAny(session, `/\\`) || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusBadRequest, "safe session and relative path are required")
+		return
+	}
+	root, err := s.dropRoot(session)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	target := filepath.Join(root, relative)
+	if r.URL.Query().Get("directory") == "1" {
+		err = os.MkdirAll(target, 0o700)
+	} else {
+		if err = os.MkdirAll(filepath.Dir(target), 0o700); err == nil {
+			var file *os.File
+			file, err = os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+			if err == nil {
+				_, copyErr := io.Copy(file, r.Body)
+				closeErr := file.Close()
+				if copyErr != nil {
+					err = copyErr
+				} else if closeErr != nil {
+					err = closeErr
+				}
+			}
+		}
+	}
+	if err != nil {
+		_ = os.Remove(target)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Path string `json:"path"`
+	}{target})
+}
+
+func (s *Server) dropRoot(session string) (string, error) {
+	s.dropMu.Lock()
+	defer s.dropMu.Unlock()
+	if root := s.drops[session]; root != "" {
+		return root, nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+	base = filepath.Join(base, "ayame-diff", "drops")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", err
+	}
+	// Clear stale browser drop sessions opportunistically.
+	if entries, readErr := os.ReadDir(base); readErr == nil {
+		for _, entry := range entries {
+			if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > 24*time.Hour {
+				_ = os.RemoveAll(filepath.Join(base, entry.Name()))
+			}
+		}
+	}
+	root, err := os.MkdirTemp(base, "session-")
+	if err == nil {
+		s.drops[session] = root
+	}
+	return root, err
+}
+
+func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "use GET")
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Path      string `json:"path"`
+		Directory bool   `json:"directory"`
+	}{absolute, info.IsDir()})
 }
 
 type dirRequest struct {
