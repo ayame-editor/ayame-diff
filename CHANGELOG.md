@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.0 - 2026-07-11
+
+- Added a `gui` subcommand: starts the local web UI on a free localhost port and
+  opens it in your browser (`--no-open` to skip, `--addr` to pin). It's the
+  "double-click to a GUI" experience without a native-webview dependency, so the
+  binary stays a single static cross-compiled executable. (#14)
+
 ## v0.5.2 - 2026-07-11
 
 - Display width is now grapheme-cluster / emoji / East-Asian-width aware, so

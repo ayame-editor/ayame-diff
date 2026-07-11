@@ -52,6 +52,7 @@ ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（
 ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
 ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
 ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
+ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
 ```
 
 サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。

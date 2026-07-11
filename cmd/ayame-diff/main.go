@@ -74,6 +74,8 @@ func main() {
 		runSorted(args[1:])
 	case "serve":
 		runServe(args[1:])
+	case "gui":
+		runGUI(args[1:])
 	case "csv":
 		runCSV(args[1:])
 	default:
@@ -87,7 +89,7 @@ func subcommand(args []string) string {
 		return ""
 	}
 	switch args[0] {
-	case "csv", "text", "sorted", "serve":
+	case "csv", "text", "sorted", "serve", "gui":
 		return args[0]
 	}
 	return ""
