@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.4 - 2026-07-11
+
+- `dir` now compares archives too: pass a `.zip`, `.tar`, `.tar.gz`, or `.tgz`
+  on either side and it is compared like a folder (archive vs archive, or
+  archive vs directory). Archive contents are read into memory. (#53)
+
 ## v0.7.3 - 2026-07-11
 
 - Added `--html <file>` to `text`/`sorted`: write a self-contained HTML diff

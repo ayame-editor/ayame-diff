@@ -21,11 +21,11 @@ func runDir(args []string) {
 	fs.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
 	fs.Var(&excludes, "exclude", "glob to skip (repeatable), matched on the relative path or base name")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD_DIR NEW_DIR
+		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
 
-Recursively compare two directory trees by file content. Reports files that
-were added (+), removed (-), or changed (~). Unchanged files are hidden unless
---all is given.`)
+Recursively compare two directory trees, or archives (.zip/.tar/.tar.gz/.tgz),
+by file content. Reports files that were added (+), removed (-), or changed (~).
+Unchanged files are hidden unless --all is given.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -37,11 +37,11 @@ were added (+), removed (-), or changed (~). Unchanged files are hidden unless
 		os.Exit(2)
 	}
 	if fs.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "error: dir needs exactly two directories: OLD_DIR NEW_DIR")
+		fmt.Fprintln(os.Stderr, "error: dir needs exactly two paths: OLD NEW (directories or archives)")
 		os.Exit(2)
 	}
 
-	res, err := dircompare.Compare(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes})
+	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)

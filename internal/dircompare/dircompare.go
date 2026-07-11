@@ -5,13 +5,9 @@
 package dircompare
 
 import (
-	"bufio"
-	"io"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
-	"sort"
 )
 
 // Status is a file's state between the two trees.
@@ -59,71 +55,13 @@ type Result struct {
 	Added, Removed, Changed, Same int
 }
 
-// Compare walks oldDir and newDir and classifies every file.
+// Compare walks oldDir and newDir and classifies every file by content. For
+// directories or archives interchangeably, use CompareAny.
 func Compare(oldDir, newDir string, opts Options) (*Result, error) {
-	oldFiles, err := walk(oldDir, opts.Excludes)
-	if err != nil {
-		return nil, err
-	}
-	newFiles, err := walk(newDir, opts.Excludes)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := make(map[string]bool, len(oldFiles)+len(newFiles))
-	var rels []string
-	for r := range oldFiles {
-		if !seen[r] {
-			seen[r] = true
-			rels = append(rels, r)
-		}
-	}
-	for r := range newFiles {
-		if !seen[r] {
-			seen[r] = true
-			rels = append(rels, r)
-		}
-	}
-	sort.Strings(rels)
-
-	res := &Result{}
-	for _, rel := range rels {
-		oldSize, inOld := oldFiles[rel]
-		newSize, inNew := newFiles[rel]
-		e := Entry{Path: rel, OldSize: -1, NewSize: -1}
-		switch {
-		case inOld && !inNew:
-			e.Status, e.OldSize = Removed, oldSize
-		case !inOld && inNew:
-			e.Status, e.NewSize = Added, newSize
-		default:
-			e.OldSize, e.NewSize = oldSize, newSize
-			equal := oldSize == newSize
-			if equal {
-				equal, err = filesEqual(filepath.Join(oldDir, filepath.FromSlash(rel)), filepath.Join(newDir, filepath.FromSlash(rel)))
-				if err != nil {
-					return nil, err
-				}
-			}
-			if equal {
-				e.Status = Same
-			} else {
-				e.Status = Changed
-			}
-		}
-		switch e.Status {
-		case Added:
-			res.Added++
-		case Removed:
-			res.Removed++
-		case Changed:
-			res.Changed++
-		default:
-			res.Same++
-		}
-		res.Entries = append(res.Entries, e)
-	}
-	return res, nil
+	return compareSources(
+		dirSource{root: oldDir, excludes: opts.Excludes},
+		dirSource{root: newDir, excludes: opts.Excludes},
+	)
 }
 
 // walk returns a map of relative slash-path -> size for the regular files under
@@ -176,61 +114,4 @@ func excluded(rel, base string, patterns []string) bool {
 		}
 	}
 	return false
-}
-
-// filesEqual streams both files and reports whether their bytes are identical.
-// It short-circuits on the first difference.
-func filesEqual(a, b string) (bool, error) {
-	fa, err := os.Open(a)
-	if err != nil {
-		return false, err
-	}
-	defer fa.Close()
-	fb, err := os.Open(b)
-	if err != nil {
-		return false, err
-	}
-	defer fb.Close()
-
-	const bufSize = 64 * 1024
-	ra := bufio.NewReaderSize(fa, bufSize)
-	rb := bufio.NewReaderSize(fb, bufSize)
-	bufA := make([]byte, bufSize)
-	bufB := make([]byte, bufSize)
-	for {
-		na, errA := io.ReadFull(ra, bufA)
-		nb, errB := io.ReadFull(rb, bufB)
-		if na != nb {
-			return false, nil
-		}
-		if !equalBytes(bufA[:na], bufB[:nb]) {
-			return false, nil
-		}
-		aDone := errA == io.EOF || errA == io.ErrUnexpectedEOF
-		bDone := errB == io.EOF || errB == io.ErrUnexpectedEOF
-		if aDone || bDone {
-			if aDone != bDone {
-				return false, nil
-			}
-			return true, nil
-		}
-		if errA != nil {
-			return false, errA
-		}
-		if errB != nil {
-			return false, errB
-		}
-	}
-}
-
-func equalBytes(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
