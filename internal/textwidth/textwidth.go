@@ -1,6 +1,6 @@
-// Package textwidth provides a small, dependency-free wcwidth-compatible
-// display-width implementation. It is sufficient for Japanese/CJK text and
-// column alignment without adding a runtime dependency to the native binary.
+// Package textwidth provides terminal-cell width helpers for Japanese/CJK text
+// and column alignment. East Asian width properties come from x/text, which is
+// already used by the input encoding layer.
 //
 // It was extracted from the (now removed) interactive TUI and is retained for
 // side-by-side diff output (see hjosugi/ayame-diff#6).
@@ -10,13 +10,32 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/width"
 )
+
+// Options controls display-width choices that depend on the terminal locale.
+type Options struct {
+	// EastAsianAmbiguousWide counts East Asian Ambiguous characters (for
+	// example ○, ※, and Greek letters) as two cells. They remain one cell by
+	// default, matching most non-CJK terminals.
+	EastAsianAmbiguousWide bool
+}
 
 // DisplayWidth returns the number of terminal cells s occupies.
 func DisplayWidth(s string) int {
+	return DisplayWidthWithOptions(s, Options{})
+}
+
+// DisplayWidthWithOptions returns the number of terminal cells s occupies
+// using the requested locale-dependent width choices.
+func DisplayWidthWithOptions(s string, opts Options) int {
+	runes := []rune(s)
 	width := 0
-	for _, r := range s {
-		width += runeDisplayWidth(r)
+	for i := 0; i < len(runes); {
+		var clusterWidth int
+		i, clusterWidth = nextCluster(runes, i, opts)
+		width += clusterWidth
 	}
 	return width
 }
@@ -24,10 +43,16 @@ func DisplayWidth(s string) int {
 // Truncate shortens s to at most maxWidth display cells, appending "..." when
 // it must cut (or "." repeated when maxWidth is too small for an ellipsis).
 func Truncate(s string, maxWidth int) string {
+	return TruncateWithOptions(s, maxWidth, Options{})
+}
+
+// TruncateWithOptions is Truncate using the requested locale-dependent width
+// choices. It never cuts a combining or emoji ZWJ sequence in half.
+func TruncateWithOptions(s string, maxWidth int, opts Options) string {
 	if maxWidth <= 0 {
 		return ""
 	}
-	if DisplayWidth(s) <= maxWidth {
+	if DisplayWidthWithOptions(s, opts) <= maxWidth {
 		return s
 	}
 	if maxWidth <= 3 {
@@ -35,14 +60,18 @@ func Truncate(s string, maxWidth int) string {
 	}
 	target := maxWidth - 3
 	var b strings.Builder
-	width := 0
-	for _, r := range s {
-		rw := runeDisplayWidth(r)
-		if width+rw > target {
+	cellWidth := 0
+	runes := []rune(s)
+	for i := 0; i < len(runes); {
+		next, clusterWidth := nextCluster(runes, i, opts)
+		if cellWidth+clusterWidth > target {
 			break
 		}
-		b.WriteRune(r)
-		width += rw
+		for _, r := range runes[i:next] {
+			b.WriteRune(r)
+		}
+		cellWidth += clusterWidth
+		i = next
 	}
 	b.WriteString("...")
 	return b.String()
@@ -51,9 +80,15 @@ func Truncate(s string, maxWidth int) string {
 // PadRight pads s with spaces to exactly width display cells, truncating when s
 // is wider.
 func PadRight(s string, width int) string {
-	current := DisplayWidth(s)
+	return PadRightWithOptions(s, width, Options{})
+}
+
+// PadRightWithOptions is PadRight using the requested locale-dependent width
+// choices.
+func PadRightWithOptions(s string, width int, opts Options) string {
+	current := DisplayWidthWithOptions(s, opts)
 	if current >= width {
-		return Truncate(s, width)
+		return TruncateWithOptions(s, width, opts)
 	}
 	return s + strings.Repeat(" ", width-current)
 }
@@ -81,29 +116,76 @@ func Inline(s string) string {
 	return b.String()
 }
 
-func runeDisplayWidth(r rune) int {
-	if r == 0 || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Cf, r) {
+func runeDisplayWidth(r rune, opts Options) int {
+	if isZeroWidth(r) {
 		return 0
 	}
 	if r < 0x20 || (r >= 0x7f && r < 0xa0) {
 		return 0
 	}
-	if isWideRune(r) {
+	switch width.LookupRune(r).Kind() {
+	case width.EastAsianWide, width.EastAsianFullwidth:
 		return 2
+	case width.EastAsianAmbiguous:
+		if opts.EastAsianAmbiguousWide {
+			return 2
+		}
 	}
 	return 1
 }
 
-func isWideRune(r rune) bool {
-	return r >= 0x1100 && (r <= 0x115f ||
-		r == 0x2329 || r == 0x232a ||
-		(r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
-		(r >= 0xac00 && r <= 0xd7a3) ||
-		(r >= 0xf900 && r <= 0xfaff) ||
-		(r >= 0xfe10 && r <= 0xfe19) ||
-		(r >= 0xfe30 && r <= 0xfe6f) ||
-		(r >= 0xff00 && r <= 0xff60) ||
-		(r >= 0xffe0 && r <= 0xffe6) ||
-		(r >= 0x1f300 && r <= 0x1faff) ||
-		(r >= 0x20000 && r <= 0x3fffd))
+func isZeroWidth(r rune) bool {
+	return r == 0 ||
+		unicode.Is(unicode.Mn, r) ||
+		unicode.Is(unicode.Me, r) ||
+		unicode.Is(unicode.Cf, r) ||
+		// Hangul medial/final Jamo combine with a leading consonant. Their
+		// Unicode category is Lo, so the generic mark checks above miss them.
+		(r >= 0x1160 && r <= 0x11ff) ||
+		(r >= 0xd7b0 && r <= 0xd7ff)
+}
+
+// nextCluster returns the first rune after a display cluster and its cell
+// width. This is intentionally a terminal-oriented subset of Unicode grapheme
+// breaking: it keeps combining marks, emoji modifiers, regional-indicator
+// flags, and ZWJ emoji together. That prevents family emoji from being counted
+// once per person and keeps truncation from emitting a broken sequence.
+func nextCluster(runes []rune, start int, opts Options) (int, int) {
+	i := start + 1
+	clusterWidth := runeDisplayWidth(runes[start], opts)
+	regionalPair := isRegionalIndicator(runes[start])
+	if regionalPair && i < len(runes) && isRegionalIndicator(runes[i]) {
+		clusterWidth = 2
+		i++
+	}
+
+	for {
+		for i < len(runes) && isClusterExtender(runes[i]) {
+			if runes[i] == '\ufe0f' || runes[i] == '\u20e3' {
+				clusterWidth = max(clusterWidth, 2)
+			}
+			i++
+		}
+		if i+1 >= len(runes) || runes[i] != '\u200d' {
+			break
+		}
+		i++ // zero-width joiner
+		clusterWidth = max(clusterWidth, runeDisplayWidth(runes[i], opts))
+		i++
+	}
+	return i, clusterWidth
+}
+
+func isClusterExtender(r rune) bool {
+	// ZWJ terminates the current extension run and joins the next base rune;
+	// consuming it here would split the sequence at the following emoji.
+	return r != '\u200d' && (isZeroWidth(r) || isEmojiModifier(r))
+}
+
+func isEmojiModifier(r rune) bool {
+	return r >= 0x1f3fb && r <= 0x1f3ff
+}
+
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1f1e6 && r <= 0x1f1ff
 }
