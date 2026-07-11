@@ -46,8 +46,15 @@ type Config struct {
 	Tolerance                                              float64
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
-	Log                                                    io.Writer           `json:"-"`
-	OnProgress                                             func(ProgressEvent) `json:"-"`
+	// Reconcile emits a complete key-sorted CSV/TSV using MergeChoices instead
+	// of a diff report. Choice keys are stable IDs from JSONL diff records.
+	Reconcile       bool                `json:"-"`
+	MergeChoices    map[string]string   `json:"-"`
+	MergeDefault    string              `json:"-"`
+	AllowUnresolved bool                `json:"-"`
+	OutputDelimiter rune                `json:"-"`
+	Log             io.Writer           `json:"-"`
+	OnProgress      func(ProgressEvent) `json:"-"`
 }
 
 // Resource limits are exported so CLI and GUI validation can share the
@@ -75,18 +82,19 @@ type resolvedConfig struct {
 }
 
 type Summary struct {
-	LeftRows      uint64         `json:"left_rows"`
-	RightRows     uint64         `json:"right_rows"`
-	EqualRows     uint64         `json:"equal_rows"`
-	LeftOnly      uint64         `json:"left_only"`
-	RightOnly     uint64         `json:"right_only"`
-	ChangedLeft   uint64         `json:"changed_left"`
-	ChangedRight  uint64         `json:"changed_right"`
-	DiffRows      uint64         `json:"diff_rows"`
-	Partitions    int            `json:"partitions"`
-	Workers       int            `json:"workers"`
-	Elapsed       string         `json:"elapsed"`
-	ColumnChanges []ColumnChange `json:"column_changes,omitempty"`
+	LeftRows       uint64         `json:"left_rows"`
+	RightRows      uint64         `json:"right_rows"`
+	EqualRows      uint64         `json:"equal_rows"`
+	LeftOnly       uint64         `json:"left_only"`
+	RightOnly      uint64         `json:"right_only"`
+	ChangedLeft    uint64         `json:"changed_left"`
+	ChangedRight   uint64         `json:"changed_right"`
+	DiffRows       uint64         `json:"diff_rows"`
+	Partitions     int            `json:"partitions"`
+	Workers        int            `json:"workers"`
+	Elapsed        string         `json:"elapsed"`
+	ColumnChanges  []ColumnChange `json:"column_changes,omitempty"`
+	UnresolvedRows uint64         `json:"unresolved_rows,omitempty"`
 }
 
 type ColumnChange struct {
@@ -112,6 +120,10 @@ func (c Config) resolve() (resolvedConfig, error) {
 	r.IgnoreColumnNames = append([]string(nil), c.IgnoreColumnNames...)
 	r.IgnoreColumnIndexes = append([]int(nil), c.IgnoreColumnIndexes...)
 	r.ColumnTolerances = append([]ColumnTolerance(nil), c.ColumnTolerances...)
+	r.MergeChoices = make(map[string]string, len(c.MergeChoices))
+	for id, side := range c.MergeChoices {
+		r.MergeChoices[id] = side
+	}
 
 	if c.LeftPath == "" || c.RightPath == "" || c.OutputPath == "" {
 		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
@@ -166,6 +178,27 @@ func (c Config) resolve() (resolvedConfig, error) {
 	}
 	if r.OutputFormat == "jsonl" {
 		r.CellDiff = true
+	}
+	if r.MergeDefault != "" && r.MergeDefault != "left" && r.MergeDefault != "right" {
+		return resolvedConfig{}, fmt.Errorf("merge default must be left or right")
+	}
+	for id, side := range r.MergeChoices {
+		if strings.TrimSpace(id) == "" || (side != "left" && side != "right") {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q", id, side)
+		}
+	}
+	if r.Reconcile {
+		r.CellDiff = true
+		if r.OutputDelimiter == 0 {
+			if strings.HasSuffix(strings.TrimSuffix(strings.ToLower(r.OutputPath), ".gz"), ".csv") {
+				r.OutputDelimiter = ','
+			} else {
+				r.OutputDelimiter = '\t'
+			}
+		}
+		if r.OutputDelimiter != ',' && r.OutputDelimiter != '\t' {
+			return resolvedConfig{}, fmt.Errorf("reconcile output delimiter must be comma or tab")
+		}
 	}
 	if math.IsNaN(c.Tolerance) || math.IsInf(c.Tolerance, 0) || c.Tolerance < 0 {
 		return resolvedConfig{}, fmt.Errorf("--tolerance must be a finite non-negative number")

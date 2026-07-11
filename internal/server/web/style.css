@@ -163,6 +163,18 @@ button:disabled { opacity: 0.5; cursor: default; }
   margin-top: 0.45rem; display: flex; align-items: center; gap: 0.5rem;
   color: var(--muted); font-size: 0.78rem;
 }
+.merge-panel {
+  margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  padding: 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
+.merge-panel button { margin: 0; padding: 0.3rem 0.65rem; }
+.merge-panel input[type="text"] { flex: 1 1 18rem; }
+.merge-panel .opt { display: flex; }
+.hunk-merge { float: right; display: inline-flex; gap: 0.25rem; margin-left: 0.35rem; }
+.hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: 0.72rem; }
+.hunk.merge-left { border-left: 4px solid var(--del-fg); }
+.hunk.merge-right { border-right: 4px solid var(--add-fg); }
+.hunk.merge-left .choose-left, .hunk.merge-right .choose-right { background: var(--accent); color: #fff; }
 .sync-chip {
   display: inline-flex; margin: 0 0.25rem 0.2rem 0; padding: 0.12rem 0.45rem;
   border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); background: var(--bg);
@@ -245,6 +257,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .csv-left_only td { background: var(--del-bg); }
 .csv-right_only td { background: var(--add-bg); }
 .csv-cell-changed { background: var(--chg-bg) !important; color: var(--chg-fg); font-weight: 650; }
+.csv-merge-choice th { background: var(--panel); color: var(--muted); text-align: left; border-top: 2px solid var(--border); }
+.csv-merge-choice th span { margin-right: 0.7rem; }
+.csv-merge-choice button { margin: 0 0.25rem 0 0; padding: 0.12rem 0.5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: 0.72rem; }
+.csv-merge-choice.merge-left .choose-left, .csv-merge-choice.merge-right .choose-right { background: var(--accent); color: #fff; }
 .file-browser { width: min(52rem, 92vw); height: min(42rem, 85vh); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--fg); }
 .file-browser::backdrop { background: rgb(0 0 0 / 0.45); }
 .file-browser header, .browser-path { display: flex; align-items: center; gap: 0.5rem; padding: 0.65rem; border-bottom: 1px solid var(--border); }

@@ -173,6 +173,17 @@
         <strong data-i18n="syncPoints">Sync points</strong>
         <span id="syncList"></span>
       </section>
+      <section class="merge-panel" id="mergePanel" hidden>
+        <strong data-i18n="mergeResult">Merge result</strong>
+        <button id="allLeft" type="button" data-i18n="allLeft">All left</button>
+        <button id="allRight" type="button" data-i18n="allRight">All right</button>
+        <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
+        <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
+        <span id="mergeUnresolved" aria-live="polite"></span>
+        <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
+        <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
+      </section>
       <div class="diff-layout">
         <section class="result" id="result"></section>
         <aside class="minimap" id="minimap" aria-label="Difference map" hidden>

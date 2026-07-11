@@ -85,23 +85,24 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	emitProgress(resolved, ProgressEvent{Phase: "compare", Done: true, Elapsed: time.Since(compareStarted)})
 	assembleStarted := time.Now()
 	emitProgress(resolved, ProgressEvent{Phase: "assemble"})
-	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader, resolved.CellDiff, resolved.OutputFormat); err != nil {
+	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader, resolved.CellDiff, resolved.OutputFormat, resolved.Reconcile, resolved.OutputDelimiter); err != nil {
 		return summary, err
 	}
 	emitProgress(resolved, ProgressEvent{Phase: "assemble", Done: true, Elapsed: time.Since(assembleStarted)})
 
 	summary = Summary{
-		LeftRows:     leftRows,
-		RightRows:    rightRows,
-		EqualRows:    stats.EqualRows,
-		LeftOnly:     stats.LeftOnly,
-		RightOnly:    stats.RightOnly,
-		ChangedLeft:  stats.ChangedLeft,
-		ChangedRight: stats.ChangedRight,
-		DiffRows:     stats.DiffRows,
-		Partitions:   resolved.Partitions,
-		Workers:      minInt(resolved.Workers, resolved.Partitions),
-		Elapsed:      time.Since(started).Round(time.Millisecond).String(),
+		LeftRows:       leftRows,
+		RightRows:      rightRows,
+		EqualRows:      stats.EqualRows,
+		LeftOnly:       stats.LeftOnly,
+		RightOnly:      stats.RightOnly,
+		ChangedLeft:    stats.ChangedLeft,
+		ChangedRight:   stats.ChangedRight,
+		DiffRows:       stats.DiffRows,
+		Partitions:     resolved.Partitions,
+		Workers:        minInt(resolved.Workers, resolved.Partitions),
+		Elapsed:        time.Since(started).Round(time.Millisecond).String(),
+		UnresolvedRows: stats.UnresolvedRows,
 	}
 	for index, count := range stats.ColumnChanges {
 		if count > 0 {
@@ -215,7 +216,9 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	if err != nil {
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
-	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat)
+	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat, reconcileConfig{
+		enabled: cfg.Reconcile, choices: cfg.MergeChoices, defaultTo: cfg.MergeDefault, delimiter: cfg.OutputDelimiter, allowUnresolved: cfg.AllowUnresolved,
+	})
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)
 	}
@@ -228,7 +231,7 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	return stats, outputPath, nil
 }
 
-func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader, cellDiff bool, outputFormat string) (resultErr error) {
+func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader, cellDiff bool, outputFormat string, reconcile bool, delimiter rune) (resultErr error) {
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -271,23 +274,36 @@ func assembleOutput(ctx context.Context, outputPath string, parts []string, head
 	if writeHeader && outputFormat == "tsv" {
 		writer := csv.NewWriter(buffer)
 		writer.Comma = '\t'
-		extra := 0
-		if cellDiff {
-			extra = 1
+		if reconcile {
+			writer.Comma = delimiter
 		}
-		outputHeader := make([]string, 2+extra+len(header))
-		outputHeader[0] = "_diff"
-		outputHeader[1] = "_side"
-		if cellDiff {
-			outputHeader[2] = "_changed_cols"
-		}
-		copy(outputHeader[2+extra:], header)
-		if err := writer.Write(outputHeader); err != nil {
-			return err
-		}
-		writer.Flush()
-		if err := writer.Error(); err != nil {
-			return err
+		if reconcile {
+			if err := writer.Write(header); err != nil {
+				return err
+			}
+			writer.Flush()
+			if err := writer.Error(); err != nil {
+				return err
+			}
+		} else {
+			extra := 0
+			if cellDiff {
+				extra = 1
+			}
+			outputHeader := make([]string, 2+extra+len(header))
+			outputHeader[0] = "_diff"
+			outputHeader[1] = "_side"
+			if cellDiff {
+				outputHeader[2] = "_changed_cols"
+			}
+			copy(outputHeader[2+extra:], header)
+			if err := writer.Write(outputHeader); err != nil {
+				return err
+			}
+			writer.Flush()
+			if err := writer.Error(); err != nil {
+				return err
+			}
 		}
 	}
 

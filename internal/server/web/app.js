@@ -16,7 +16,7 @@ const I18N = {
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
-    navHelpText: "差分移動: Alt+↓ 次 / Alt+↑ 前 / Alt+End 最後 / Alt+Home 最初",
+    navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右、Alt+Home/End 最初/最後",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
     ignoreHunk: "この差分を無視", restoreHunk: "無視を解除", ignored: "無視",
@@ -41,6 +41,9 @@ const I18N = {
 	selectKey: "キー列を1つ以上選択してください。",
 	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
+	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", allLeft: "すべて左", allRight: "すべて右",
+	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
+	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
     langButton: "EN",
   },
@@ -56,7 +59,7 @@ const I18N = {
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
-    navHelpText: "Navigate: Alt+↓ next / Alt+↑ previous / Alt+End last / Alt+Home first",
+    navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right; Alt+Home/End first/last",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
     ignoreHunk: "Ignore this difference", restoreHunk: "Restore difference", ignored: "ignored",
@@ -81,6 +84,9 @@ const I18N = {
 	selectKey: "Select at least one key column.",
 	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
+	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", allLeft: "All left", allRight: "All right",
+	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
+	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
     langButton: "日本語",
   },
@@ -170,6 +176,7 @@ let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
 let directoryData = null, directoryBody = null;
+let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -272,6 +279,14 @@ function renderHunk(h, useWord, index) {
     ignore.textContent = t("restoreHunk");
   }
   head.append(ignore);
+  const mergeActions = document.createElement("span");
+  mergeActions.className = "hunk-merge";
+  for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
+    const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
+    button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
+    mergeActions.append(button);
+  }
+  head.append(mergeActions);
   box.append(head);
 
   const rows = document.createElement("div");
@@ -353,9 +368,88 @@ function renderResult(data) {
   const frag = document.createDocumentFragment();
   for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], useWord, i));
   result.append(frag);
+  updateMergeUI();
   observeHunks();
   updateMinimapViewport();
 }
+
+function mutateMerge(mutator) {
+  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
+  if (mergeUndo.length > 100) mergeUndo.shift();
+  mergeRedo = [];
+  mutator();
+  updateMergeUI();
+}
+function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
+function updateMergeUI() {
+	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
+  const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
+  $("mergePanel").hidden = !mergeable;
+  if (!mergeable) return;
+  lastData.hunks.forEach((_, index) => {
+    const box = $(`hunk-${index}`), side = mergeChoices.get(index);
+    box?.classList.toggle("merge-left", side === "left"); box?.classList.toggle("merge-right", side === "right");
+  });
+  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, lastData.hunk_count - mergeChoices.size));
+  $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+}
+function updateCSVMergeUI() {
+  $("mergePanel").hidden = false;
+  const chosen = new Set([...mergeChoices.keys()].map(String));
+  document.querySelectorAll("[data-merge-id]").forEach((row) => {
+    const side = mergeChoices.get(row.dataset.mergeId);
+    row.classList.toggle("merge-left", side === "left"); row.classList.toggle("merge-right", side === "right");
+  });
+  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, (csvData.difference_count || csvData.differences.length) - chosen.size));
+  $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+}
+function undoMerge() {
+  if (!mergeUndo.length) return;
+  mergeRedo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
+  const state = mergeUndo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+}
+function redoMerge() {
+  if (!mergeRedo.length) return;
+  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
+  const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+}
+async function saveTextMerge() {
+  const output = $("mergeOutput").value.trim();
+  if (!output) { setStatus(`${t("saveMerge")}: ${t("outputPath")} required`, "error"); return; }
+  const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
+  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
+  if (unresolved > 0 && !allowUnresolved) return;
+  const overwrite = $("mergeOverwrite").checked;
+  const confirmOverwrite = !overwrite || confirm(t("overwriteWarning"));
+  if (!confirmOverwrite) return;
+  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  $("saveMerge").disabled = true;
+  try {
+    const response = await fetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    setStatus(t("mergeSaved", data.output), "");
+  } catch (err) { setStatus(String(err.message || err), "error"); }
+  finally { $("saveMerge").disabled = false; }
+}
+async function saveCSVMerge() {
+  const output = $("mergeOutput").value.trim();
+  if (!output) { setStatus(`${t("saveMerge")}: ${t("outputPath")} required`, "error"); return; }
+  const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
+  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
+  if (unresolved > 0 && !allowUnresolved) return;
+  const overwrite = $("mergeOverwrite").checked;
+  const confirmOverwrite = !overwrite || confirm(t("overwriteWarning"));
+  if (!confirmOverwrite) return;
+  const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  $("saveMerge").disabled = true;
+  try {
+    const response = await fetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    setStatus(t("mergeSaved", data.output), "");
+  } catch (err) { setStatus(String(err.message || err), "error"); }
+  finally { $("saveMerge").disabled = false; }
+}
+function saveMergeResult() { return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
 
 function updateCounter() {
   const active = activeHunkIndexes();
@@ -657,6 +751,7 @@ function renderCSV(data) {
   csvData = data;
   lastData = null;
   $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
+  updateCSVMergeUI();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
   if (!data.differences.length) { const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = t("csvNoDiff"); result.append(empty); return; }
@@ -683,10 +778,19 @@ function renderCSV(data) {
     tbody.append(tr);
   };
   for (const diff of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE)) {
+    const action = document.createElement("tr"); action.className = "csv-merge-choice"; action.dataset.mergeId = diff.id;
+    const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
+    const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
+    actionCell.append(label);
+    for (const [side, text] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
+      const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = text;
+      button.onclick = () => chooseMerge(diff.id, side); actionCell.append(button);
+    }
+    action.append(actionCell); tbody.append(action);
     const changed = new Set((diff.changed_columns || []).map((column) => column.index));
     appendRow(diff.old, "left", diff.kind, changed); appendRow(diff.new, "right", diff.kind, changed);
   }
-  table.append(tbody); wrap.append(table); result.append(wrap);
+  table.append(tbody); wrap.append(table); result.append(wrap); updateCSVMergeUI();
 }
 
 async function compareCSV() {
@@ -702,6 +806,10 @@ async function compareCSV() {
   try {
     const resp = await fetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    if (!$("mergeOutput").value) {
+      const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
+    }
     csvPage = 0; renderCSV(data); rememberComparison(body); setStatus("");
   } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
   finally { clearInterval(timer); $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
@@ -776,6 +884,7 @@ function dirRequestBody() { return { old: $("old").value.trim(), new: $("new").v
 function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
   csvData = null; lastData = null; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
   for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${name}`); summary.append(item); } summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
@@ -829,6 +938,11 @@ async function compare() {
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     setStatus("");
     lastData = data;
+    mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    if (!$("mergeOutput").value) {
+      const source = $("old").value.trim();
+      $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.txt";
+    }
     renderResult(data);
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
@@ -1103,12 +1217,21 @@ $("nextDiff").addEventListener("click", () => stepHunk(1));
 $("lastDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]); });
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
+$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
+$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
+$("mergeUndo").addEventListener("click", undoMerge);
+$("mergeRedo").addEventListener("click", redoMerge);
+$("saveMerge").addEventListener("click", saveMergeResult);
 $("navHelp").addEventListener("click", () => alert(t("navHelpText")));
 document.addEventListener("keydown", (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
   let target = null;
   const active = activeHunkIndexes();
-  if (event.key === "ArrowDown") { event.preventDefault(); stepHunk(1); return; }
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    event.preventDefault(); const index = currentHunk >= 0 ? currentHunk : active[0];
+    if (index != null) chooseMerge(index, event.key === "ArrowLeft" ? "left" : "right");
+    return;
+  } else if (event.key === "ArrowDown") { event.preventDefault(); stepHunk(1); return; }
   else if (event.key === "ArrowUp") { event.preventDefault(); stepHunk(-1); return; }
   else if (event.key === "Home") target = active[0];
   else if (event.key === "End") target = active[active.length - 1];

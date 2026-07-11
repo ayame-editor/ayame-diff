@@ -21,6 +21,8 @@ dependency — no database, no CGO, no runtime to install.
   [Comparison options](comparison-options.md).
 - **Local web GUI** — `serve` and `gui` start an embedded single-page app so you
   can compare files in the browser. See [GUI](gui.md).
+- **Merge and reconcile** — choose either side per text hunk or keyed CSV row,
+  undo/redo decisions, and atomically save a new result. See [Merge](merge.md).
 - **Single binary** — cross-compiled for Linux, macOS and Windows.
 
 ## Install

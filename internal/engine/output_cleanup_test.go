@@ -17,7 +17,7 @@ func TestAssembleOutputCleansTemporaryFileOnCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := assembleOutput(ctx, filepath.Join(dir, "result.tsv"), []string{part}, nil, false, false, "tsv")
+	err := assembleOutput(ctx, filepath.Join(dir, "result.tsv"), []string{part}, nil, false, false, "tsv", false, '\t')
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("assembleOutput error = %v", err)
 	}
