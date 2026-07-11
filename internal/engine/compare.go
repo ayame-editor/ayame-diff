@@ -5,22 +5,39 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
+	"strings"
 )
 
 type partitionStats struct {
-	EqualRows    uint64
-	LeftOnly     uint64
-	RightOnly    uint64
-	ChangedLeft  uint64
-	ChangedRight uint64
-	DiffRows     uint64
+	EqualRows     uint64
+	LeftOnly      uint64
+	RightOnly     uint64
+	ChangedLeft   uint64
+	ChangedRight  uint64
+	DiffRows      uint64
+	ColumnChanges []uint64
 }
 
 type diffKind string
 type diffSide string
+
+type jsonCellChange struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Old   string `json:"old"`
+	New   string `json:"new"`
+}
+
+type jsonRecordDiff struct {
+	Kind           diffKind         `json:"kind"`
+	Old            []string         `json:"old,omitempty"`
+	New            []string         `json:"new,omitempty"`
+	ChangedColumns []jsonCellChange `json:"changed_columns,omitempty"`
+}
 
 const (
 	diffLeftOnly  diffKind = "LEFT_ONLY"
@@ -37,6 +54,12 @@ func (s *partitionStats) add(other partitionStats) {
 	s.ChangedLeft += other.ChangedLeft
 	s.ChangedRight += other.ChangedRight
 	s.DiffRows += other.DiffRows
+	if len(s.ColumnChanges) < len(other.ColumnChanges) {
+		s.ColumnChanges = append(s.ColumnChanges, make([]uint64, len(other.ColumnChanges)-len(s.ColumnChanges))...)
+	}
+	for i, count := range other.ColumnChanges {
+		s.ColumnChanges[i] += count
+	}
 }
 
 type sortedCursor struct {
@@ -85,7 +108,8 @@ func (c *sortedCursor) captureKey() []byte {
 
 func (c *sortedCursor) close() error { return c.file.Close() }
 
-func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, columnCount int, keyIsFullRow bool, maxRecordBytes int64, comparison comparisonConfig) (stats partitionStats, resultErr error) {
+func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, header []string, keyIsFullRow bool, maxRecordBytes int64, comparison comparisonConfig, cellDiff bool, outputFormat string) (stats partitionStats, resultErr error) {
+	columnCount := len(header)
 	left, err := openSortedCursor(leftPath, maxRecordBytes)
 	if err != nil {
 		return stats, err
@@ -112,10 +136,13 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 	buffer := bufio.NewWriterSize(out, ioBufferBytes)
 	writer := csv.NewWriter(buffer)
 	writer.Comma = '\t'
+	jsonWriter := json.NewEncoder(buffer)
 	defer func() {
-		writer.Flush()
-		if err := writer.Error(); resultErr == nil && err != nil {
-			resultErr = err
+		if outputFormat == "tsv" {
+			writer.Flush()
+			if err := writer.Error(); resultErr == nil && err != nil {
+				resultErr = err
+			}
 		}
 		if err := buffer.Flush(); resultErr == nil && err != nil {
 			resultErr = err
@@ -130,34 +157,87 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 
 	var rowFields, output []string
 	var operations uint64
-	writeDiff := func(kind diffKind, side diffSide, record binRecord) error {
+	decodeRecord := func(record binRecord) ([]string, error) {
 		encoded := record.Row
 		if keyIsFullRow {
 			encoded = record.Key
 		}
+		return decodeRow(encoded, columnCount, nil)
+	}
+	changedNames := func(indexes []int) string {
+		names := make([]string, len(indexes))
+		for i, index := range indexes {
+			names[i] = header[index]
+		}
+		return strings.Join(names, ",")
+	}
+	writeDiff := func(kind diffKind, side diffSide, record binRecord, changed []int) error {
 		var err error
-		rowFields, err = decodeRow(encoded, columnCount, rowFields)
+		rowFields, err = decodeRecord(record)
 		if err != nil {
 			return err
 		}
-		if cap(output) < 2+len(rowFields) {
-			output = make([]string, 2+len(rowFields))
+		if outputFormat == "jsonl" {
+			item := jsonRecordDiff{Kind: kind}
+			if side == diffLeft {
+				item.Old = rowFields
+			} else {
+				item.New = rowFields
+			}
+			if err := jsonWriter.Encode(item); err != nil {
+				return err
+			}
 		} else {
-			output = output[:2+len(rowFields)]
-		}
-		output[0] = string(kind)
-		output[1] = string(side)
-		copy(output[2:], rowFields)
-		if err := writer.Write(output); err != nil {
-			return err
+			extra := 0
+			if cellDiff {
+				extra = 1
+			}
+			if cap(output) < 2+extra+len(rowFields) {
+				output = make([]string, 2+extra+len(rowFields))
+			} else {
+				output = output[:2+extra+len(rowFields)]
+			}
+			output[0], output[1] = string(kind), string(side)
+			if cellDiff {
+				output[2] = changedNames(changed)
+			}
+			copy(output[2+extra:], rowFields)
+			if err := writer.Write(output); err != nil {
+				return err
+			}
 		}
 		stats.DiffRows++
+		return nil
+	}
+	writePair := func(leftRecord, rightRecord binRecord, changed []int) error {
+		if outputFormat == "tsv" {
+			if err := writeDiff(diffChanged, diffLeft, leftRecord, changed); err != nil {
+				return err
+			}
+			return writeDiff(diffChanged, diffRight, rightRecord, changed)
+		}
+		oldFields, err := decodeRecord(leftRecord)
+		if err != nil {
+			return err
+		}
+		newFields, err := decodeRecord(rightRecord)
+		if err != nil {
+			return err
+		}
+		item := jsonRecordDiff{Kind: diffChanged, Old: oldFields, New: newFields}
+		for _, index := range changed {
+			item.ChangedColumns = append(item.ChangedColumns, jsonCellChange{Index: index, Name: header[index], Old: oldFields[index], New: newFields[index]})
+		}
+		if err := jsonWriter.Encode(item); err != nil {
+			return err
+		}
+		stats.DiffRows += 2
 		return nil
 	}
 
 	flushKey := func(cursor *sortedCursor, kind diffKind, side diffSide, key []byte) error {
 		for !cursor.eof && bytes.Equal(cursor.record.Key, key) {
-			if err := writeDiff(kind, side, cursor.record); err != nil {
+			if err := writeDiff(kind, side, cursor.record, nil); err != nil {
 				return err
 			}
 			switch {
@@ -181,6 +261,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		record     binRecord
 		comparison preparedComparison
 	}
+	var cellScratch cellDiffScratch
 	readGroup := func(cursor *sortedCursor, key []byte) ([]comparedRecord, error) {
 		var group []comparedRecord
 		for !cursor.eof && bytes.Equal(cursor.record.Key, key) {
@@ -188,16 +269,26 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				Key: append([]byte(nil), cursor.record.Key...),
 				Row: append([]byte(nil), cursor.record.Row...),
 			}
-			fields, err := decodeRow(record.Row, columnCount, nil)
-			if err != nil {
-				return nil, err
+			prepared := preparedComparison{signature: string(record.Row)}
+			if comparison.enabled {
+				fields, err := decodeRow(record.Row, columnCount, nil)
+				if err != nil {
+					return nil, err
+				}
+				prepared = comparison.prepare(fields)
 			}
-			group = append(group, comparedRecord{record: record, comparison: comparison.prepare(fields)})
+			group = append(group, comparedRecord{record: record, comparison: prepared})
 			if err := cursor.advance(); err != nil {
 				return nil, err
 			}
 		}
 		return group, nil
+	}
+	changedColumns := func(leftRecord, rightRecord comparedRecord) ([]int, error) {
+		if comparison.enabled {
+			return comparison.changedIndexesPrepared(leftRecord.comparison, rightRecord.comparison), nil
+		}
+		return cellScratch.indexes(leftRecord.record.Row, rightRecord.record.Row, columnCount)
 	}
 	compareGroup := func(key []byte) error {
 		leftGroup, err := readGroup(left, key)
@@ -279,21 +370,50 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				stats.EqualRows++
 			}
 		}
-		for i, record := range leftGroup {
+		unmatchedLeft, unmatchedRight := make([]int, 0), make([]int, 0)
+		for i := range leftGroup {
 			if matchLeft[i] < 0 {
-				if err := writeDiff(diffChanged, diffLeft, record.record); err != nil {
+				unmatchedLeft = append(unmatchedLeft, i)
+			}
+		}
+		for i := range rightGroup {
+			if matchRight[i] < 0 {
+				unmatchedRight = append(unmatchedRight, i)
+			}
+		}
+		if cellDiff {
+			pairs := min(len(unmatchedLeft), len(unmatchedRight))
+			for i := 0; i < pairs; i++ {
+				leftRecord, rightRecord := leftGroup[unmatchedLeft[i]], rightGroup[unmatchedRight[i]]
+				changed, err := changedColumns(leftRecord, rightRecord)
+				if err != nil {
+					return err
+				}
+				if len(stats.ColumnChanges) == 0 {
+					stats.ColumnChanges = make([]uint64, columnCount)
+				}
+				for _, index := range changed {
+					stats.ColumnChanges[index]++
+				}
+				if err := writePair(leftRecord.record, rightRecord.record, changed); err != nil {
 					return err
 				}
 				stats.ChangedLeft++
-			}
-		}
-		for i, record := range rightGroup {
-			if matchRight[i] < 0 {
-				if err := writeDiff(diffChanged, diffRight, record.record); err != nil {
-					return err
-				}
 				stats.ChangedRight++
 			}
+			unmatchedLeft, unmatchedRight = unmatchedLeft[pairs:], unmatchedRight[pairs:]
+		}
+		for _, index := range unmatchedLeft {
+			if err := writeDiff(diffChanged, diffLeft, leftGroup[index].record, nil); err != nil {
+				return err
+			}
+			stats.ChangedLeft++
+		}
+		for _, index := range unmatchedRight {
+			if err := writeDiff(diffChanged, diffRight, rightGroup[index].record, nil); err != nil {
+				return err
+			}
+			stats.ChangedRight++
 		}
 		return nil
 	}
@@ -334,7 +454,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			}
 		default:
 			key := left.captureKey()
-			if comparison.enabled {
+			if comparison.enabled || cellDiff {
 				if err := compareGroup(key); err != nil {
 					return stats, err
 				}
@@ -343,7 +463,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			for !left.eof && !right.eof && bytes.Equal(left.record.Key, key) && bytes.Equal(right.record.Key, key) {
 				switch rowCompare := bytes.Compare(left.record.Row, right.record.Row); {
 				case rowCompare < 0:
-					if err := writeDiff(diffChanged, diffLeft, left.record); err != nil {
+					if err := writeDiff(diffChanged, diffLeft, left.record, nil); err != nil {
 						return stats, err
 					}
 					stats.ChangedLeft++
@@ -351,7 +471,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 						return stats, err
 					}
 				case rowCompare > 0:
-					if err := writeDiff(diffChanged, diffRight, right.record); err != nil {
+					if err := writeDiff(diffChanged, diffRight, right.record, nil); err != nil {
 						return stats, err
 					}
 					stats.ChangedRight++

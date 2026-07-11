@@ -36,6 +36,8 @@ type Config struct {
 	TempDir, WorkDir                                       string
 	KeepTemp, Progress                                     bool
 	OutputHeader                                           bool
+	CellDiff                                               bool
+	OutputFormat                                           string
 	IgnoreCase, IgnoreEOL, IgnoreTrailingEOL               bool
 	IgnoreWhitespace                                       string
 	LineFilters                                            []string
@@ -69,20 +71,28 @@ type resolvedConfig struct {
 	PartitionBufferBytes int
 	MaxRecordBytes       int64
 	Comparison           comparisonConfig
+	ComparisonHeader     []string
 }
 
 type Summary struct {
-	LeftRows     uint64 `json:"left_rows"`
-	RightRows    uint64 `json:"right_rows"`
-	EqualRows    uint64 `json:"equal_rows"`
-	LeftOnly     uint64 `json:"left_only"`
-	RightOnly    uint64 `json:"right_only"`
-	ChangedLeft  uint64 `json:"changed_left"`
-	ChangedRight uint64 `json:"changed_right"`
-	DiffRows     uint64 `json:"diff_rows"`
-	Partitions   int    `json:"partitions"`
-	Workers      int    `json:"workers"`
-	Elapsed      string `json:"elapsed"`
+	LeftRows      uint64         `json:"left_rows"`
+	RightRows     uint64         `json:"right_rows"`
+	EqualRows     uint64         `json:"equal_rows"`
+	LeftOnly      uint64         `json:"left_only"`
+	RightOnly     uint64         `json:"right_only"`
+	ChangedLeft   uint64         `json:"changed_left"`
+	ChangedRight  uint64         `json:"changed_right"`
+	DiffRows      uint64         `json:"diff_rows"`
+	Partitions    int            `json:"partitions"`
+	Workers       int            `json:"workers"`
+	Elapsed       string         `json:"elapsed"`
+	ColumnChanges []ColumnChange `json:"column_changes,omitempty"`
+}
+
+type ColumnChange struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Count uint64 `json:"count"`
 }
 
 // Validate reports whether c can be resolved. It is idempotent and does not
@@ -147,6 +157,15 @@ func (c Config) resolve() (resolvedConfig, error) {
 	}
 	if r.IgnoreWhitespace != "none" && r.IgnoreWhitespace != "change" && r.IgnoreWhitespace != "all" {
 		return resolvedConfig{}, fmt.Errorf("--ignore-whitespace must be none, change, or all")
+	}
+	if r.OutputFormat == "" {
+		r.OutputFormat = "tsv"
+	}
+	if r.OutputFormat != "tsv" && r.OutputFormat != "jsonl" {
+		return resolvedConfig{}, fmt.Errorf("--output-format must be tsv or jsonl")
+	}
+	if r.OutputFormat == "jsonl" {
+		r.CellDiff = true
 	}
 	if math.IsNaN(c.Tolerance) || math.IsInf(c.Tolerance, 0) || c.Tolerance < 0 {
 		return resolvedConfig{}, fmt.Errorf("--tolerance must be a finite non-negative number")

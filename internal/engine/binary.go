@@ -267,6 +267,32 @@ func decodeRow(encoded []byte, n int, dst []string) ([]string, error) {
 	return dst, nil
 }
 
+// decodeRowBytes exposes zero-copy field boundaries over an encoded row. The
+// returned slices alias encoded and are valid while that record buffer lives.
+func decodeRowBytes(encoded []byte, n int, dst [][]byte) ([][]byte, error) {
+	if cap(dst) < n {
+		dst = make([][]byte, 0, n)
+	} else {
+		dst = dst[:0]
+	}
+	for pos := 0; pos < len(encoded); {
+		if len(encoded)-pos < 4 {
+			return nil, fmt.Errorf("corrupt row: truncated field length")
+		}
+		length := int(binary.BigEndian.Uint32(encoded[pos : pos+4]))
+		pos += 4
+		if len(encoded)-pos < length {
+			return nil, fmt.Errorf("corrupt row: truncated field")
+		}
+		dst = append(dst, encoded[pos:pos+length])
+		pos += length
+	}
+	if len(dst) != n {
+		return nil, fmt.Errorf("corrupt row: expected %d columns, found %d", n, len(dst))
+	}
+	return dst, nil
+}
+
 func xxhash64(input []byte) uint64 {
 	const (
 		p1 = uint64(11400714785074694791)

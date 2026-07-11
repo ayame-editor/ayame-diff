@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"regexp"
@@ -8,6 +9,31 @@ import (
 	"strings"
 	"unicode"
 )
+
+type cellDiffScratch struct {
+	leftFields, rightFields [][]byte
+	changed                 []int
+}
+
+func (s *cellDiffScratch) indexes(leftRow, rightRow []byte, columnCount int) ([]int, error) {
+	leftFields, err := decodeRowBytes(leftRow, columnCount, s.leftFields)
+	if err != nil {
+		return nil, err
+	}
+	rightFields, err := decodeRowBytes(rightRow, columnCount, s.rightFields)
+	if err != nil {
+		return nil, err
+	}
+	s.leftFields, s.rightFields = leftFields, rightFields
+	changed := s.changed[:0]
+	for index := range leftFields {
+		if !bytes.Equal(leftFields[index], rightFields[index]) {
+			changed = append(changed, index)
+		}
+	}
+	s.changed = changed
+	return changed, nil
+}
 
 type comparisonConfig struct {
 	enabled       bool
@@ -187,4 +213,23 @@ func (c comparisonConfig) equivalentPrepared(left, right preparedComparison) boo
 		}
 	}
 	return true
+}
+
+func (c comparisonConfig) changedIndexesPrepared(left, right preparedComparison) []int {
+	changed := make([]int, 0)
+	for index := range left.values {
+		if c.ignoreColumns[index] || left.values[index] == right.values[index] {
+			continue
+		}
+		tolerance, enabled := c.global, c.globalSet
+		if c.toleranceSet[index] {
+			tolerance, enabled = c.tolerances[index], true
+		}
+		if enabled && left.numericOK[index] && right.numericOK[index] &&
+			math.Abs(left.numbers[index]-right.numbers[index]) <= tolerance {
+			continue
+		}
+		changed = append(changed, index)
+	}
+	return changed
 }

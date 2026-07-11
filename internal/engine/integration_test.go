@@ -2,9 +2,11 @@ package engine
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -181,6 +183,75 @@ func TestRunCSVToleranceUsesMaximumDuplicateMatching(t *testing.T) {
 	}
 	if summary.EqualRows != 2 || summary.DiffRows != 0 {
 		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestRunCSVCellDiffTSVUsesToleranceAndRanking(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,name,price,updated\n1,old,10.00,10:00\n")
+	mustWriteFile(t, rightPath, "id,name,price,updated\n1,new,10.05,11:00\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.CellDiff = true
+	cfg.IgnoreColumnNames = []string{"updated"}
+	cfg.ColumnTolerances = []ColumnTolerance{{Name: "price", Value: 0.1}}
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(summary.ColumnChanges, []ColumnChange{{Index: 1, Name: "name", Count: 1}}) {
+		t.Fatalf("column ranking=%+v", summary.ColumnChanges)
+	}
+	records := readDelimitedFile(t, outPath, '\t')
+	want := [][]string{
+		{"_diff", "_side", "_changed_cols", "id", "name", "price", "updated"},
+		{"CHANGED", "left", "name", "1", "old", "10.00", "10:00"},
+		{"CHANGED", "right", "name", "1", "new", "10.05", "11:00"},
+	}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestRunCSVCellDiffJSONLines(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.jsonl")
+	mustWriteFile(t, leftPath, "id,name,value\n1,old,10\n2,left,20\n")
+	mustWriteFile(t, rightPath, "id,name,value\n1,new,11\n3,right,30\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.CellDiff, cfg.OutputFormat = true, "jsonl"
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.ColumnChanges) != 2 {
+		t.Fatalf("ranking=%+v", summary.ColumnChanges)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("json lines=%d: %s", len(lines), data)
+	}
+	var changed jsonRecordDiff
+	for _, line := range lines {
+		var item jsonRecordDiff
+		if err := json.Unmarshal(line, &item); err != nil {
+			t.Fatal(err)
+		}
+		if item.Kind == diffChanged && len(item.Old) > 0 && len(item.New) > 0 {
+			changed = item
+		}
+	}
+	if len(changed.ChangedColumns) != 2 || changed.ChangedColumns[0].Name != "name" ||
+		changed.ChangedColumns[0].Old != "old" || changed.ChangedColumns[0].New != "new" {
+		t.Fatalf("changed=%+v", changed)
 	}
 }
 

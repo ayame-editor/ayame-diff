@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		return summary, err
 	}
 	resolved.Comparison = resolvedSchema.Comparison
+	resolved.ComparisonHeader = append([]string(nil), resolvedSchema.Header...)
 
 	workRoot, createdByUs, err := createWorkRoot(resolved.Config)
 	if err != nil {
@@ -83,7 +85,7 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	emitProgress(resolved, ProgressEvent{Phase: "compare", Done: true, Elapsed: time.Since(compareStarted)})
 	assembleStarted := time.Now()
 	emitProgress(resolved, ProgressEvent{Phase: "assemble"})
-	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader); err != nil {
+	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader, resolved.CellDiff, resolved.OutputFormat); err != nil {
 		return summary, err
 	}
 	emitProgress(resolved, ProgressEvent{Phase: "assemble", Done: true, Elapsed: time.Since(assembleStarted)})
@@ -101,6 +103,17 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		Workers:      minInt(resolved.Workers, resolved.Partitions),
 		Elapsed:      time.Since(started).Round(time.Millisecond).String(),
 	}
+	for index, count := range stats.ColumnChanges {
+		if count > 0 {
+			summary.ColumnChanges = append(summary.ColumnChanges, ColumnChange{Index: index, Name: resolvedSchema.Header[index], Count: count})
+		}
+	}
+	sort.Slice(summary.ColumnChanges, func(i, j int) bool {
+		if summary.ColumnChanges[i].Count != summary.ColumnChanges[j].Count {
+			return summary.ColumnChanges[i].Count > summary.ColumnChanges[j].Count
+		}
+		return summary.ColumnChanges[i].Index < summary.ColumnChanges[j].Index
+	})
 	return summary, nil
 }
 
@@ -202,7 +215,7 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	if err != nil {
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
-	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, columnCount, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison)
+	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat)
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)
 	}
@@ -215,7 +228,7 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	return stats, outputPath, nil
 }
 
-func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader bool) (resultErr error) {
+func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader, cellDiff bool, outputFormat string) (resultErr error) {
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -255,13 +268,20 @@ func assembleOutput(ctx context.Context, outputPath string, parts []string, head
 	}
 	buffer := bufio.NewWriterSize(destination, ioBufferBytes)
 
-	if writeHeader {
+	if writeHeader && outputFormat == "tsv" {
 		writer := csv.NewWriter(buffer)
 		writer.Comma = '\t'
-		outputHeader := make([]string, 2+len(header))
+		extra := 0
+		if cellDiff {
+			extra = 1
+		}
+		outputHeader := make([]string, 2+extra+len(header))
 		outputHeader[0] = "_diff"
 		outputHeader[1] = "_side"
-		copy(outputHeader[2:], header)
+		if cellDiff {
+			outputHeader[2] = "_changed_cols"
+		}
+		copy(outputHeader[2+extra:], header)
 		if err := writer.Write(outputHeader); err != nil {
 			return err
 		}

@@ -145,3 +145,14 @@ func TestParseFlagsCSVComparisonOptions(t *testing.T) {
 		t.Fatalf("config=%+v", cfg)
 	}
 }
+
+func TestParseFlagsCellDiffJSON(t *testing.T) {
+	t.Parallel()
+	opts, err := parseFlags([]string{"--left", "a.csv", "--right", "b.csv", "--out", "diff.jsonl", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.JSON || !opts.Engine.CellDiff || opts.Engine.OutputFormat != "jsonl" {
+		t.Fatalf("options=%+v", opts)
+	}
+}

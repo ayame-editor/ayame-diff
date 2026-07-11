@@ -53,6 +53,7 @@ type cliOptions struct {
 	SummaryJSON  string
 	DiffExitCode bool
 	ShowVersion  bool
+	JSON         bool
 }
 
 type repeatedFlag[T any] struct {
@@ -264,6 +265,17 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 		"done: left=%d right=%d equal=%d diff_rows=%d left_only=%d right_only=%d changed_left=%d changed_right=%d elapsed=%s\n",
 		summary.LeftRows, summary.RightRows, summary.EqualRows, summary.DiffRows,
 		summary.LeftOnly, summary.RightOnly, summary.ChangedLeft, summary.ChangedRight, summary.Elapsed)
+	if len(summary.ColumnChanges) > 0 {
+		fmt.Fprint(stderr, "changed columns:")
+		for i, column := range summary.ColumnChanges {
+			if i == 10 {
+				fmt.Fprint(stderr, " ...")
+				break
+			}
+			fmt.Fprintf(stderr, " %s=%d", column.Name, column.Count)
+		}
+		fmt.Fprintln(stderr)
+	}
 	if opts.DiffExitCode && summary.DiffRows > 0 {
 		return 1
 	}
@@ -307,6 +319,9 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	fs.Var(&tolerance, "tolerance", "absolute numeric tolerance for compared value columns")
 	fs.Var(&tolerances, "column-tolerance", "per-header numeric tolerance NAME=VALUE; repeatable")
 	fs.Var(&toleranceIndexes, "column-tolerance-index", "per-index numeric tolerance INDEX=VALUE; repeatable")
+	fs.BoolVar(&cfg.CellDiff, "cell-diff", false, "add _changed_cols and per-column change counts")
+	fs.BoolVar(&opts.JSON, "json", false, "write structured cell differences as JSON Lines to --out")
+	fs.StringVar(&cfg.OutputFormat, "output-format", "tsv", "output format: tsv or jsonl")
 	registerPerfFlags(fs, cfg)
 	fs.BoolVar(&cfg.Progress, "progress", true, "print periodic progress to stderr")
 	fs.StringVar(&opts.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
@@ -337,6 +352,9 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	cfg.IgnoreColumnIndexes = append([]int(nil), ignoreColumnIndexes.values...)
 	cfg.Tolerance, cfg.ToleranceSet = tolerance.value, tolerance.set
 	cfg.ColumnTolerances = append(append([]engine.ColumnTolerance(nil), tolerances.values...), toleranceIndexes.values...)
+	if opts.JSON {
+		cfg.OutputFormat, cfg.CellDiff = "jsonl", true
+	}
 	return opts, nil
 }
 

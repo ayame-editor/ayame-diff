@@ -64,7 +64,7 @@ through `--ignore-case`, `--ignore-whitespace`, and repeatable `--filter-line`.
 
 ### Output
 
-Output is always TSV. Two leading columns, `_diff` and `_side`, are prepended,
+Output is TSV by default. Two leading columns, `_diff` and `_side`, are prepended,
 followed by the original columns in the left input's column order.
 
 ```text
@@ -86,6 +86,24 @@ Identical rows for the same key cancel one for one. Output order follows the
 hash-partition and key order — not the input order — so treat the result as a
 difference *set*.
 
+Add `--cell-diff` to insert `_changed_cols` after `_side` on `CHANGED` pairs.
+The comma-separated header names use the same ignore and numeric-tolerance
+rules as row matching. The stderr summary and `--summary-json` rank changed
+columns by pair count. The default TSV schema is unchanged when the flag is
+absent.
+
+`--json` (alias for `--output-format jsonl --cell-diff`) writes one structured
+JSON object per logical difference to `--out`. A paired change contains the
+full `old` / `new` rows and typed `changed_columns` entries with index, name,
+old value, and new value. JSON Lines remains streamable for huge results.
+
+```bash
+ayame-diff csv --left old.csv --right new.csv --key id \
+  --cell-diff --out diff.tsv
+ayame-diff csv --left old.csv --right new.csv --key id \
+  --json --out diff.jsonl
+```
+
 !!! note "gzip output"
     A `.gz` output extension turns on gzip automatically, e.g.
     `--out diff.tsv.gz`.
@@ -106,6 +124,9 @@ difference *set*.
 --tolerance FLOAT
 --column-tolerance NAME=FLOAT       (repeatable)
 --column-tolerance-index N=FLOAT    (repeatable)
+--cell-diff
+--json
+--output-format tsv|jsonl
 --index-base 0|1
 --header=true|false
 --align-columns-by-name=true|false
