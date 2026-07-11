@@ -85,10 +85,14 @@ func createSortedRuns(ctx context.Context, inputPath, workDir, prefix string, ch
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		records := make([]binRecord, 0, 4096)
+		initialArenaBytes := min(chunkBytes, int64(64*1024*1024))
+		arena := make([]byte, 0, int(initialArenaBytes))
+		spans := make([]binRecordSpan, 0, 4096)
 		var used int64
-		for used < chunkBytes || len(records) == 0 {
-			record, readErr := reader.Next()
+		for used < chunkBytes || len(spans) == 0 {
+			var span binRecordSpan
+			var readErr error
+			arena, span, readErr = reader.AppendToArena(arena)
 			if errors.Is(readErr, io.EOF) {
 				eof = true
 				break
@@ -96,16 +100,22 @@ func createSortedRuns(ctx context.Context, inputPath, workDir, prefix string, ch
 			if readErr != nil {
 				return nil, readErr
 			}
-			records = append(records, record)
-			used += int64(8 + len(record.Key) + len(record.Row) + recordMemoryOverhead)
-			if len(records)&cancellationCheckMask == 0 {
+			spans = append(spans, span)
+			used = int64(len(arena) + len(spans)*(binHeaderSize+recordMemoryOverhead))
+			if len(spans)&cancellationCheckMask == 0 {
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
 			}
 		}
-		if len(records) == 0 {
+		if len(spans) == 0 {
 			break
+		}
+		// Materialize slices only after arena growth is finished. Every record in
+		// this run now points into the same immutable backing buffer.
+		records := make([]binRecord, len(spans))
+		for i, span := range spans {
+			records[i] = span.record(arena)
 		}
 		sort.Slice(records, func(i, j int) bool {
 			if c := bytes.Compare(records[i].Key, records[j].Key); c != 0 {
@@ -132,9 +142,10 @@ func writeRun(path string, records []binRecord) error {
 		return err
 	}
 	w := bufio.NewWriterSize(f, ioBufferBytes)
+	recordWriter := binRecordWriter{w: w}
 	var writeErr error
 	for _, record := range records {
-		if err := writeBinRecord(w, record); err != nil {
+		if err := recordWriter.write(record); err != nil {
 			writeErr = err
 			break
 		}
@@ -197,7 +208,8 @@ func mergeRunGroup(ctx context.Context, inputs []string, output string, maxRecor
 			return err
 		}
 		sources[i] = runSource{file: f, reader: newBinRecordReader(f, 1024*1024, maxRecordBytes)}
-		record, err := sources[i].reader.Next()
+		var record binRecord
+		err = sources[i].reader.NextInto(&record)
 		if errors.Is(err, io.EOF) {
 			continue
 		}
@@ -213,6 +225,7 @@ func mergeRunGroup(ctx context.Context, inputs []string, output string, maxRecor
 		return err
 	}
 	writer := bufio.NewWriterSize(out, ioBufferBytes)
+	recordWriter := binRecordWriter{w: writer}
 	defer func() {
 		if err := writer.Flush(); resultErr == nil && err != nil {
 			resultErr = err
@@ -228,12 +241,12 @@ func mergeRunGroup(ctx context.Context, inputs []string, output string, maxRecor
 	var count uint64
 	for h.Len() > 0 {
 		item := heap.Pop(&h).(runHeapItem)
-		if err := writeBinRecord(writer, item.record); err != nil {
+		if err := recordWriter.write(item.record); err != nil {
 			return err
 		}
-		next, err := sources[item.source].reader.Next()
+		err := sources[item.source].reader.NextInto(&item.record)
 		if err == nil {
-			heap.Push(&h, runHeapItem{record: next, source: item.source})
+			heap.Push(&h, item)
 		} else if !errors.Is(err, io.EOF) {
 			return err
 		}

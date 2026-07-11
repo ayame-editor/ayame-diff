@@ -63,7 +63,7 @@ func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullR
 	return keyDst, rowDst, nil
 }
 func appendLengthPrefixed[T fieldBytes](dst []byte, v T) ([]byte, error) {
-	if len(v) > math.MaxUint32 {
+	if uint64(len(v)) > math.MaxUint32 {
 		return nil, fmt.Errorf("field is larger than 4GiB")
 	}
 	start := len(dst)
@@ -84,7 +84,7 @@ func putBinHeader(dst []byte, keyLen, rowLen uint32) {
 }
 
 func makeStoredRecord(dst, key, row []byte, max int64) ([]byte, error) {
-	if len(key) > math.MaxUint32 || len(row) > math.MaxUint32 {
+	if uint64(len(key)) > math.MaxUint32 || uint64(len(row)) > math.MaxUint32 {
 		return nil, fmt.Errorf("encoded key or row exceeds 4GiB")
 	}
 	total := int64(len(key) + len(row))
@@ -99,52 +99,124 @@ func makeStoredRecord(dst, key, row []byte, max int64) ([]byte, error) {
 	return dst, nil
 }
 func writeBinRecord(w io.Writer, r binRecord) error {
-	var h [binHeaderSize]byte
-	putBinHeader(h[:], uint32(len(r.Key)), uint32(len(r.Row)))
-	if _, err := w.Write(h[:]); err != nil {
+	return (&binRecordWriter{w: w}).write(r)
+}
+
+type binRecordWriter struct {
+	w      io.Writer
+	header [binHeaderSize]byte
+}
+
+func (w *binRecordWriter) write(r binRecord) error {
+	putBinHeader(w.header[:], uint32(len(r.Key)), uint32(len(r.Row)))
+	if _, err := w.w.Write(w.header[:]); err != nil {
 		return err
 	}
-	if _, err := w.Write(r.Key); err != nil {
+	if _, err := w.w.Write(r.Key); err != nil {
 		return err
 	}
-	_, err := w.Write(r.Row)
+	_, err := w.w.Write(r.Row)
 	return err
 }
 
 type binRecordReader struct {
-	r   *bufio.Reader
-	max int64
+	r      *bufio.Reader
+	max    int64
+	header [binHeaderSize]byte
+}
+
+type binRecordSpan struct {
+	keyOffset, keyLen int
+	rowOffset, rowLen int
+}
+
+func (s binRecordSpan) record(arena []byte) binRecord {
+	return binRecord{
+		Key: arena[s.keyOffset : s.keyOffset+s.keyLen],
+		Row: arena[s.rowOffset : s.rowOffset+s.rowLen],
+	}
 }
 
 func newBinRecordReader(r io.Reader, buf int, max int64) *binRecordReader {
 	if buf < 4096 {
 		buf = 4096
 	}
-	return &binRecordReader{bufio.NewReaderSize(r, buf), max}
+	return &binRecordReader{r: bufio.NewReaderSize(r, buf), max: max}
 }
-func (r *binRecordReader) Next() (binRecord, error) {
-	var h [binHeaderSize]byte
-	n, err := io.ReadFull(r.r, h[:])
+
+func (r *binRecordReader) readLengths() (int, int, error) {
+	n, err := io.ReadFull(r.r, r.header[:])
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
-			return binRecord{}, io.EOF
+			return 0, 0, io.EOF
 		}
-		return binRecord{}, fmt.Errorf("read record header: %w", err)
+		return 0, 0, fmt.Errorf("read record header: %w", err)
 	}
-	kl := int64(binary.BigEndian.Uint32(h[:4]))
-	rl := int64(binary.BigEndian.Uint32(h[4:binHeaderSize]))
+	kl := int64(binary.BigEndian.Uint32(r.header[:4]))
+	rl := int64(binary.BigEndian.Uint32(r.header[4:binHeaderSize]))
 	if kl+rl > r.max {
-		return binRecord{}, fmt.Errorf("stored record is %d bytes, larger than maximum %d", kl+rl, r.max)
+		return 0, 0, fmt.Errorf("stored record is %d bytes, larger than maximum %d", kl+rl, r.max)
 	}
-	key := make([]byte, int(kl))
-	row := make([]byte, int(rl))
-	if _, err := io.ReadFull(r.r, key); err != nil {
-		return binRecord{}, fmt.Errorf("read key: %w", err)
+	maxInt := int64(^uint(0) >> 1)
+	if kl > maxInt || rl > maxInt || kl+rl > maxInt {
+		return 0, 0, fmt.Errorf("stored record is too large for this platform")
 	}
-	if _, err := io.ReadFull(r.r, row); err != nil {
-		return binRecord{}, fmt.Errorf("read row: %w", err)
+	return int(kl), int(rl), nil
+}
+
+func resizeBytes(dst []byte, length int) []byte {
+	if cap(dst) < length {
+		return make([]byte, length)
 	}
-	return binRecord{key, row}, nil
+	return dst[:length]
+}
+
+// NextInto reuses dst's key and row buffers. A reader therefore allocates only
+// when a larger record is first encountered, not once per record.
+func (r *binRecordReader) NextInto(dst *binRecord) error {
+	kl, rl, err := r.readLengths()
+	if err != nil {
+		return err
+	}
+	dst.Key = resizeBytes(dst.Key, kl)
+	dst.Row = resizeBytes(dst.Row, rl)
+	if _, err := io.ReadFull(r.r, dst.Key); err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	if _, err := io.ReadFull(r.r, dst.Row); err != nil {
+		return fmt.Errorf("read row: %w", err)
+	}
+	return nil
+}
+
+// AppendToArena reads a record payload into one caller-owned chunk arena and
+// returns stable offsets. The caller materializes slices after the arena stops
+// growing, so reallocating it never leaves earlier records pointing at stale
+// backing arrays.
+func (r *binRecordReader) AppendToArena(arena []byte) ([]byte, binRecordSpan, error) {
+	kl, rl, err := r.readLengths()
+	if err != nil {
+		return arena, binRecordSpan{}, err
+	}
+	keyOffset := len(arena)
+	total := kl + rl
+	arena = append(arena, make([]byte, total)...)
+	rowOffset := keyOffset + kl
+	if _, err := io.ReadFull(r.r, arena[keyOffset:rowOffset]); err != nil {
+		return arena, binRecordSpan{}, fmt.Errorf("read key: %w", err)
+	}
+	if _, err := io.ReadFull(r.r, arena[rowOffset:rowOffset+rl]); err != nil {
+		return arena, binRecordSpan{}, fmt.Errorf("read row: %w", err)
+	}
+	return arena, binRecordSpan{keyOffset: keyOffset, keyLen: kl, rowOffset: rowOffset, rowLen: rl}, nil
+}
+
+func (r *binRecordReader) Next() (binRecord, error) {
+	var record binRecord
+	if err := r.NextInto(&record); err != nil {
+		return binRecord{}, err
+	}
+	return record, nil
 }
 func decodeRow(encoded []byte, n int, dst []string) ([]string, error) {
 	if cap(dst) < n {

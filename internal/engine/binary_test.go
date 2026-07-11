@@ -2,6 +2,8 @@ package engine
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"reflect"
 	"testing"
 )
@@ -20,6 +22,37 @@ func TestXXHash64Vectors(t *testing.T) {
 		if got := xxhash64([]byte(tc.input)); got != tc.want {
 			t.Fatalf("xxhash64(%q) = 0x%x, want 0x%x", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestBinRecordReaderNextIntoReusesBuffers(t *testing.T) {
+	t.Parallel()
+	var encoded bytes.Buffer
+	for _, record := range []binRecord{
+		{Key: []byte("key-1"), Row: []byte("row-1")},
+		{Key: []byte("key-2"), Row: []byte("row-2")},
+	} {
+		if err := writeBinRecord(&encoded, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader := newBinRecordReader(bytes.NewReader(encoded.Bytes()), 4096, 1024)
+	var record binRecord
+	if err := reader.NextInto(&record); err != nil {
+		t.Fatal(err)
+	}
+	keyBuffer, rowBuffer := &record.Key[0], &record.Row[0]
+	if err := reader.NextInto(&record); err != nil {
+		t.Fatal(err)
+	}
+	if &record.Key[0] != keyBuffer || &record.Row[0] != rowBuffer {
+		t.Fatal("NextInto allocated new buffers for an equal-sized record")
+	}
+	if got := string(record.Key) + "/" + string(record.Row); got != "key-2/row-2" {
+		t.Fatalf("record = %q", got)
+	}
+	if err := reader.NextInto(&record); !errors.Is(err, io.EOF) {
+		t.Fatalf("final read error = %v, want EOF", err)
 	}
 }
 

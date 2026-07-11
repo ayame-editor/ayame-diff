@@ -43,6 +43,7 @@ type sortedCursor struct {
 	file   *os.File
 	reader *binRecordReader
 	record binRecord
+	keyBuf []byte
 	eof    bool
 }
 
@@ -60,18 +61,26 @@ func openSortedCursor(path string, maxRecordBytes int64) (*sortedCursor, error) 
 }
 
 func (c *sortedCursor) advance() error {
-	record, err := c.reader.Next()
+	err := c.reader.NextInto(&c.record)
 	if errors.Is(err, io.EOF) {
-		c.record = binRecord{}
+		c.record.Key = c.record.Key[:0]
+		c.record.Row = c.record.Row[:0]
 		c.eof = true
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	c.record = record
 	c.eof = false
 	return nil
+}
+
+// captureKey owns one stable group key while advance reuses record buffers.
+// Its capacity is retained across groups, so this allocates only when a larger
+// key is first seen rather than once for every group.
+func (c *sortedCursor) captureKey() []byte {
+	c.keyBuf = append(c.keyBuf[:0], c.record.Key...)
+	return c.keyBuf
 }
 
 func (c *sortedCursor) close() error { return c.file.Close() }
@@ -119,7 +128,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		}
 	}()
 
-	var rowFields []string
+	var rowFields, output []string
 	var operations uint64
 	writeDiff := func(kind diffKind, side diffSide, record binRecord) error {
 		encoded := record.Row
@@ -131,7 +140,11 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		if err != nil {
 			return err
 		}
-		output := make([]string, 2+len(rowFields))
+		if cap(output) < 2+len(rowFields) {
+			output = make([]string, 2+len(rowFields))
+		} else {
+			output = output[:2+len(rowFields)]
+		}
 		output[0] = string(kind)
 		output[1] = string(side)
 		copy(output[2:], rowFields)
@@ -173,14 +186,14 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		operations++
 
 		if left.eof {
-			key := append([]byte(nil), right.record.Key...)
+			key := right.captureKey()
 			if err := flushKey(right, diffRightOnly, diffRight, key); err != nil {
 				return stats, err
 			}
 			continue
 		}
 		if right.eof {
-			key := append([]byte(nil), left.record.Key...)
+			key := left.captureKey()
 			if err := flushKey(left, diffLeftOnly, diffLeft, key); err != nil {
 				return stats, err
 			}
@@ -189,17 +202,17 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 
 		switch keyCompare := bytes.Compare(left.record.Key, right.record.Key); {
 		case keyCompare < 0:
-			key := append([]byte(nil), left.record.Key...)
+			key := left.captureKey()
 			if err := flushKey(left, diffLeftOnly, diffLeft, key); err != nil {
 				return stats, err
 			}
 		case keyCompare > 0:
-			key := append([]byte(nil), right.record.Key...)
+			key := right.captureKey()
 			if err := flushKey(right, diffRightOnly, diffRight, key); err != nil {
 				return stats, err
 			}
 		default:
-			key := append([]byte(nil), left.record.Key...)
+			key := left.captureKey()
 			for !left.eof && !right.eof && bytes.Equal(left.record.Key, key) && bytes.Equal(right.record.Key, key) {
 				switch rowCompare := bytes.Compare(left.record.Row, right.record.Row); {
 				case rowCompare < 0:
