@@ -4,8 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
-	"os"
 
 	"github.com/hjosugi/ayame-diff/internal/server"
 )
@@ -15,9 +15,9 @@ import (
 // It starts a local web UI for browsing diffs. The server binds to localhost by
 // default; it reads the file paths given in the browser, so it is meant for
 // local single-user use only.
-func runServe(args []string) {
+func runServe(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff serve", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var addr string
 	fs.StringVar(&addr, "addr", "127.0.0.1:8080", "listen address (host:port)")
 	fs.Usage = func() {
@@ -30,20 +30,21 @@ default; it opens the paths you type, so run it only for your own local use.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 
 	srv, err := server.New(version)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
-	fmt.Fprintf(os.Stderr, "ayame-diff serving on http://%s  (Ctrl+C to stop)\n", addr)
+	fmt.Fprintf(stderr, "ayame-diff serving on http://%s  (Ctrl+C to stop)\n", addr)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
 	}
+	return 0
 }

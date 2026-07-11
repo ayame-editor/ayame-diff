@@ -84,7 +84,7 @@ func whitespaceMode(s string) linediff.Whitespace {
 
 // emitDiff runs the line diff and writes it in the selected format. Hunks/JSON
 // go to stdout, the summary to stderr, matching the CSV mode's split.
-func emitDiff(old, new linediff.Lines, d diffFlags, title string) {
+func emitDiff(old, new linediff.Lines, d diffFlags, title string, stdout, stderr io.Writer) error {
 	res := linediff.DiffWith(old, new, linediff.Options{
 		MaxHunks:   d.maxHunks,
 		Window:     d.window,
@@ -94,31 +94,30 @@ func emitDiff(old, new linediff.Lines, d diffFlags, title string) {
 	if d.html != "" {
 		f, err := os.Create(d.html)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(2)
+			return err
 		}
 		if err := htmlreport.Write(f, old, new, res, title); err != nil {
-			f.Close()
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(2)
+			_ = f.Close()
+			return err
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			return err
+		}
 		// Still print the one-line summary to stderr; the HTML is the report.
-		_ = diffout.Write(io.Discard, os.Stderr, old, new, res, diffout.Options{Format: diffout.Summary})
-		fmt.Fprintf(os.Stderr, "wrote %s\n", d.html)
-		return
+		if err := diffout.Write(io.Discard, stderr, old, new, res, diffout.Options{Format: diffout.Summary}); err != nil {
+			return err
+		}
+		fmt.Fprintf(stderr, "wrote %s\n", d.html)
+		return nil
 	}
 	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width, Word: d.word}
-	if err := diffout.Write(os.Stdout, os.Stderr, old, new, res, opts); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
-	}
+	return diffout.Write(stdout, stderr, old, new, res, opts)
 }
 
 // runText implements: ayame-diff text [flags] OLD NEW
-func runText(args []string) {
+func runText(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff text", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var d diffFlags
 	d.register(fs)
 	fs.Usage = func() {
@@ -130,15 +129,27 @@ inputs. OLD or NEW may be - to read standard input.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if !parseDiffArgs(fs, args) {
-		return
+	if err := parseDiffArgs(fs, args); err != nil {
+		return reportFlagError(err, stderr)
 	}
 
-	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding, d.pre)
+	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 	defer closeOld()
-	newSrc, closeNew := openSource(fs.Arg(1), d.encoding, d.pre)
+	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 	defer closeNew()
-	emitDiff(oldSrc, newSrc, d, fs.Arg(0)+" vs "+fs.Arg(1))
+	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0)+" vs "+fs.Arg(1), stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	return 0
 }
 
 // runSorted implements: ayame-diff sorted [flags] OLD NEW
@@ -147,9 +158,9 @@ inputs. OLD or NEW may be - to read standard input.`)
 // finds the set/multiset difference of two files whose row order differs.
 //
 // v1 sorts in memory; an external, memory-bounded line sort is tracked in #7.
-func runSorted(args []string) {
+func runSorted(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff sorted", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var d diffFlags
 	d.register(fs)
 	var numeric, reverse bool
@@ -167,66 +178,80 @@ Note: v1 sorts in memory.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if !parseDiffArgs(fs, args) {
-		return
+	if err := parseDiffArgs(fs, args); err != nil {
+		return reportFlagError(err, stderr)
 	}
 
-	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding, d.pre)
+	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 	defer closeOld()
-	newSrc, closeNew := openSource(fs.Arg(1), d.encoding, d.pre)
+	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 	defer closeNew()
 	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
 	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
-	emitDiff(oldLines, newLines, d, fs.Arg(0)+" vs "+fs.Arg(1)+" (sorted)")
+	if err := emitDiff(oldLines, newLines, d, fs.Arg(0)+" vs "+fs.Arg(1)+" (sorted)", stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	return 0
 }
 
 // parseDiffArgs parses fs and validates the two positional OLD NEW paths.
-// It returns false when the caller should return (help was requested).
-func parseDiffArgs(fs *flag.FlagSet, args []string) bool {
+func parseDiffArgs(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return false
-		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		return err
 	}
 	if fs.NArg() != 2 {
-		fmt.Fprintf(os.Stderr, "error: %s needs exactly two paths: OLD NEW\n", fs.Name())
-		os.Exit(2)
+		return fmt.Errorf("%s needs exactly two paths: OLD NEW", fs.Name())
 	}
-	return true
+	return nil
+}
+
+func reportFlagError(err error, stderr io.Writer) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	fmt.Fprintln(stderr, "error:", err)
+	return 2
 }
 
 // openSource returns a line source for path plus a close func. A path of "-"
 // reads standard input; a non-empty pre command preprocesses the input first
 // (both read fully into memory). Otherwise a file is streamed with bounded
 // memory.
-func openSource(path, encHint, pre string) (linediff.Lines, func()) {
+func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, func(), error) {
 	if pre != "" {
-		return preprocessLines(path, encHint, pre), func() {}
+		lines, err := preprocessLines(path, encHint, pre, stderr)
+		return lines, func() {}, err
 	}
 	if path == "-" {
-		return readStdin(encHint), func() {}
+		lines, err := readStdin(encHint)
+		return lines, func() {}, err
 	}
 	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		return nil, func() {}, err
 	}
-	return f, func() { f.Close() }
+	return f, func() { _ = f.Close() }, nil
 }
 
 // preprocessLines runs pre as a shell command with path's content on stdin
 // (stdin itself when path is "-"), then decodes and splits its output. This is
 // the "prediffer/unpacker" hook: normalize or transform inputs before diffing
 // (e.g. --pre 'jq -S .' to canonicalize JSON).
-func preprocessLines(path, encHint, pre string) linediff.StringLines {
+func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.StringLines, error) {
 	var stdin io.Reader = os.Stdin
 	if path != "-" {
 		f, err := os.Open(path)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(2)
+			return nil, err
 		}
 		defer f.Close()
 		stdin = f
@@ -237,38 +262,34 @@ func preprocessLines(path, encHint, pre string) linediff.StringLines {
 	}
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = stdin
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = stderr
 	out, err := cmd.Output()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: preprocess %q on %s: %v\n", pre, path, err)
-		os.Exit(2)
+		return nil, fmt.Errorf("preprocess %q on %s: %w", pre, path, err)
 	}
 	dname := encoding.Detect(out, encHint)
 	decoded, err := io.ReadAll(encoding.Decoder(bytes.NewReader(out), dname))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		return nil, err
 	}
 	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
-	return linediff.SplitLines(string(decoded))
+	return linediff.SplitLines(string(decoded)), nil
 }
 
 // readStdin reads all of stdin, decodes it to UTF-8 (encHint, "auto" to detect),
 // strips a UTF-8 BOM, and splits into lines.
-func readStdin(encHint string) linediff.StringLines {
+func readStdin(encHint string) (linediff.StringLines, error) {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: reading stdin:", err)
-		os.Exit(2)
+		return nil, fmt.Errorf("reading stdin: %w", err)
 	}
 	name := encoding.Detect(data, encHint)
 	decoded, err := io.ReadAll(encoding.Decoder(bytes.NewReader(data), name))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: decoding stdin:", err)
-		os.Exit(2)
+		return nil, fmt.Errorf("decoding stdin: %w", err)
 	}
 	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
-	return linediff.SplitLines(string(decoded))
+	return linediff.SplitLines(string(decoded)), nil
 }
 
 // collectLines reads every line of l into a slice (for in-memory sorting).

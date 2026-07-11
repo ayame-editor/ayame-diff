@@ -4,9 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
 	"runtime"
 
@@ -19,9 +19,9 @@ import (
 // ephemeral localhost port and opens the browser — the "double-click to a GUI"
 // experience without a native webview dependency (keeping the single static,
 // cross-compiled binary). See ADR 0002 / hjosugi/ayame-diff#14.
-func runGUI(args []string) {
+func runGUI(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff gui", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var addr string
 	var noOpen bool
 	fs.StringVar(&addr, "addr", "127.0.0.1:0", "listen address; port 0 picks a free port")
@@ -36,33 +36,34 @@ picks a free localhost port and launches the browser for you.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 
 	srv, err := server.New(version)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
 	}
 	url := "http://" + ln.Addr().String() + "/"
-	fmt.Fprintf(os.Stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", url)
+	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", url)
 	if !noOpen {
 		if err := openBrowser(url); err != nil {
-			fmt.Fprintf(os.Stderr, "could not open a browser automatically (%v); open %s manually\n", err, url)
+			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, url)
 		}
 	}
 	if err := http.Serve(ln, srv.Handler()); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
 	}
+	return 0
 }
 
 // openBrowser opens url in the platform's default browser. The launcher is

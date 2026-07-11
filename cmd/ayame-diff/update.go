@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,9 +16,9 @@ import (
 )
 
 // runUpdate implements: ayame-diff update [--check]
-func runUpdate(args []string) {
+func runUpdate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff update", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var checkOnly bool
 	fs.BoolVar(&checkOnly, "check", false, "only report whether a newer release exists; do not install")
 	fs.Usage = func() {
@@ -30,10 +31,10 @@ Verifies the release's SHA-256 checksum before installing.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -42,27 +43,34 @@ Verifies the release's SHA-256 checksum before installing.`)
 	if checkOnly {
 		rel, err := selfupdate.LatestRelease(ctx)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+			fmt.Fprintln(stderr, "error:", err)
+			if errors.Is(err, context.Canceled) {
+				return 130
+			}
+			return 1
 		}
 		if selfupdate.NeedsUpdate(version, rel.TagName) {
-			fmt.Printf("update available: %s -> %s\n%s\n", version, rel.TagName, rel.HTMLURL)
+			fmt.Fprintf(stdout, "update available: %s -> %s\n%s\n", version, rel.TagName, rel.HTMLURL)
 		} else {
-			fmt.Printf("up to date (%s)\n", version)
+			fmt.Fprintf(stdout, "up to date (%s)\n", version)
 		}
-		return
+		return 0
 	}
 
-	if err := selfupdate.Update(ctx, version, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if err := selfupdate.Update(ctx, version, stdout); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		if errors.Is(err, context.Canceled) {
+			return 130
+		}
+		return 1
 	}
+	return 0
 }
 
 // runRemove implements: ayame-diff remove [--yes]
-func runRemove(args []string) {
+func runRemove(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff remove", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var yes bool
 	fs.BoolVar(&yes, "yes", false, "remove without asking for confirmation")
 	fs.Usage = func() {
@@ -75,28 +83,29 @@ detected and left to their package manager.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 
 	if mgr := selfupdate.ManagedInstall(); mgr != "" {
-		fmt.Fprintf(os.Stderr, "this install is managed by %s; use %s to remove it\n", mgr, strings.ToLower(mgr))
-		os.Exit(1)
+		fmt.Fprintf(stderr, "this install is managed by %s; use %s to remove it\n", mgr, strings.ToLower(mgr))
+		return 1
 	}
 	if !yes {
 		exe, _ := os.Executable()
-		fmt.Fprintf(os.Stderr, "remove %s? [y/N] ", exe)
+		fmt.Fprintf(stderr, "remove %s? [y/N] ", exe)
 		if !confirm() {
-			fmt.Fprintln(os.Stderr, "cancelled")
-			return
+			fmt.Fprintln(stderr, "cancelled")
+			return 130
 		}
 	}
-	if err := selfupdate.Remove(os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if err := selfupdate.Remove(stdout); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
 	}
+	return 0
 }
 
 func confirm() bool {

@@ -6,17 +6,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
+	"io"
 
 	"github.com/hjosugi/ayame-diff/internal/dircompare"
 )
 
 // runDir implements: ayame-diff dir [flags] OLD_DIR NEW_DIR
-func runDir(args []string) {
+func runDir(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff dir", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var all, jsonOut bool
-	var excludes stringList
+	excludes := stringFlags()
 	fs.BoolVar(&all, "all", false, "include unchanged (same) files in the output")
 	fs.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
 	fs.Var(&excludes, "exclude", "glob to skip (repeatable), matched on the relative path or base name")
@@ -31,27 +31,34 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 	if fs.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "error: dir needs exactly two paths: OLD NEW (directories or archives)")
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error: dir needs exactly two paths: OLD NEW (directories or archives)")
+		return 2
 	}
 
-	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes})
+	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes.values})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
 	}
 
 	if jsonOut {
-		writeDirJSON(res)
+		if err := writeDirJSON(stdout, res); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
 	} else {
-		writeDirText(res, all)
+		if err := writeDirText(stdout, stderr, res, all); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
 	}
+	return 0
 }
 
 var dirMarker = map[dircompare.Status]byte{
@@ -61,17 +68,20 @@ var dirMarker = map[dircompare.Status]byte{
 	dircompare.Same:    '=',
 }
 
-func writeDirText(res *dircompare.Result, all bool) {
-	bw := bufio.NewWriter(os.Stdout)
+func writeDirText(stdout, stderr io.Writer, res *dircompare.Result, all bool) error {
+	bw := bufio.NewWriter(stdout)
 	for _, e := range res.Entries {
 		if e.Status == dircompare.Same && !all {
 			continue
 		}
 		fmt.Fprintf(bw, "%c %s\n", dirMarker[e.Status], e.Path)
 	}
-	bw.Flush()
-	fmt.Fprintf(os.Stderr, "%d added, %d removed, %d changed, %d same\n",
+	if err := bw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintf(stderr, "%d added, %d removed, %d changed, %d same\n",
 		res.Added, res.Removed, res.Changed, res.Same)
+	return nil
 }
 
 type dirEntryJSON struct {
@@ -81,7 +91,7 @@ type dirEntryJSON struct {
 	NewSize int64  `json:"new_size"`
 }
 
-func writeDirJSON(res *dircompare.Result) {
+func writeDirJSON(stdout io.Writer, res *dircompare.Result) error {
 	entries := make([]dirEntryJSON, len(res.Entries))
 	for i, e := range res.Entries {
 		entries[i] = dirEntryJSON{Path: e.Path, Status: e.Status.String(), OldSize: e.OldSize, NewSize: e.NewSize}
@@ -95,8 +105,8 @@ func writeDirJSON(res *dircompare.Result) {
 	}{res.Added, res.Removed, res.Changed, res.Same, entries}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
+		return err
 	}
-	os.Stdout.Write(append(data, '\n'))
+	_, err = stdout.Write(append(data, '\n'))
+	return err
 }

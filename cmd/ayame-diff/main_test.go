@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
 func TestParseFlagsDefaultsToAllKeys(t *testing.T) {
@@ -17,6 +22,75 @@ func TestParseFlagsDefaultsToAllKeys(t *testing.T) {
 	cfg := opts.Engine
 	if len(cfg.KeyNames) != 0 || len(cfg.KeyIndexes) != 0 || len(cfg.ExcludeKeyNames) != 0 || len(cfg.ExcludeKeyIndexes) != 0 {
 		t.Fatalf("unexpected key options: %#v", cfg)
+	}
+}
+
+func TestRunExitCodesAndStreams(t *testing.T) {
+	tests := []struct {
+		name, stdout, stderr string
+		args                 []string
+		code                 int
+	}{
+		{name: "version", args: []string{"--version"}, code: 0, stdout: "ayame-diff"},
+		{name: "csv help", args: []string{"--help"}, code: 0, stdout: "compares huge CSV/TSV"},
+		{name: "text help", args: []string{"text", "--help"}, code: 0, stdout: "Line-level diff"},
+		{name: "sorted help", args: []string{"sorted", "--help"}, code: 0, stdout: "Sort both text files"},
+		{name: "dir help", args: []string{"dir", "--help"}, code: 0, stdout: "Recursively compare"},
+		{name: "bin help", args: []string{"bin", "--help"}, code: 0, stdout: "Byte-level"},
+		{name: "serve help", args: []string{"serve", "--help"}, code: 0, stdout: "local web UI"},
+		{name: "gui help", args: []string{"gui", "--help"}, code: 0, stdout: "open it in your browser"},
+		{name: "update help", args: []string{"update", "--help"}, code: 0, stdout: "latest release"},
+		{name: "remove help", args: []string{"remove", "--help"}, code: 0, stdout: "Uninstall"},
+		{name: "no arguments", code: 2, stderr: "no arguments given"},
+		{name: "parse error", args: []string{"--not-a-real-flag"}, code: 2, stderr: "flag provided but not defined"},
+		{name: "text missing paths", args: []string{"text", "only-one"}, code: 2, stderr: "needs exactly two paths"},
+		{name: "removed interactive mode", args: []string{"--interactive"}, code: 2, stderr: "interactive setup UI was removed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(tt.args, &stdout, &stderr); code != tt.code {
+				t.Fatalf("code = %d, want %d; stdout=%q stderr=%q", code, tt.code, stdout.String(), stderr.String())
+			}
+			if tt.stdout != "" && !strings.Contains(stdout.String(), tt.stdout) {
+				t.Errorf("stdout %q does not contain %q", stdout.String(), tt.stdout)
+			}
+			if tt.stdout == "" && stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if tt.stderr != "" && !strings.Contains(stderr.String(), tt.stderr) {
+				t.Errorf("stderr %q does not contain %q", stderr.String(), tt.stderr)
+			}
+			if tt.stderr == "" && stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunCSVMapsCancellationAndDiffExitCodes(t *testing.T) {
+	original := runEngine
+	t.Cleanup(func() { runEngine = original })
+	args := []string{"--left", "left.csv", "--right", "right.csv", "--out", "diff.tsv"}
+
+	runEngine = func(context.Context, engine.Config) (engine.Summary, error) {
+		return engine.Summary{}, context.Canceled
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(args, &stdout, &stderr); code != 130 {
+		t.Fatalf("canceled code = %d, want 130", code)
+	}
+	if !strings.Contains(stderr.String(), "context canceled") {
+		t.Fatalf("canceled stderr = %q", stderr.String())
+	}
+
+	runEngine = func(context.Context, engine.Config) (engine.Summary, error) {
+		return engine.Summary{DiffRows: 1}, nil
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(append(args, "--diff-exit-code"), &stdout, &stderr); code != 1 {
+		t.Fatalf("diff code = %d, want 1", code)
 	}
 }
 

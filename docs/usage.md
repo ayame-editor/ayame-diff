@@ -182,6 +182,7 @@ Normally:
 
 - `0` — success
 - `2` — input, configuration or I/O error
+- `130` — interrupted or explicitly cancelled (for example, declining `remove`)
 
 With `--diff-exit-code` (`csv`):
 
