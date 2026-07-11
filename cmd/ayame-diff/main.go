@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/project"
 )
 
 var version = "dev"
@@ -54,6 +55,8 @@ type cliOptions struct {
 	DiffExitCode bool
 	ShowVersion  bool
 	JSON         bool
+	Project      string
+	SaveProject  string
 }
 
 type repeatedFlag[T any] struct {
@@ -231,6 +234,14 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	cfg := opts.Engine
+	if opts.Project != "" {
+		loaded, loadErr := project.Load(opts.Project)
+		if loadErr != nil {
+			fmt.Fprintln(stderr, "error:", loadErr)
+			return 2
+		}
+		cfg = loaded.CSV
+	}
 	cfg.Log = stderr
 
 	if len(args) == 0 {
@@ -241,6 +252,17 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if opts.SaveProject != "" {
+		if err := cfg.Validate(); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		if err := project.Save(opts.SaveProject, project.Project{Mode: "csv", CSV: cfg, Report: project.Report{CellDiff: cfg.CellDiff, OutputFormat: cfg.OutputFormat}}); err != nil {
+			fmt.Fprintln(stderr, "error: save project:", err)
+			return 2
+		}
+		fmt.Fprintln(stderr, "saved project:", opts.SaveProject)
+	}
 	summary, err := runEngine(ctx, cfg)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -328,6 +350,8 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	fs.BoolVar(&opts.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
 	fs.BoolVar(&cfg.OutputHeader, "output-header", true, "write a header to the output TSV")
 	fs.BoolVar(&opts.ShowVersion, "version", false, "print version and exit")
+	fs.StringVar(&opts.Project, "project", "", "load a versioned .ayamediff.json project")
+	fs.StringVar(&opts.SaveProject, "save-project", "", "save the effective CSV configuration as a project")
 	if err := fs.Parse(args); err != nil {
 		return opts, err
 	}

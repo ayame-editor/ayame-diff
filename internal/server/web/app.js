@@ -40,6 +40,7 @@ const I18N = {
 	csvNoDiff: "CSV 差分はありません。", csvTruncated: "表示上限に達しました。全件は書き出しを使用してください。",
 	selectKey: "キー列を1つ以上選択してください。",
 	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
+	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
     langButton: "EN",
   },
   en: {
@@ -78,6 +79,7 @@ const I18N = {
 	csvNoDiff: "No CSV differences.", csvTruncated: "Display limit reached. Use export for the complete result.",
 	selectKey: "Select at least one key column.",
 	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
+	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
     langButton: "日本語",
   },
 };
@@ -101,6 +103,7 @@ function applyLang(next) {
   $("lang").textContent = t("langButton");
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
+	renderRecentComparisons();
 }
 
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
@@ -696,7 +699,7 @@ async function compareCSV() {
   try {
     const resp = await fetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    csvPage = 0; renderCSV(data); setStatus("");
+    csvPage = 0; renderCSV(data); rememberComparison(body); setStatus("");
   } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
   finally { clearInterval(timer); $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
 }
@@ -709,6 +712,60 @@ async function exportCSV() {
   $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
   try { const resp = await fetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
+}
+
+function recentComparisons() {
+  try { const value = JSON.parse(localStorage.getItem("ayame-recent-csv") || "[]"); return Array.isArray(value) ? value : []; }
+  catch (_) { return []; }
+}
+
+function renderRecentComparisons() {
+  const select = $("recentProjects"); select.innerHTML = "";
+  const first = document.createElement("option"); first.value = ""; first.textContent = t("recent"); select.append(first);
+  recentComparisons().forEach((body, index) => { const option = document.createElement("option"); option.value = String(index); option.textContent = `${body.old || "?"} ↔ ${body.new || "?"}`; select.append(option); });
+}
+
+function rememberComparison(body) {
+  const clean = { ...body }; delete clean._validationError;
+  const items = recentComparisons().filter((item) => item.old !== clean.old || item.new !== clean.new);
+  items.unshift(clean); localStorage.setItem("ayame-recent-csv", JSON.stringify(items.slice(0, 10))); renderRecentComparisons();
+}
+
+async function applyCSVProject(body) {
+  $("old").value = body.old || ""; $("new").value = body.new || "";
+  for (const id of ["leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "whitespace", "memory", "tempDir", "partitionBuffer", "maxRecordBytes"]) if (body[id] != null) $(id).value = body[id];
+  for (const id of ["hasHeader", "alignColumnsByName", "lazyQuotes", "trimLeadingSpace", "ignoreCase", "keepTemp", "outputHeader"]) {
+    const target = id === "alignColumnsByName" ? "alignColumns" : id; if (body[id] != null) $(target).checked = Boolean(body[id]);
+  }
+  for (const id of ["partitions", "parseWorkers", "workers", "mergeFanIn", "maxRows"]) { const target = id === "maxRows" ? "csvMaxRows" : id; if (body[id]) $(target).value = body[id]; }
+  $("lineFilters").value = (body.lineFilters || []).join("\n");
+  $("ignoreColumns").value = (body.ignoreColumnNames?.length ? body.ignoreColumnNames : body.ignoreColumnIndexes || []).join(", ");
+  $("tolerance").value = body.tolerance == null ? "" : body.tolerance;
+  $("columnTolerances").value = (body.columnTolerances || []).map((item) => `${item.name ?? item.index}=${item.value}`).join(", ");
+  $("csvOutput").value = body.output || ""; $("csvOutputFormat").value = body.outputFormat || "tsv";
+  if (body.projectPath) $("projectPath").value = body.projectPath;
+  csvInspection = null; $("keyMode").value = "all";
+  if (!(await inspectCSV())) return;
+  $("keyMode").value = body.keyMode || ((body.keyNames?.length || body.keyIndexes?.length) ? "include" : ((body.excludeKeyNames?.length || body.excludeKeyIndexes?.length) ? "exclude" : "all"));
+  const names = new Set([...(body.keyNames || []), ...(body.excludeKeyNames || [])]);
+  const indexes = new Set([...(body.keyIndexes || []), ...(body.excludeKeyIndexes || [])]);
+  document.querySelectorAll("#columnList input").forEach((input) => { input.checked = names.has(input.dataset.name) || indexes.has(Number(input.dataset.index)); });
+  syncKeyMode(); updateCSVReview();
+}
+
+async function saveProject() {
+	let body = csvRequestBody();
+	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
+	body.projectPath = $("projectPath").value.trim();
+  if (!validateInputs(body) || !body.projectPath || !body.output) { setStatus(`${t("saveProject")}: ${t("outputPath")} / project path required`, "error"); return; }
+  try { const resp = await fetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
+}
+
+async function loadProject() {
+  const path = $("projectPath").value.trim(); if (!path) { setStatus(`${t("openProject")}: path required`, "error"); return; }
+  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); await applyCSVProject(data); rememberComparison(data); setStatus(""); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function compare() {
@@ -900,6 +957,9 @@ $("compare").addEventListener("click", compare);
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
+$("saveProject").addEventListener("click", saveProject);
+$("loadProject").addEventListener("click", loadProject);
+$("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") await applyCSVProject(recentComparisons()[Number($("recentProjects").value)]); });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
 $("keyMode").addEventListener("change", syncKeyMode);

@@ -46,8 +46,8 @@ type Config struct {
 	Tolerance                                              float64
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
-	Log                                                    io.Writer
-	OnProgress                                             func(ProgressEvent)
+	Log                                                    io.Writer           `json:"-"`
+	OnProgress                                             func(ProgressEvent) `json:"-"`
 }
 
 // Resource limits are exported so CLI and GUI validation can share the

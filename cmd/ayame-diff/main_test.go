@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/project"
 )
 
 func TestParseFlagsDefaultsToAllKeys(t *testing.T) {
@@ -155,4 +157,44 @@ func TestParseFlagsCellDiffJSON(t *testing.T) {
 	if !opts.JSON || !opts.Engine.CellDiff || opts.Engine.OutputFormat != "jsonl" {
 		t.Fatalf("options=%+v", opts)
 	}
+}
+
+func TestRunCSVLoadsAndSavesProject(t *testing.T) {
+	original := runEngine
+	t.Cleanup(func() { runEngine = original })
+	dir := t.TempDir()
+	projectPath := filepath.Join(dir, "daily.ayamediff.json")
+	cfg := validCLIConfig(filepath.Join(dir, "old.csv"), filepath.Join(dir, "new.csv"), filepath.Join(dir, "diff.tsv"))
+	cfg.KeyNames = []string{"id"}
+	if err := project.Save(projectPath, project.Project{Mode: "csv", CSV: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	var captured engine.Config
+	runEngine = func(_ context.Context, got engine.Config) (engine.Summary, error) {
+		captured = got
+		return engine.Summary{}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCSV([]string{"--project", projectPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if captured.LeftPath != cfg.LeftPath || !reflect.DeepEqual(captured.KeyNames, []string{"id"}) {
+		t.Fatalf("captured=%+v", captured)
+	}
+
+	saved := filepath.Join(dir, "saved.ayamediff.json")
+	args := []string{"--left", cfg.LeftPath, "--right", cfg.RightPath, "--out", cfg.OutputPath, "--partitions", "2", "--workers", "1", "--parse-workers", "1", "--memory", "64MiB", "--partition-buffer", "4KiB", "--merge-fan-in", "2", "--max-record-bytes", "1MiB", "--save-project", saved}
+	stderr.Reset()
+	if code := runCSV(args, &stdout, &stderr); code != 0 {
+		t.Fatalf("save code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := project.Load(saved); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func validCLIConfig(left, right, out string) engine.Config {
+	return engine.Config{LeftPath: left, RightPath: right, OutputPath: out, HasHeader: true, AlignColumnsByName: true,
+		LeftFormat: "auto", RightFormat: "auto", LeftParser: "auto", RightParser: "auto", Partitions: 2,
+		ParseWorkers: 1, Workers: 1, MemoryText: "64MiB", PartitionBufferText: "4KiB", MergeFanIn: 2, MaxRecordText: "1MiB"}
 }

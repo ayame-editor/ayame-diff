@@ -91,6 +91,8 @@ input[type="text"] {
 .csv-options { margin-top: 1rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem; }
 .csv-options legend { color: var(--muted); padding: 0 0.4rem; }
 .csv-actions, .key-toolbar { display: flex; align-items: end; gap: 0.5rem; flex-wrap: wrap; }
+.project-actions { display: grid; grid-template-columns: minmax(12rem, 1fr) auto auto minmax(10rem, auto); gap: 0.5rem; margin-top: 0.6rem; }
+.project-actions button { margin: 0; }
 .csv-actions button, .key-toolbar button, .csv-options > button { margin: 0; }
 .csv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.65rem; margin-top: 0.7rem; }
 .csv-grid .opt input:not([type="checkbox"]), .csv-grid .opt select { width: 100%; min-width: 0; padding: 0.35rem 0.45rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }

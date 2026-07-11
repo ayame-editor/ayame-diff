@@ -141,6 +141,10 @@ Run `ayame-diff csv --help` for the complete list, including tuning knobs for
 very large inputs (`--memory`, `--partitions`, `--parse-workers`, `--workers`,
 `--merge-fan-in`, `--temp-dir`).
 
+Save or replay the full configuration with `--save-project FILE` and
+`--project FILE`; see [Comparison projects](projects.md) for the versioned JSON,
+relative paths, GUI history, and cron/CI usage.
+
 ---
 
 ## `text` — line-oriented text diff

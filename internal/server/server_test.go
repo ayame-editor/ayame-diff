@@ -110,6 +110,26 @@ func TestCSVInspectDiffAndFileBrowser(t *testing.T) {
 	if !strings.Contains(string(exported), "_changed_cols") || !strings.Contains(string(exported), "name,value") {
 		t.Fatalf("export=%s", exported)
 	}
+	request.ProjectPath = filepath.Join(dir, "daily.ayamediff.json")
+	body, _ = json.Marshal(request)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/project/save", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("project save status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	loadBody, _ := json.Marshal(map[string]string{"path": request.ProjectPath})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/project/load", bytes.NewReader(loadBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("project load status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var loaded csvRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Old != left || loaded.New != right || loaded.KeyMode != "include" || loaded.ProjectPath != request.ProjectPath {
+		t.Fatalf("loaded=%+v", loaded)
+	}
 
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/files?path="+url.QueryEscape(dir), nil))

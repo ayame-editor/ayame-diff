@@ -106,6 +106,7 @@ ayame-diff csv --left a.csv --right b.csv --key id \
   --cell-diff --out cells.tsv       # _changed_cols と列別ランキング
 ayame-diff csv --left a.csv --right b.csv --key id \
   --json --out cells.jsonl          # old/new セル値を構造化出力
+ayame-diff csv --project jobs/daily.ayamediff.json --diff-exit-code
 ```
 
 `--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わったワードだけを `[-削除-]` / `{+追加+}` のマーカーで強調します。

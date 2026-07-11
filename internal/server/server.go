@@ -24,6 +24,7 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/hjosugi/ayame-diff/internal/project"
 )
 
 //go:embed web
@@ -50,6 +51,8 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
 	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
+	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	return s, nil
 }
 
@@ -92,6 +95,33 @@ type csvRequest struct {
 	Output              string                   `json:"output"`
 	OutputFormat        string                   `json:"outputFormat"`
 	OutputHeader        bool                     `json:"outputHeader"`
+	ProjectPath         string                   `json:"projectPath"`
+}
+
+func requestFromConfig(cfg engine.Config) csvRequest {
+	var tolerance *float64
+	if cfg.ToleranceSet {
+		value := cfg.Tolerance
+		tolerance = &value
+	}
+	keyMode := "all"
+	if len(cfg.KeyNames)+len(cfg.KeyIndexes) > 0 {
+		keyMode = "include"
+	}
+	if len(cfg.ExcludeKeyNames)+len(cfg.ExcludeKeyIndexes) > 0 {
+		keyMode = "exclude"
+	}
+	return csvRequest{
+		Old: cfg.LeftPath, New: cfg.RightPath, HasHeader: cfg.HasHeader, AlignColumnsByName: cfg.AlignColumnsByName, KeyMode: keyMode,
+		KeyNames: cfg.KeyNames, KeyIndexes: cfg.KeyIndexes, ExcludeKeyNames: cfg.ExcludeKeyNames, ExcludeKeyIndexes: cfg.ExcludeKeyIndexes, IndexBase: cfg.IndexBase,
+		LeftFormat: cfg.LeftFormat, RightFormat: cfg.RightFormat, LeftDelimiter: cfg.LeftDelimiter, RightDelimiter: cfg.RightDelimiter,
+		LeftParser: cfg.LeftParser, RightParser: cfg.RightParser, LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace,
+		IgnoreCase: cfg.IgnoreCase, Whitespace: cfg.IgnoreWhitespace, LineFilters: cfg.LineFilters,
+		IgnoreColumnNames: cfg.IgnoreColumnNames, IgnoreColumnIndexes: cfg.IgnoreColumnIndexes, Tolerance: tolerance, ColumnTolerances: cfg.ColumnTolerances,
+		Partitions: cfg.Partitions, ParseWorkers: cfg.ParseWorkers, Workers: cfg.Workers, Memory: cfg.MemoryText, PartitionBuffer: cfg.PartitionBufferText,
+		MergeFanIn: cfg.MergeFanIn, MaxRecordBytes: cfg.MaxRecordText, TempDir: cfg.TempDir, KeepTemp: cfg.KeepTemp,
+		Output: cfg.OutputPath, OutputFormat: cfg.OutputFormat, OutputHeader: cfg.OutputHeader,
+	}
 }
 
 type csvCellChange struct {
@@ -298,6 +328,53 @@ func (s *Server) handleCSVExport(w http.ResponseWriter, r *http.Request) {
 		Output  string         `json:"output"`
 		Summary engine.Summary `json:"summary"`
 	}{Output: req.Output, Summary: summary})
+}
+
+func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeCSVRequest(w, r)
+	if !ok {
+		return
+	}
+	if req.ProjectPath == "" || req.Output == "" {
+		writeError(w, http.StatusBadRequest, "project and output paths are required")
+		return
+	}
+	cfg := csvConfig(req, req.Output)
+	cfg.OutputFormat, cfg.OutputHeader = req.OutputFormat, req.OutputHeader
+	if cfg.OutputFormat == "" {
+		cfg.OutputFormat = "tsv"
+	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := project.Save(req.ProjectPath, project.Project{Mode: "csv", CSV: cfg, Report: project.Report{CellDiff: true, OutputFormat: cfg.OutputFormat}}); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": req.ProjectPath})
+}
+
+func (s *Server) handleProjectLoad(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
+		writeError(w, http.StatusBadRequest, "project path is required")
+		return
+	}
+	loaded, err := project.Load(body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req := requestFromConfig(loaded.CSV)
+	req.ProjectPath = body.Path
+	writeJSON(w, http.StatusOK, req)
 }
 
 type fileEntry struct {
