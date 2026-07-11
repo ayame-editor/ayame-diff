@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](gui-setup-parity.md) | [日本語](gui-setup-parity.ja.md)
+
 # GUI setup parity checklist
 
 The retired terminal wizard is fully represented by the browser GUI. This

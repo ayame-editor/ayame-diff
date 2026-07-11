@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](usage.md) | [日本語](usage.ja.md)
+
 # Usage
 
 `ayame-diff` has three comparison subcommands plus two that launch the web GUI.

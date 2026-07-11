@@ -1,7 +1,7 @@
 <!-- i18n: language-switcher -->
 [English](README.md) | [日本語](README.ja.md)
 
-# Architecture Decision Records
+# アーキテクチャ決定記録
 
 方針決定の記録。番号は連番、ステータスは Proposed / Accepted / Superseded。
 

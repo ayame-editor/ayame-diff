@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](../index.md) | [日本語](index.md)
+
 # ayame-diff
 
 **巨大な** CSV / TSV とテキストファイルを比較するネイティブ CLI ツールです。

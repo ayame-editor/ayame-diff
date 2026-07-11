@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](README.en.md) | [日本語](README.md)
+
 # ayame-diff
 
 [English](README.md) | [日本語](README.ja.md)

@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](0001-naming-unification.en.md) | [日本語](0001-naming-unification.md)
+
 # ADR 0001: プロジェクト名の統一 — `fcsv-diff` → `ayame-diff`
 
 - ステータス: Accepted（2026-07-10）

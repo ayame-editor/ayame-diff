@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](README_WINDOWS.md) | [日本語](README_WINDOWS.ja.md)
+
 # ayame-diff for Windows
 
 `ayame-diff.exe` is a native Windows binary; Go, Python, WSL, Java, and extra

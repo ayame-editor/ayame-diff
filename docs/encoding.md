@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](encoding.md) | [日本語](encoding.ja.md)
+
 # Encoding
 
 The `text` and `sorted` subcommands read files in a range of encodings and

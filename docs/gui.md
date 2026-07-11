@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](gui.md) | [日本語](gui.ja.md)
+
 # GUI
 
 `ayame-diff` bundles a small local web app so you can compare files in the
