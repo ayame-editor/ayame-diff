@@ -31,6 +31,18 @@
   }
 }
 
+/* Colorblind-safe scheme (blue = added, orange = deleted) for both modes. */
+:root[data-scheme="colorblind"] {
+  --add-bg: #dbeafe; --add-fg: #1e40af; --del-bg: #ffedd5; --del-fg: #9a3412;
+  --chg-bg: #fef9c3; --word-add: #93c5fd; --word-del: #fdba74;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="colorblind"] {
+    --add-bg: #0c2b4a; --add-fg: #7cb0ff; --del-bg: #3a2410; --del-fg: #fb923c;
+    --chg-bg: #2b2413; --word-add: #1e4e8c; --word-del: #7c3f12;
+  }
+}
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -112,6 +124,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   border-top: 1px solid var(--border);
 }
 .cell:first-child { border-right: 1px solid var(--border); }
+.result.nowrap .cell { white-space: pre; }
 .cell .ln { color: var(--muted); text-align: right; user-select: none; }
 .cell.add { background: var(--add-bg); }
 .cell.del { background: var(--del-bg); }

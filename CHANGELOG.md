@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.6 - 2026-07-11
+
+- Web UI: added a **colorblind-safe color scheme** (blue = added, orange =
+  deleted) selectable in the UI, plus a line-wrap toggle. Both persist across
+  visits and work in light and dark. (#58, #36 partial)
+
 ## v0.7.5 - 2026-07-11
 
 - Added `--pre <command>` to `text`/`sorted`: preprocess each input through a

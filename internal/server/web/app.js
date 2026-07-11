@@ -9,7 +9,7 @@ const I18N = {
     maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
     ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
-    cancelled: "キャンセルしました",
+    cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -21,7 +21,7 @@ const I18N = {
     maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
     reverse: "reverse", compare: "Compare",
     ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
-    cancelled: "Cancelled",
+    cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -267,9 +267,25 @@ function syncModeOpts() {
   $("reverseWrap").hidden = !sorted;
 }
 
+// Display preferences (color scheme + line wrap), persisted across visits.
+function applyScheme(v) {
+  document.documentElement.setAttribute("data-scheme", v === "default" ? "" : v);
+  localStorage.setItem("ayame-scheme", v);
+  $("scheme").value = v;
+}
+function applyWrap(on) {
+  $("result").classList.toggle("nowrap", !on);
+  localStorage.setItem("ayame-wrap", on ? "1" : "0");
+  $("wrap").checked = on;
+}
+
 $("compare").addEventListener("click", compare);
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("scheme").addEventListener("change", () => applyScheme($("scheme").value));
+$("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
+applyScheme(localStorage.getItem("ayame-scheme") || "default");
+applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
 applyLang(lang);
