@@ -87,6 +87,8 @@ ayame-diff text --help
 
 ## Links
 
+- [Ayame family design](design.md) and the sister
+  [ayame-editor](https://github.com/hjosugi/ayame-editor)
 - [GitHub repository](https://github.com/hjosugi/ayame-diff)
 - [Latest release](https://github.com/hjosugi/ayame-diff/releases/latest)
 - [Changelog](https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md)

@@ -1,3 +1,4 @@
+/* Fallback declarations are overridden by the subsequently loaded tokens.css. */
 :root {
   --bg: #ffffff;
   --fg: #1c2128;
@@ -51,7 +52,7 @@
 [hidden] { display: none !important; }
 body {
   margin: 0;
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  font: 14px/1.5 var(--ui);
   background: var(--bg);
   color: var(--fg);
 }
@@ -77,7 +78,7 @@ body {
 }
 main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 
-.setup { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.setup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow); }
 .paths { display: grid; gap: 0.6rem; }
 .paths label { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: 0.6rem; }
 .paths span { color: var(--muted); font-size: 0.8rem; }
