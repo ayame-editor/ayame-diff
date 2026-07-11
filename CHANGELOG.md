@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.8 - 2026-07-11
+
+- Web UI: **scratch / paste comparison** — toggle "paste text" to diff two
+  pasted/typed texts directly, without saving files first. Backed by an inline
+  mode on `/api/diff` (`inline` + `oldText`/`newText`). (#55, scratch part)
+
 ## v0.7.7 - 2026-07-11
 
 - Web UI: added a **show-whitespace** toggle that renders spaces as `·` and tabs

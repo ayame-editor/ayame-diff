@@ -10,7 +10,7 @@ const I18N = {
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
     ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
-    showWs: "空白表示",
+    showWs: "空白表示", scratch: "テキスト貼り付け",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -23,7 +23,7 @@ const I18N = {
     reverse: "reverse", compare: "Compare",
     ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
-    showWs: "show whitespace",
+    showWs: "show whitespace", scratch: "paste text",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -242,9 +242,13 @@ function setStatus(msg, cls) {
 }
 
 async function compare() {
+  const scratch = $("scratch").checked;
   const body = {
+    inline: scratch,
     old: $("old").value.trim(),
     new: $("new").value.trim(),
+    oldText: $("oldText").value,
+    newText: $("newText").value,
     mode: $("mode").value,
     encoding: $("encoding").value,
     window: Number($("window").value) || 128,
@@ -255,7 +259,7 @@ async function compare() {
     ignoreCase: $("ignoreCase").checked,
     whitespace: $("whitespace").value,
   };
-  if (!body.old || !body.new) {
+  if (!scratch && (!body.old || !body.new)) {
     setStatus(t("enterPaths"), "error");
     return;
   }
@@ -319,6 +323,13 @@ $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   if (lastData) renderResult(lastData); // re-render so the change is immediate
 });
+function applyScratch() {
+  const on = $("scratch").checked;
+  $("paths").hidden = on;
+  $("scratchArea").hidden = !on;
+}
+$("scratch").addEventListener("change", applyScratch);
+applyScratch();
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";

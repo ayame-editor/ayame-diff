@@ -15,7 +15,8 @@
 
     <main>
       <section class="setup" id="setup">
-        <div class="paths">
+        <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
+        <div class="paths" id="paths">
           <label>
             <span>OLD</span>
             <input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" />
@@ -24,6 +25,10 @@
             <span>NEW</span>
             <input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" />
           </label>
+        </div>
+        <div class="scratch-area" id="scratchArea" hidden>
+          <label><span>OLD</span><textarea id="oldText" rows="6" spellcheck="false"></textarea></label>
+          <label><span>NEW</span><textarea id="newText" rows="6" spellcheck="false"></textarea></label>
         </div>
         <div class="opts">
           <label class="opt">

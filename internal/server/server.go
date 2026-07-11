@@ -57,6 +57,11 @@ type diffRequest struct {
 	Reverse    bool   `json:"reverse"`
 	IgnoreCase bool   `json:"ignoreCase"`
 	Whitespace string `json:"whitespace"` // none | change | all
+	// Inline compares OldText/NewText directly instead of the Old/New paths —
+	// "scratch" comparison of pasted text (#55).
+	Inline  bool   `json:"inline"`
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
 }
 
 // hunkOut is a hunk with its (capped) line text, ready for the frontend.
@@ -91,7 +96,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if req.Old == "" || req.New == "" {
+	if !req.Inline && (req.Old == "" || req.New == "") {
 		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
@@ -109,18 +114,26 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		maxLines = 200
 	}
 
-	oldLines, closeOld, err := openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "old: "+err.Error())
-		return
+	var oldLines, newLines linediff.Lines
+	if req.Inline {
+		oldLines = inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse)
+		newLines = inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse)
+	} else {
+		var closeOld, closeNew func()
+		var err error
+		oldLines, closeOld, err = openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "old: "+err.Error())
+			return
+		}
+		defer closeOld()
+		newLines, closeNew, err = openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "new: "+err.Error())
+			return
+		}
+		defer closeNew()
 	}
-	defer closeOld()
-	newLines, closeNew, err := openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "new: "+err.Error())
-		return
-	}
-	defer closeNew()
 
 	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
 		MaxHunks:   maxHunks,
@@ -141,6 +154,16 @@ func whitespaceMode(s string) linediff.Whitespace {
 	default:
 		return linediff.WSKeep
 	}
+}
+
+// inlineLines builds a linediff.Lines from in-memory text (scratch comparison),
+// sorting it when the sorted mode is selected.
+func inlineLines(text, mode string, numeric, reverse bool) linediff.Lines {
+	lines := linediff.SplitLines(text)
+	if mode == "sorted" {
+		return linesort.SortLines(lines, numeric, reverse)
+	}
+	return lines
 }
 
 // openMode builds a linediff.Lines for path in the given mode, decoded from
