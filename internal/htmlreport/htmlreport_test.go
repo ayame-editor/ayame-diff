@@ -42,10 +42,14 @@ func TestWriteEscapesHTML(t *testing.T) {
 	if err := Write(&buf, old, new, res, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(buf.String(), "<script>alert(1)</script>") {
-		t.Fatal("raw file content must be HTML-escaped")
+	out := buf.String()
+	// Raw markup from the files must never appear un-escaped.
+	if strings.Contains(out, "<script>") || strings.Contains(out, "alert(1)</script>") {
+		t.Fatalf("raw file content must be HTML-escaped:\n%s", out)
 	}
-	if !strings.Contains(buf.String(), "&lt;script&gt;") {
-		t.Fatal("expected escaped content")
+	// The escaped form of "<" must be present (word-diff spans may split the
+	// token, so we check the character, not a contiguous "&lt;script&gt;").
+	if !strings.Contains(out, "&lt;") {
+		t.Fatal("expected escaped '<' in the output")
 	}
 }
