@@ -255,8 +255,8 @@ func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspected
 	for i := 0; i < workers; i++ {
 		x := <-ch
 		total += x.rows
-		if x.err != nil && first == nil {
-			first = x.err
+		if x.err != nil {
+			first = preferRootCause(first, x.err)
 		}
 	}
 	if first != nil {

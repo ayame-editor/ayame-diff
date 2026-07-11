@@ -96,6 +96,17 @@ type partitionResult struct {
 	err   error
 }
 
+// preferRootCause chooses the error that better explains a parallel failure.
+// When one worker fails it cancels the shared context, so sibling workers then
+// report context.Canceled; a concrete error must win over that cancellation so
+// the reported message names the real cause (#40). next is assumed non-nil.
+func preferRootCause(current, next error) error {
+	if current == nil || errors.Is(current, context.Canceled) {
+		return next
+	}
+	return current
+}
+
 func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, columnCount int, keyIsFullRow bool, cfg Config, workRoot string) (partitionStats, []string, error) {
 	var total partitionStats
 	if len(leftParts) != cfg.Partitions || len(rightParts) != cfg.Partitions {
@@ -139,9 +150,7 @@ func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, c
 	var firstErr error
 	for result := range results {
 		if result.err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("process partition %d: %w", result.index, result.err)
-			}
+			firstErr = preferRootCause(firstErr, fmt.Errorf("process partition %d: %w", result.index, result.err))
 			continue
 		}
 		paths[result.index] = result.path
