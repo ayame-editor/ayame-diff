@@ -81,6 +81,7 @@ button {
   background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
+.cancel { background: transparent; color: var(--del-fg); border: 1px solid var(--del-fg); }
 
 .status { margin-top: 0.9rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border); }
 .status.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }

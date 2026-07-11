@@ -8,7 +8,8 @@ const I18N = {
     mode: "モード", encoding: "文字コード", window: "ウィンドウ",
     maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
-    ignoreCase: "大小無視", whitespace: "空白",
+    ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
+    cancelled: "キャンセルしました",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -19,7 +20,8 @@ const I18N = {
     mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
     maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
     reverse: "reverse", compare: "Compare",
-    ignoreCase: "ignore case", whitespace: "whitespace",
+    ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
+    cancelled: "Cancelled",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -90,6 +92,9 @@ function inlineWordDiff(oldText, newText) {
   }
   return { oldParts, newParts };
 }
+
+// In-flight request controller, so the Cancel button can abort a long compare.
+let currentAbort = null;
 
 // ---- rendering ----
 function textSpan(parts, changedClass) {
@@ -212,15 +217,22 @@ async function compare() {
     setStatus(t("enterPaths"), "error");
     return;
   }
+  const ac = new AbortController();
+  currentAbort = ac;
   $("compare").disabled = true;
-  setStatus(t("comparing"), "busy");
+  $("cancel").hidden = false;
   $("summary").hidden = true;
   $("result").innerHTML = "";
+  const started = Date.now();
+  const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
+  tick();
+  const timer = setInterval(tick, 100);
   try {
     const resp = await fetch("/api/diff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: ac.signal,
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
@@ -239,9 +251,13 @@ async function compare() {
     for (const h of data.hunks) frag.append(renderHunk(h, useWord));
     result.append(frag);
   } catch (err) {
-    setStatus(String(err.message || err), "error");
+    if (err.name === "AbortError") setStatus(t("cancelled"), "");
+    else setStatus(String(err.message || err), "error");
   } finally {
+    clearInterval(timer);
     $("compare").disabled = false;
+    $("cancel").hidden = true;
+    currentAbort = null;
   }
 }
 
@@ -252,6 +268,7 @@ function syncModeOpts() {
 }
 
 $("compare").addEventListener("click", compare);
+$("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
