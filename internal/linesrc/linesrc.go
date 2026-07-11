@@ -20,6 +20,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/hjosugi/ayame-diff/internal/encoding"
 )
 
 const (
@@ -37,9 +39,10 @@ const (
 // FileLines serves the lines of a file to linediff.Lines with bounded memory.
 // It is not safe for concurrent use.
 type FileLines struct {
-	path    string
-	gzipped bool
-	count   uint64
+	path     string
+	gzipped  bool
+	encoding string // concrete encoding name (as resolved by the encoding pkg)
+	count    uint64
 
 	// Streaming state. reader is positioned just past line index next-1.
 	file   *os.File
@@ -54,20 +57,62 @@ type FileLines struct {
 	next     uint64
 }
 
-// Open reads path (gzip-decompressed if it ends in ".gz"), pre-counts its lines
-// in one pass, and returns a FileLines positioned to stream from the start.
-// Close releases the underlying file handle.
+// Open reads path with automatic encoding detection. Equivalent to
+// OpenEncoding(path, encoding.Auto).
 func Open(path string) (*FileLines, error) {
+	return OpenEncoding(path, encoding.Auto)
+}
+
+// OpenEncoding reads path (gzip-decompressed if it ends in ".gz"), decoding it
+// to UTF-8 from the given encoding hint (a concrete name forces it; "auto"/""
+// detects from a sample). It pre-counts the lines in one pass and returns a
+// FileLines positioned to stream from the start. Close releases the file handle.
+func OpenEncoding(path, encHint string) (*FileLines, error) {
 	gzipped := strings.HasSuffix(strings.ToLower(path), ".gz")
-	count, err := countLines(path, gzipped)
+	enc, err := detectEncoding(path, gzipped, encHint)
 	if err != nil {
 		return nil, err
 	}
-	f := &FileLines{path: path, gzipped: gzipped, count: count}
+	count, err := countLines(path, gzipped, enc)
+	if err != nil {
+		return nil, err
+	}
+	f := &FileLines{path: path, gzipped: gzipped, encoding: enc, count: count}
 	if err := f.reset(); err != nil {
 		return nil, err
 	}
 	return f, nil
+}
+
+// Encoding reports the concrete encoding the file was decoded from.
+func (f *FileLines) Encoding() string { return f.encoding }
+
+// detectSample bounds how many bytes are read to detect the encoding.
+const detectSample = 8 * 1024
+
+// detectEncoding reads a decompressed sample from path and resolves its
+// encoding, honoring an explicit hint.
+func detectEncoding(path string, gzipped bool, hint string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	var r io.Reader = file
+	if gzipped {
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return "", err
+		}
+		defer gz.Close()
+		r = gz
+	}
+	sample := make([]byte, detectSample)
+	n, err := io.ReadFull(r, sample)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	return encoding.Detect(sample[:n], hint), nil
 }
 
 // Count returns the pre-counted number of lines.
@@ -172,8 +217,9 @@ func normalizeLine(chunk string) string {
 	return chunk
 }
 
-// countLines counts lines using the same emit rule as readLine, in one pass.
-func countLines(path string, gzipped bool) (uint64, error) {
+// countLines counts lines using the same emit rule as readLine, in one pass,
+// over the decoded (UTF-8) stream.
+func countLines(path string, gzipped bool, enc string) (uint64, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -189,7 +235,7 @@ func countLines(path string, gzipped bool) (uint64, error) {
 		defer gz.Close()
 		r = gz
 	}
-	br := bufio.NewReaderSize(r, readerBufSize)
+	br := bufio.NewReaderSize(encoding.Decoder(r, enc), readerBufSize)
 	if err := skipUTF8BOM(br); err != nil {
 		return 0, err
 	}
@@ -229,7 +275,7 @@ func (f *FileLines) reset() error {
 	}
 	f.file = file
 	f.gz = gz
-	f.reader = bufio.NewReaderSize(r, readerBufSize)
+	f.reader = bufio.NewReaderSize(encoding.Decoder(r, f.encoding), readerBufSize)
 	if err := skipUTF8BOM(f.reader); err != nil {
 		file.Close()
 		return err

@@ -13,11 +13,11 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
 )
 
-// Sorted reads every line of path and returns them sorted. When numeric, lines
-// are ordered by their parsed leading numeric value (falling back to lexical);
-// when reverse, the order is inverted.
-func Sorted(path string, numeric, reverse bool) (linediff.StringLines, error) {
-	src, err := linesrc.Open(path)
+// Sorted reads every line of path (decoded from encHint, "auto" to detect) and
+// returns them sorted. When numeric, lines are ordered by their parsed leading
+// numeric value (falling back to lexical); when reverse, the order is inverted.
+func Sorted(path string, numeric, reverse bool, encHint string) (linediff.StringLines, error) {
+	src, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		return nil, err
 	}

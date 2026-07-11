@@ -1,5 +1,18 @@
 # Third-party notices
 
+## golang.org/x/text
+
+The `internal/encoding` package depends on `golang.org/x/text` for the vetted
+Japanese codec tables (Shift_JIS, EUC-JP, ISO-2022-JP) and UTF-16 decoders used
+to support non-UTF-8 input (see `docs/adr/0003-encoding-dependency.md`). This is
+the project's only dependency beyond the Go standard library.
+
+Copyright (c) 2009 The Go Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the conditions of the BSD 3-Clause
+license are met. Full text: https://cs.opensource.google/go/x/text/+/master:LICENSE
+
 ## xxHash
 
 `internal/engine/binary.go` contains an independent Go implementation of the

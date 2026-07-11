@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.0 - 2026-07-11 — full Japanese encoding support
+
+- Added character-encoding detection and decoding for non-UTF-8 input (#9):
+  **UTF-8, UTF-16 (LE/BE, BOM-aware), Shift_JIS, EUC-JP, and ISO-2022-JP**. The
+  `text` and `sorted` subcommands auto-detect the encoding (BOM first, then a
+  UTF-8 / Japanese heuristic) and decode to UTF-8 while streaming with bounded
+  memory. Override with `--encoding <name>`; the web UI has an encoding
+  dropdown. Modeled on WinMerge's codepage support.
+- **New dependency:** `golang.org/x/text` (pinned v0.21.0), confined to
+  `internal/encoding`, for the vetted Japanese/UTF-16 codec tables. It is the
+  project's only dependency beyond the standard library; the CSV and diff cores
+  stay standard-library-only. See ADR 0003 and `THIRD_PARTY_NOTICES.md`.
+- Web UI: encoding selector; Japanese label reads 「ワードハイライト」.
+
 ## v0.4.0 - 2026-07-10 — GUI (web) debut
 
 - Added a `serve` subcommand and local web UI (#10, #11). `ayame-diff serve`

@@ -5,9 +5,9 @@ const $ = (id) => document.getElementById(id);
 // ---- i18n (JA/EN) ----
 const I18N = {
   ja: {
-    mode: "モード", window: "ウィンドウ", maxHunks: "最大ハンク数",
-    maxLines: "ハンクあたり最大行", word: "語ハイライト", numeric: "数値",
-    reverse: "逆順", compare: "比較",
+    mode: "モード", encoding: "文字コード", window: "ウィンドウ",
+    maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
+    word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -15,7 +15,7 @@ const I18N = {
     langButton: "EN",
   },
   en: {
-    mode: "mode", window: "window", maxHunks: "max hunks",
+    mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
     maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
     reverse: "reverse", compare: "Compare",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
@@ -197,6 +197,7 @@ async function compare() {
     old: $("old").value.trim(),
     new: $("new").value.trim(),
     mode: $("mode").value,
+    encoding: $("encoding").value,
     window: Number($("window").value) || 128,
     maxHunks: Number($("maxHunks").value) || 200,
     maxLines: Number($("maxLines").value) || 200,

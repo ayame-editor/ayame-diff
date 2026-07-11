@@ -49,6 +49,7 @@ type diffRequest struct {
 	Old      string `json:"old"`
 	New      string `json:"new"`
 	Mode     string `json:"mode"` // "text" (default) or "sorted"
+	Encoding string `json:"encoding"`
 	Window   uint64 `json:"window"`
 	MaxHunks int    `json:"maxHunks"`
 	MaxLines uint64 `json:"maxLines"`
@@ -106,13 +107,13 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		maxLines = 200
 	}
 
-	oldLines, closeOld, err := openMode(req.Old, req.Mode, req.Numeric, req.Reverse)
+	oldLines, closeOld, err := openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "old: "+err.Error())
 		return
 	}
 	defer closeOld()
-	newLines, closeNew, err := openMode(req.New, req.Mode, req.Numeric, req.Reverse)
+	newLines, closeNew, err := openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "new: "+err.Error())
 		return
@@ -123,17 +124,18 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
 }
 
-// openMode builds a linediff.Lines for path in the given mode. It returns a
-// close func (a no-op for sorted, whose lines are already in memory).
-func openMode(path, mode string, numeric, reverse bool) (linediff.Lines, func(), error) {
+// openMode builds a linediff.Lines for path in the given mode, decoded from
+// encHint ("auto" to detect). It returns a close func (a no-op for sorted,
+// whose lines are already in memory).
+func openMode(path, mode, encHint string, numeric, reverse bool) (linediff.Lines, func(), error) {
 	if mode == "sorted" {
-		lines, err := linesort.Sorted(path, numeric, reverse)
+		lines, err := linesort.Sorted(path, numeric, reverse, encHint)
 		if err != nil {
 			return nil, func() {}, err
 		}
 		return lines, func() {}, nil
 	}
-	f, err := linesrc.Open(path)
+	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		return nil, func() {}, err
 	}

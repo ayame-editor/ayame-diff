@@ -30,7 +30,7 @@ func TestSorted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Sorted(path, false, false)
+	got, err := Sorted(path, false, false, "auto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestSorted(t *testing.T) {
 		}
 	}
 
-	rev, err := Sorted(path, false, true)
+	rev, err := Sorted(path, false, true, "auto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestSorted(t *testing.T) {
 	if err := os.WriteFile(num, []byte("10\n2\n33\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ns, err := Sorted(num, true, false)
+	ns, err := Sorted(num, true, false, "auto")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@
 ## 主な機能
 
 - CSV/TSV キー比較（`csv`）に加え、テキスト行 diff（`text`）とソート済み比較（`sorted`）
+- 文字コード自動判定（UTF-8 / UTF-16 / Shift_JIS / EUC-JP / ISO-2022-JP）、`--encoding` で明示指定も可能
 - CSV、TSV、`.csv.gz`、`.tsv.gz` に対応
 - 左右で形式が異なる組み合わせにも対応
 - キー指定なしなら全列をキーとして比較
@@ -62,9 +63,12 @@ ayame-diff text old.txt new.txt                 # unified（既定）
 ayame-diff text --side-by-side old.txt new.txt  # 2 カラム表示
 ayame-diff text --json old.txt new.txt          # 機械可読 JSON
 ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
+ayame-diff text --encoding shift_jis a.txt b.txt  # 文字コードを明示（既定 auto）
 ```
 
-`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わった語だけを `[-削除-]` / `{+追加+}` のマーカーで強調します。
+Shift_JIS / EUC-JP / UTF-16 / ISO-2022-JP は自動判定されます（BOM 優先、その後ヒューリスティック）。誤判定時は `--encoding` で上書きしてください。
+
+`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わったワードだけを `[-削除-]` / `{+追加+}` のマーカーで強調します。
 
 ### `sorted` — ソート済み比較
 
@@ -84,7 +88,7 @@ ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
 ```
 
-OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・語単位ハイライト付きの side-by-side グリッドで差分を表示します。
+OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。
 
 ## キーの選び方
 

@@ -97,4 +97,7 @@ The Windows executables were cross-compiled, structurally inspected, and compile
 
 ## Build toolchain
 
-The packaged binaries were built with Go 1.23.2 and `CGO_ENABLED=0`. The module declares Go 1.23 compatibility and has no external Go module dependencies.
+The packaged binaries were built with `CGO_ENABLED=0`. The module declares Go
+1.23 compatibility. Its only external dependency is `golang.org/x/text` (pinned
+to v0.21.0, used by `internal/encoding` for Japanese/UTF-16 codecs; see ADR
+0003); the CSV and diff cores remain standard-library-only.

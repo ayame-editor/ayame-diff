@@ -6,5 +6,6 @@
 | --- | --- | --- | --- |
 | [0001](0001-naming-unification.md) | プロジェクト名の統一（`fcsv-diff` → `ayame-diff`） | Accepted | #3 |
 | [0002](0002-diff-acceptance-architecture.md) | diff / sortdiff 受け入れアーキテクチャ | Accepted | #4 |
+| [0003](0003-encoding-dependency.md) | 文字コード対応と依存性の例外（x/text） | Accepted | #9 |
 
 姉妹プロジェクト ayame-editor 側の切り出し方針: hjosugi/ayame-editor#104

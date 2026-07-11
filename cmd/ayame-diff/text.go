@@ -23,6 +23,7 @@ type diffFlags struct {
 	window   uint64
 	width    int
 	word     bool
+	encoding string
 }
 
 func (d *diffFlags) register(fs *flag.FlagSet) {
@@ -31,6 +32,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
+	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -80,9 +82,9 @@ inputs.`)
 		return
 	}
 
-	oldSrc := openLines(fs.Arg(0))
+	oldSrc := openLines(fs.Arg(0), d.encoding)
 	defer oldSrc.Close()
-	newSrc := openLines(fs.Arg(1))
+	newSrc := openLines(fs.Arg(1), d.encoding)
 	defer newSrc.Close()
 	emitDiff(oldSrc, newSrc, d)
 }
@@ -117,12 +119,12 @@ Note: v1 sorts in memory.`)
 		return
 	}
 
-	oldLines, err := linesort.Sorted(fs.Arg(0), numeric, reverse)
+	oldLines, err := linesort.Sorted(fs.Arg(0), numeric, reverse, d.encoding)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
-	newLines, err := linesort.Sorted(fs.Arg(1), numeric, reverse)
+	newLines, err := linesort.Sorted(fs.Arg(1), numeric, reverse, d.encoding)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
@@ -147,8 +149,8 @@ func parseDiffArgs(fs *flag.FlagSet, args []string) bool {
 	return true
 }
 
-func openLines(path string) *linesrc.FileLines {
-	f, err := linesrc.Open(path)
+func openLines(path, encHint string) *linesrc.FileLines {
+	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
