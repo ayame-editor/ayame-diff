@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.7 - 2026-07-11
+
+- Web UI: added a **show-whitespace** toggle that renders spaces as `·` and tabs
+  as `→` (dimmed), making whitespace-only differences visible; applies
+  immediately and persists. Completes the display-options set (wrap, colors,
+  whitespace). (#36)
+
 ## v0.7.6 - 2026-07-11
 
 - Web UI: added a **colorblind-safe color scheme** (blue = added, orange =

@@ -125,6 +125,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .cell:first-child { border-right: 1px solid var(--border); }
 .result.nowrap .cell { white-space: pre; }
+.ws { color: var(--muted); opacity: 0.55; }
 .cell .ln { color: var(--muted); text-align: right; user-select: none; }
 .cell.add { background: var(--add-bg); }
 .cell.del { background: var(--del-bg); }

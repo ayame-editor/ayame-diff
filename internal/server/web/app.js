@@ -10,6 +10,7 @@ const I18N = {
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
     ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
+    showWs: "空白表示",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -22,6 +23,7 @@ const I18N = {
     reverse: "reverse", compare: "Compare",
     ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
+    showWs: "show whitespace",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -95,8 +97,28 @@ function inlineWordDiff(oldText, newText) {
 
 // In-flight request controller, so the Cancel button can abort a long compare.
 let currentAbort = null;
+// Display prefs read at render time.
+let showWS = false;
+let lastData = null; // last diff response, for re-render on a display-option change
 
 // ---- rendering ----
+// appendText adds text to el, optionally rendering whitespace as dimmed marks
+// (space -> ·, tab -> →) so leading/trailing spacing is visible.
+function appendText(el, text) {
+  if (!showWS) { el.appendChild(document.createTextNode(text)); return; }
+  const re = /(\s+)|([^\s]+)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m[1]) {
+      const s = document.createElement("span");
+      s.className = "ws";
+      s.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      el.appendChild(s);
+    } else {
+      el.appendChild(document.createTextNode(m[2]));
+    }
+  }
+}
 function textSpan(parts, changedClass) {
   const tx = document.createElement("span");
   tx.className = "tx";
@@ -104,7 +126,7 @@ function textSpan(parts, changedClass) {
   for (const p of parts) {
     const s = document.createElement("span");
     if (p.changed) s.className = changedClass;
-    s.textContent = p.text;
+    appendText(s, p.text);
     tx.append(s);
   }
   return tx;
@@ -112,7 +134,7 @@ function textSpan(parts, changedClass) {
 function plainSpan(text) {
   const tx = document.createElement("span");
   tx.className = "tx";
-  tx.textContent = text;
+  appendText(tx, text);
   return tx;
 }
 function cell(cls, lineNo, node) {
@@ -191,6 +213,26 @@ function renderSummary(res) {
   el.hidden = false;
 }
 
+// renderResult draws a diff response into the summary + result areas, honoring
+// the current display options (word highlight, show-whitespace).
+function renderResult(data) {
+  showWS = $("showWs").checked;
+  renderSummary(data);
+  const result = $("result");
+  result.innerHTML = "";
+  if (!data.hunks.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("noDiff");
+    result.append(empty);
+    return;
+  }
+  const useWord = $("word").checked;
+  const frag = document.createDocumentFragment();
+  for (const h of data.hunks) frag.append(renderHunk(h, useWord));
+  result.append(frag);
+}
+
 function setStatus(msg, cls) {
   const el = $("status");
   if (!msg) { el.hidden = true; return; }
@@ -237,19 +279,8 @@ async function compare() {
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     setStatus("");
-    renderSummary(data);
-    const result = $("result");
-    if (!data.hunks.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty-state";
-      empty.textContent = t("noDiff");
-      result.append(empty);
-      return;
-    }
-    const useWord = $("word").checked;
-    const frag = document.createDocumentFragment();
-    for (const h of data.hunks) frag.append(renderHunk(h, useWord));
-    result.append(frag);
+    lastData = data;
+    renderResult(data);
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
     else setStatus(String(err.message || err), "error");
@@ -284,8 +315,13 @@ $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abo
 $("mode").addEventListener("change", syncModeOpts);
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
+$("showWs").addEventListener("change", () => {
+  localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
+  if (lastData) renderResult(lastData); // re-render so the change is immediate
+});
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
+$("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
 applyLang(lang);
