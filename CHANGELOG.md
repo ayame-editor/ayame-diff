@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.4 - 2026-07-11
+
+- `text` and `sorted` now accept `-` as OLD or NEW to read from standard input,
+  so you can compare piped data (`... | ayame-diff text - file`). Stdin is
+  encoding-detected and BOM-stripped like a file. (#55, stdin part)
+
 ## v0.6.3 - 2026-07-11
 
 - Added self-update: `ayame-diff update` downloads the latest GitHub release,

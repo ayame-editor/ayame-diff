@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
+	"github.com/hjosugi/ayame-diff/internal/encoding"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
@@ -95,7 +98,7 @@ func runText(args []string) {
 
 Line-level diff of two text files (plain or .gz), comparing by row order.
 Uses a bounded resync window, so it stays linear and memory-bounded on huge
-inputs.`)
+inputs. OLD or NEW may be - to read standard input.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -103,10 +106,10 @@ inputs.`)
 		return
 	}
 
-	oldSrc := openLines(fs.Arg(0), d.encoding)
-	defer oldSrc.Close()
-	newSrc := openLines(fs.Arg(1), d.encoding)
-	defer newSrc.Close()
+	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding)
+	defer closeOld()
+	newSrc, closeNew := openSource(fs.Arg(1), d.encoding)
+	defer closeNew()
 	emitDiff(oldSrc, newSrc, d)
 }
 
@@ -140,16 +143,12 @@ Note: v1 sorts in memory.`)
 		return
 	}
 
-	oldLines, err := linesort.Sorted(fs.Arg(0), numeric, reverse, d.encoding)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
-	}
-	newLines, err := linesort.Sorted(fs.Arg(1), numeric, reverse, d.encoding)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
-	}
+	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding)
+	defer closeOld()
+	newSrc, closeNew := openSource(fs.Arg(1), d.encoding)
+	defer closeNew()
+	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
+	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
 	emitDiff(oldLines, newLines, d)
 }
 
@@ -170,11 +169,46 @@ func parseDiffArgs(fs *flag.FlagSet, args []string) bool {
 	return true
 }
 
-func openLines(path, encHint string) *linesrc.FileLines {
+// openSource returns a line source for path plus a close func. A path of "-"
+// reads the whole of standard input (decoded per encHint); otherwise the file
+// is streamed with bounded memory.
+func openSource(path, encHint string) (linediff.Lines, func()) {
+	if path == "-" {
+		return readStdin(encHint), func() {}
+	}
 	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
-	return f
+	return f, func() { f.Close() }
+}
+
+// readStdin reads all of stdin, decodes it to UTF-8 (encHint, "auto" to detect),
+// strips a UTF-8 BOM, and splits into lines.
+func readStdin(encHint string) linediff.StringLines {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: reading stdin:", err)
+		os.Exit(2)
+	}
+	name := encoding.Detect(data, encHint)
+	decoded, err := io.ReadAll(encoding.Decoder(bytes.NewReader(data), name))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: decoding stdin:", err)
+		os.Exit(2)
+	}
+	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
+	return linediff.SplitLines(string(decoded))
+}
+
+// collectLines reads every line of l into a slice (for in-memory sorting).
+func collectLines(l linediff.Lines) []string {
+	n := l.Count()
+	out := make([]string, 0, n)
+	for i := uint64(0); i < n; i++ {
+		s, _ := l.Line(i)
+		out = append(out, s)
+	}
+	return out
 }

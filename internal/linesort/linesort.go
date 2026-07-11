@@ -30,17 +30,24 @@ func Sorted(path string, numeric, reverse bool, encHint string) (linediff.String
 		lines = append(lines, s)
 	}
 
+	return SortLines(lines, numeric, reverse), nil
+}
+
+// SortLines sorts an in-memory slice of lines (used for the sorted mode over
+// already-read sources such as stdin).
+func SortLines(lines []string, numeric, reverse bool) linediff.StringLines {
+	out := append([]string(nil), lines...)
 	less := lexLess
 	if numeric {
 		less = numericLess
 	}
-	sort.SliceStable(lines, func(a, b int) bool {
+	sort.SliceStable(out, func(a, b int) bool {
 		if reverse {
-			return less(lines[b], lines[a])
+			return less(out[b], out[a])
 		}
-		return less(lines[a], lines[b])
+		return less(out[a], out[b])
 	})
-	return linediff.StringLines(lines), nil
+	return linediff.StringLines(out)
 }
 
 func lexLess(a, b string) bool { return a < b }
