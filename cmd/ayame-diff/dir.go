@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"runtime"
+	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/dircompare"
 )
@@ -15,11 +17,18 @@ import (
 func runDir(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff dir", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
-	var all, jsonOut bool
-	excludes := stringFlags()
+	var all, jsonOut, tsvOut, includeHidden, quick, diffExit bool
+	excludes, includes := stringFlags(), stringFlags()
+	workers := min(runtime.NumCPU(), 8)
 	fs.BoolVar(&all, "all", false, "include unchanged (same) files in the output")
 	fs.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
+	fs.BoolVar(&tsvOut, "tsv", false, "emit status/path/size/mtime as TSV")
 	fs.Var(&excludes, "exclude", "glob to skip (repeatable), matched on the relative path or base name")
+	fs.Var(&includes, "include", "glob to include (repeatable), matched on the relative path or base name")
+	fs.BoolVar(&includeHidden, "hidden", false, "include dotfiles and hidden dot-directories (symlinks are always skipped)")
+	fs.BoolVar(&quick, "quick", false, "trust equal size+mtime without reading content")
+	fs.IntVar(&workers, "workers", workers, "parallel content comparison workers (1..64)")
+	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
 
@@ -41,7 +50,15 @@ Unchanged files are hidden unless --all is given.`)
 		return 2
 	}
 
-	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes.values})
+	if jsonOut && tsvOut {
+		fmt.Fprintln(stderr, "error: --json and --tsv cannot be combined")
+		return 2
+	}
+	if workers < 1 || workers > 64 {
+		fmt.Fprintln(stderr, "error: --workers must be from 1 to 64")
+		return 2
+	}
+	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden, Quick: quick, Workers: workers})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
@@ -52,13 +69,41 @@ Unchanged files are hidden unless --all is given.`)
 			fmt.Fprintln(stderr, "error:", err)
 			return 2
 		}
+	} else if tsvOut {
+		if err := writeDirTSV(stdout, res, all); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		fmt.Fprintf(stderr, "%d added, %d removed, %d changed, %d same\n", res.Added, res.Removed, res.Changed, res.Same)
 	} else {
 		if err := writeDirText(stdout, stderr, res, all); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return 2
 		}
 	}
+	if diffExit && res.Added+res.Removed+res.Changed > 0 {
+		return 1
+	}
 	return 0
+}
+
+func writeDirTSV(stdout io.Writer, res *dircompare.Result, all bool) error {
+	bw := bufio.NewWriter(stdout)
+	fmt.Fprintln(bw, "status\tpath\told_size\tnew_size\told_mtime\tnew_mtime")
+	for _, entry := range res.Entries {
+		if entry.Status == dircompare.Same && !all {
+			continue
+		}
+		fmt.Fprintf(bw, "%s\t%s\t%d\t%d\t%s\t%s\n", entry.Status, entry.Path, entry.OldSize, entry.NewSize, formatDirTime(entry.OldModTime), formatDirTime(entry.NewModTime))
+	}
+	return bw.Flush()
+}
+
+func formatDirTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 var dirMarker = map[dircompare.Status]byte{
@@ -85,16 +130,18 @@ func writeDirText(stdout, stderr io.Writer, res *dircompare.Result, all bool) er
 }
 
 type dirEntryJSON struct {
-	Path    string `json:"path"`
-	Status  string `json:"status"`
-	OldSize int64  `json:"old_size"`
-	NewSize int64  `json:"new_size"`
+	Path     string `json:"path"`
+	Status   string `json:"status"`
+	OldSize  int64  `json:"old_size"`
+	NewSize  int64  `json:"new_size"`
+	OldMTime string `json:"old_mtime,omitempty"`
+	NewMTime string `json:"new_mtime,omitempty"`
 }
 
 func writeDirJSON(stdout io.Writer, res *dircompare.Result) error {
 	entries := make([]dirEntryJSON, len(res.Entries))
 	for i, e := range res.Entries {
-		entries[i] = dirEntryJSON{Path: e.Path, Status: e.Status.String(), OldSize: e.OldSize, NewSize: e.NewSize}
+		entries[i] = dirEntryJSON{Path: e.Path, Status: e.Status.String(), OldSize: e.OldSize, NewSize: e.NewSize, OldMTime: formatDirTime(e.OldModTime), NewMTime: formatDirTime(e.NewModTime)}
 	}
 	out := struct {
 		Added   int            `json:"added"`

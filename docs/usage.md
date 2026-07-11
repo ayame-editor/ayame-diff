@@ -244,6 +244,26 @@ ayame-diff sorted --reverse a.txt b.txt
 
 ---
 
+## `dir` — recursive folder / archive comparison
+
+`dir OLD NEW` pairs slash-normalized relative paths. Size is checked first;
+equal-size candidates are streamed in parallel and compared byte-for-byte.
+`--quick` may trust equal size and mtime. Plain `.gz` files compare their
+decompressed content, while zip/tar/tar.gz archives compare as folder sources.
+
+```bash
+ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/
+ayame-diff dir --tsv --all old/ new/ > folders.tsv
+ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
+```
+
+Dotfiles/directories are skipped unless `--hidden` is set. Symbolic links are
+always skipped, avoiding loops and ambiguous out-of-tree reads. TSV/JSON include
+status, relative path, sizes, and mtimes. In the GUI, choose **folder**, filter
+the status tree, and click a changed regular file to drill into text diff.
+
+---
+
 ## Exit codes
 
 Normally:
@@ -252,7 +272,7 @@ Normally:
 - `2` — input, configuration or I/O error
 - `130` — interrupted or explicitly cancelled (for example, declining `remove`)
 
-With `--diff-exit-code` (`csv`):
+With `--diff-exit-code` (`csv` and `dir`):
 
 - `0` — no differences
 - `1` — differences found

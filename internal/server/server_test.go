@@ -138,6 +138,26 @@ func TestCSVInspectDiffAndFileBrowser(t *testing.T) {
 	}
 }
 
+func TestDirectoryDiffAPI(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(oldDir, "a.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newDir, "a.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newDir, "b.txt"), []byte("added"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(dirRequest{Old: oldDir, New: newDir, Includes: []string{"*.txt"}, Workers: 2})
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) || !strings.Contains(rec.Body.String(), `"added":1`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDiffAPI(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

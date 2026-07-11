@@ -115,6 +115,14 @@ complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
 
 See the [former TUI parity checklist](gui-setup-parity.md) for the full mapping.
 
+### Folder comparison
+
+The `folder` mode accepts include/exclude globs, hidden-file policy, parallel
+worker count, and optional quick size+mtime comparison. Results form an
+indented, status-colored tree with status filters. Clicking a changed file
+switches to text mode and opens the paired relative paths. Symbolic links are
+skipped and `.gz` files compare decompressed content.
+
 ## HTTP API
 
 The GUI is a thin client over a small JSON API. You can call it directly.

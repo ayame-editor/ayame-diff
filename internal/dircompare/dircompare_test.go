@@ -1,9 +1,12 @@
 package dircompare
 
 import (
+	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, dir, rel, content string) {
@@ -14,6 +17,75 @@ func write(t *testing.T, dir, rel, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func BenchmarkCompareTenThousandFiles(b *testing.B) {
+	content := make(map[string]archiveEntry, 10_000)
+	for i := 0; i < 10_000; i++ {
+		content[fmt.Sprintf("group/%05d.txt", i)] = archiveEntry{data: []byte("same\n")}
+	}
+	source := archiveSource{content: content}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err := compareSources(source, source, Options{Workers: 8})
+		if err != nil || result.Same != 10_000 {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestFiltersHiddenSymlinksQuickAndGzip(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	write(t, oldDir, ".hidden.txt", "old")
+	write(t, newDir, ".hidden.txt", "new")
+	write(t, oldDir, "keep.txt", "aaaa")
+	write(t, newDir, "keep.txt", "bbbb")
+	write(t, oldDir, "skip.csv", "old")
+	write(t, newDir, "skip.csv", "new")
+	_ = os.Symlink(filepath.Join(oldDir, "keep.txt"), filepath.Join(oldDir, "link.txt"))
+	_ = os.Symlink(filepath.Join(newDir, "keep.txt"), filepath.Join(newDir, "link.txt"))
+	stamp := time.Unix(1_700_000_000, 0)
+	_ = os.Chtimes(filepath.Join(oldDir, "keep.txt"), stamp, stamp)
+	_ = os.Chtimes(filepath.Join(newDir, "keep.txt"), stamp, stamp)
+	quick, err := Compare(oldDir, newDir, Options{Includes: []string{"*.txt"}, Quick: true, Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusOf(quick, "keep.txt") != Same || statusOf(quick, ".hidden.txt") != 255 || statusOf(quick, "link.txt") != 255 || statusOf(quick, "skip.csv") != 255 {
+		t.Fatalf("quick=%+v", quick.Entries)
+	}
+	normal, err := Compare(oldDir, newDir, Options{Includes: []string{"*.txt"}, Workers: 2})
+	if err != nil || statusOf(normal, "keep.txt") != Changed {
+		t.Fatalf("normal=%+v err=%v", normal, err)
+	}
+
+	writeGzip := func(root, content string, level int) {
+		file, err := os.Create(filepath.Join(root, "data.txt.gz"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer, err := gzip.NewWriterLevel(file, level)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer.Header.ModTime = time.Unix(int64(level+10), 0)
+		if _, err := writer.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeGzip(oldDir, "same decompressed\n", gzip.BestSpeed)
+	writeGzip(newDir, "same decompressed\n", gzip.BestCompression)
+	gz, err := Compare(oldDir, newDir, Options{Includes: []string{"*.gz"}})
+	if err != nil || statusOf(gz, "data.txt.gz") != Same {
+		t.Fatalf("gzip=%+v err=%v", gz, err)
 	}
 }
 

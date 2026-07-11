@@ -41,6 +41,7 @@ const I18N = {
 	selectKey: "キー列を1つ以上選択してください。",
 	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
+	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
     langButton: "EN",
   },
   en: {
@@ -80,6 +81,7 @@ const I18N = {
 	selectKey: "Select at least one key column.",
 	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
+	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
     langButton: "日本語",
   },
 };
@@ -167,6 +169,7 @@ let csvData = null;
 let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
+let directoryData = null, directoryBody = null;
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -768,8 +771,39 @@ async function loadProject() {
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
+function dirRequestBody() { return { old: $("old").value.trim(), new: $("new").value.trim(), includes: splitList($("dirIncludes").value), excludes: splitList($("dirExcludes").value), hidden: $("dirHidden").checked, quick: $("dirQuick").checked, workers: Number($("dirWorkers").value) || 8 }; }
+
+function renderDirectory(data, body) {
+  directoryData = data; directoryBody = body;
+  csvData = null; lastData = null; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  const summary = $("summary"); summary.innerHTML = "";
+  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${name}`); summary.append(item); } summary.hidden = false;
+  const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
+  const filter = $("dirStatus").value;
+  for (const entry of data.entries) {
+    if ((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)) continue;
+    const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
+    const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
+    const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
+    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} bytes\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
+    if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
+    else row.disabled = true;
+    tree.append(row);
+  }
+  result.append(tree);
+}
+
+async function compareDirectory() {
+  const body = dirRequestBody(); if (!validateInputs(body)) return;
+  const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false; setStatus(t("comparing"), "busy");
+  try { const resp = await fetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); renderDirectory(data, body); setStatus(""); }
+  catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
+  finally { $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
+}
+
 async function compare() {
   if ($("mode").value === "csv") { await compareCSV(); return; }
+	if ($("mode").value === "dir") { await compareDirectory(); return; }
   const body = requestBody();
   if (!validateInputs(body)) return;
   ignoredHunks = new Set();
@@ -892,16 +926,19 @@ async function exportPatch() {
 function syncModeOpts() {
   const sorted = $("mode").value === "sorted";
 	const csv = $("mode").value === "csv";
+	const directory = $("mode").value === "dir";
+	const structured = csv || directory;
   $("numericWrap").hidden = !sorted;
   $("reverseWrap").hidden = !sorted;
 	$("csvOptions").hidden = !csv;
-	$("scratch").closest("label").hidden = csv;
-	if (csv && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
+	$("dirOptions").hidden = !directory;
+	$("scratch").closest("label").hidden = structured;
+	if (structured && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
 	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "exportPatch", "wrap", "showWs"]) {
 		const node = $(id), holder = node?.closest("label") || node;
-		if (holder) holder.hidden = csv;
+		if (holder) holder.hidden = structured;
 	}
-	$("exportPatch").disabled = sorted || csv;
+	$("exportPatch").disabled = sorted || structured;
 	if (csv) updateCSVReview();
 }
 
@@ -934,6 +971,7 @@ async function loadBrowser(path) {
 async function openBrowser(target) {
   browserTarget = target;
   $("fileBrowser").showModal();
+	$("chooseFolder").hidden = $("mode").value !== "dir";
   try { await loadBrowser($(target).value ? $(target).value.replace(/[\\/][^\\/]*$/, "") : ""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
@@ -970,6 +1008,8 @@ $("changedColumnsOnly").addEventListener("change", () => { if (csvData) { csvPag
 document.querySelectorAll(".browse").forEach((button) => button.addEventListener("click", () => openBrowser(button.dataset.target)));
 $("browserGo").addEventListener("click", async () => { try { await loadBrowser($("browserPath").value); } catch (err) { setStatus(String(err.message || err), "error"); } });
 $("browserUp").addEventListener("click", async () => { try { await loadBrowser($("browserUp").dataset.path); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("chooseFolder").addEventListener("click", () => { if (browserTarget) $(browserTarget).value = $("browserPath").value; $("fileBrowser").close(); });
+$("dirStatus").addEventListener("change", () => { if (directoryData) renderDirectory(directoryData, directoryBody); });
 $("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
 $("patchFormat").addEventListener("change", syncPatchOpts);
 $("firstDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]); });

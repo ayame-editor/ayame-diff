@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
+	"github.com/hjosugi/ayame-diff/internal/dircompare"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
@@ -53,7 +54,61 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
+	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
 	return s, nil
+}
+
+type dirRequest struct {
+	Old      string   `json:"old"`
+	New      string   `json:"new"`
+	Includes []string `json:"includes"`
+	Excludes []string `json:"excludes"`
+	Hidden   bool     `json:"hidden"`
+	Quick    bool     `json:"quick"`
+	Workers  int      `json:"workers"`
+}
+type dirEntryResponse struct {
+	Path     string `json:"path"`
+	Status   string `json:"status"`
+	OldSize  int64  `json:"old_size"`
+	NewSize  int64  `json:"new_size"`
+	OldMTime string `json:"old_mtime"`
+	NewMTime string `json:"new_mtime"`
+}
+
+func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req dirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Old == "" || req.New == "" {
+		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
+		return
+	}
+	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden, Quick: req.Quick, Workers: req.Workers})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	entries := make([]dirEntryResponse, len(result.Entries))
+	for i, entry := range result.Entries {
+		entries[i] = dirEntryResponse{entry.Path, entry.Status.String(), entry.OldSize, entry.NewSize, formatTime(entry.OldModTime), formatTime(entry.NewModTime)}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Added   int                `json:"added"`
+		Removed int                `json:"removed"`
+		Changed int                `json:"changed"`
+		Same    int                `json:"same"`
+		Entries []dirEntryResponse `json:"entries"`
+	}{result.Added, result.Removed, result.Changed, result.Same, entries})
+}
+
+func formatTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 type csvRequest struct {

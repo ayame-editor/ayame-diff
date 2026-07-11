@@ -245,6 +245,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 .browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 7rem); padding: 0.45rem; }
 .browser-entries button { margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 450; }
 .browser-entries button:hover { background: var(--bg); }
+#chooseFolder { margin: 0.45rem; }
+.dir-tree { display: grid; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.dir-entry { margin: 0; border-radius: 0; text-align: left; background: var(--panel); color: var(--fg); border-bottom: 1px solid var(--border); font: 0.82rem ui-monospace, Menlo, Consolas, monospace; }
+.dir-entry.added { color: var(--add-fg); }.dir-entry.removed { color: var(--del-fg); }.dir-entry.changed { color: var(--chg-fg); }.dir-entry.same { color: var(--muted); }
+.dir-entry:disabled { opacity: 0.85; cursor: default; }
 
 @media (max-width: 720px) {
   .diff-layout { grid-template-columns: minmax(0, 1fr) 12px; gap: 0.3rem; }
