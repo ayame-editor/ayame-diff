@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
 	"runtime"
@@ -99,6 +100,55 @@ func intFlags() repeatedFlag[int] {
 		},
 		format: strconv.Itoa,
 	}
+}
+
+type optionalFloat struct {
+	value float64
+	set   bool
+}
+
+func (o *optionalFloat) String() string {
+	if !o.set {
+		return ""
+	}
+	return strconv.FormatFloat(o.value, 'g', -1, 64)
+}
+func (o *optionalFloat) Set(text string) error {
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("tolerance must be a finite non-negative number")
+	}
+	o.value, o.set = value, true
+	return nil
+}
+
+type columnToleranceFlag struct {
+	values  []engine.ColumnTolerance
+	byIndex bool
+}
+
+func (f *columnToleranceFlag) String() string { return "" }
+func (f *columnToleranceFlag) Set(text string) error {
+	selector, valueText, ok := strings.Cut(text, "=")
+	if !ok || strings.TrimSpace(selector) == "" {
+		return fmt.Errorf("column tolerance must be COLUMN=VALUE")
+	}
+	value, err := strconv.ParseFloat(valueText, 64)
+	if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("column tolerance must be a finite non-negative number")
+	}
+	tolerance := engine.ColumnTolerance{Value: value, ByIndex: f.byIndex}
+	if f.byIndex {
+		index, err := strconv.Atoi(selector)
+		if err != nil {
+			return fmt.Errorf("invalid tolerance column index %q", selector)
+		}
+		tolerance.Index = index
+	} else {
+		tolerance.Name = selector
+	}
+	f.values = append(f.values, tolerance)
+	return nil
 }
 
 var runEngine = engine.Run
@@ -225,6 +275,11 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	cfg := &opts.Engine
 	keys, keyIndexes := stringFlags(), intFlags()
 	excludeKeys, excludeKeyIndexes := stringFlags(), intFlags()
+	ignoreColumns, ignoreColumnIndexes, lineFilters := stringFlags(), intFlags(), stringFlags()
+	var tolerance optionalFloat
+	tolerances := columnToleranceFlag{}
+	toleranceIndexes := columnToleranceFlag{byIndex: true}
+	var ignoreAllSpace, ignoreSpaceChange bool
 	fs := flag.NewFlagSet("ayame-diff", flag.ContinueOnError)
 	if len(output) > 0 {
 		fs.SetOutput(output[0])
@@ -240,6 +295,18 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	registerIOFlags(fs, cfg)
 	registerKeyFlags(fs, cfg, &keys, &keyIndexes, &excludeKeys, &excludeKeyIndexes)
 	registerParseFlags(fs, cfg)
+	fs.BoolVar(&cfg.IgnoreCase, "ignore-case", false, "ignore case in keys and values")
+	fs.StringVar(&cfg.IgnoreWhitespace, "ignore-whitespace", "none", "whitespace handling: none, change, or all")
+	fs.BoolVar(&ignoreAllSpace, "ignore-all-space", false, "ignore all whitespace")
+	fs.BoolVar(&ignoreSpaceChange, "ignore-space-change", false, "collapse whitespace runs")
+	fs.BoolVar(&cfg.IgnoreEOL, "ignore-eol", false, "accepted for parity; CSV parsing already ignores CRLF/LF differences")
+	fs.BoolVar(&cfg.IgnoreTrailingEOL, "ignore-trailing-eol", false, "accepted for parity; CSV records ignore trailing EOL")
+	fs.Var(&lineFilters, "filter-line", "remove regex matches from fields before comparison; repeatable")
+	fs.Var(&ignoreColumns, "ignore-column", "header excluded from key (by default) and value comparison; repeatable")
+	fs.Var(&ignoreColumnIndexes, "ignore-column-index", "column index excluded from key (by default) and value comparison; repeatable")
+	fs.Var(&tolerance, "tolerance", "absolute numeric tolerance for compared value columns")
+	fs.Var(&tolerances, "column-tolerance", "per-header numeric tolerance NAME=VALUE; repeatable")
+	fs.Var(&toleranceIndexes, "column-tolerance-index", "per-index numeric tolerance INDEX=VALUE; repeatable")
 	registerPerfFlags(fs, cfg)
 	fs.BoolVar(&cfg.Progress, "progress", true, "print periodic progress to stderr")
 	fs.StringVar(&opts.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
@@ -256,6 +323,20 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	cfg.KeyIndexes = append([]int(nil), keyIndexes.values...)
 	cfg.ExcludeKeyNames = append([]string(nil), excludeKeys.values...)
 	cfg.ExcludeKeyIndexes = append([]int(nil), excludeKeyIndexes.values...)
+	if ignoreAllSpace && ignoreSpaceChange {
+		return opts, fmt.Errorf("--ignore-all-space and --ignore-space-change cannot be combined")
+	}
+	if ignoreAllSpace {
+		cfg.IgnoreWhitespace = "all"
+	}
+	if ignoreSpaceChange {
+		cfg.IgnoreWhitespace = "change"
+	}
+	cfg.LineFilters = append([]string(nil), lineFilters.values...)
+	cfg.IgnoreColumnNames = append([]string(nil), ignoreColumns.values...)
+	cfg.IgnoreColumnIndexes = append([]int(nil), ignoreColumnIndexes.values...)
+	cfg.Tolerance, cfg.ToleranceSet = tolerance.value, tolerance.set
+	cfg.ColumnTolerances = append(append([]engine.ColumnTolerance(nil), tolerances.values...), toleranceIndexes.values...)
 	return opts, nil
 }
 

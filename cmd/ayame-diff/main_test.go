@@ -126,3 +126,22 @@ func TestParseFlagsKeepsCLIOptionsOutsideEngineConfig(t *testing.T) {
 		t.Fatalf("CLI options = %#v", opts)
 	}
 }
+
+func TestParseFlagsCSVComparisonOptions(t *testing.T) {
+	t.Parallel()
+	opts, err := parseFlags([]string{
+		"--left", "a.csv", "--right", "b.csv", "--out", "d.tsv",
+		"--ignore-case", "--ignore-space-change", "--ignore-eol", "--ignore-trailing-eol",
+		"--filter-line", `time=\d+`, "--ignore-column", "updated", "--ignore-column-index", "3",
+		"--tolerance", "0.001", "--column-tolerance", "price=0.01", "--column-tolerance-index", "4=0.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := opts.Engine
+	if !cfg.IgnoreCase || cfg.IgnoreWhitespace != "change" || !cfg.IgnoreEOL || !cfg.IgnoreTrailingEOL ||
+		!cfg.ToleranceSet || cfg.Tolerance != 0.001 || len(cfg.ColumnTolerances) != 2 ||
+		!reflect.DeepEqual(cfg.IgnoreColumnNames, []string{"updated"}) || !reflect.DeepEqual(cfg.IgnoreColumnIndexes, []int{3}) {
+		t.Fatalf("config=%+v", cfg)
+	}
+}

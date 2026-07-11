@@ -62,6 +62,30 @@ func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullR
 	}
 	return keyDst, rowDst, nil
 }
+
+func encodeComparedFields[T fieldBytes](input []T, mapping, keyIndexes []int, comparison comparisonConfig, keyDst, rowDst []byte) ([]byte, []byte, error) {
+	keyDst, rowDst = keyDst[:0], rowDst[:0]
+	for _, j := range mapping {
+		if j < 0 || j >= len(input) {
+			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
+		}
+		var err error
+		rowDst, err = appendLengthPrefixed(rowDst, input[j])
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, index := range keyIndexes {
+		j := mapping[index]
+		value := comparison.normalize(string(input[j]))
+		var err error
+		keyDst, err = appendLengthPrefixed(keyDst, value)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return keyDst, rowDst, nil
+}
 func appendLengthPrefixed[T fieldBytes](dst []byte, v T) ([]byte, error) {
 	if uint64(len(v)) > math.MaxUint32 {
 		return nil, fmt.Errorf("field is larger than 4GiB")

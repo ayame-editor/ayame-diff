@@ -49,6 +49,7 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	if err != nil {
 		return summary, err
 	}
+	resolved.Comparison = resolvedSchema.Comparison
 
 	workRoot, createdByUs, err := createWorkRoot(resolved.Config)
 	if err != nil {
@@ -201,7 +202,7 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	if err != nil {
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
-	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, columnCount, keyIsFullRow, cfg.MaxRecordBytes)
+	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, columnCount, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison)
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)
 	}

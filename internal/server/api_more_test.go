@@ -235,6 +235,39 @@ func TestDiffIgnoreOptions(t *testing.T) {
 	}
 }
 
+func TestDiffAPIEOLAndRegexFilters(t *testing.T) {
+	s := newTestServer(t)
+	request := func(body diffRequest) diffResponse {
+		data, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(data)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var result diffResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	base := diffRequest{Inline: true, OldText: "time=1\r\nvalue\r\n", NewText: "time=2\nvalue\n", MaxHunks: 10}
+	if got := request(base); got.Modified != 2 {
+		t.Fatalf("base=%+v", got)
+	}
+	base.IgnoreEOL = true
+	base.LineFilters = []string{`time=\d+`}
+	if got := request(base); got.HunkCount != 0 {
+		t.Fatalf("filtered=%+v", got)
+	}
+
+	bad, _ := json.Marshal(diffRequest{Inline: true, OldText: "a", NewText: "b", LineFilters: []string{"["}})
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(bad)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid regex status=%d", rec.Code)
+	}
+}
+
 // TestDiffMaxHunks checks that hunk_count keeps counting every hunk while only
 // maxHunks are stored and the remainder is reported as omitted_hunks.
 func TestDiffMaxHunks(t *testing.T) {

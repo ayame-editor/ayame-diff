@@ -88,6 +88,102 @@ func TestRunMixedTSVCSVWithDuplicateKeys(t *testing.T) {
 	}
 }
 
+func TestRunCSVComparisonIgnoreOptionsPreserveOriginalRows(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,note,stamp\nA,hello   WORLD,time=100\n")
+	mustWriteFile(t, rightPath, "id,note,stamp\na,hello world,time=200\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.IgnoreCase = true
+	cfg.IgnoreWhitespace = "change"
+	cfg.LineFilters = []string{`time=\d+`}
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 1 || summary.DiffRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestRunCSVIgnoreColumnAlsoLeavesDefaultKey(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,updated,value\n1,10:00,ok\n")
+	mustWriteFile(t, rightPath, "id,updated,value\n1,11:00,ok\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.IgnoreColumnNames = []string{"updated"}
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 1 || summary.DiffRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestRunCSVNumericToleranceMatchesDuplicateKeys(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,value\n1,10.0000\n1,20\n")
+	mustWriteFile(t, rightPath, "id,value\n1,20.00005\n1,11\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.Tolerance, cfg.ToleranceSet = 0.001, true
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 1 || summary.ChangedLeft != 1 || summary.ChangedRight != 1 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	records := readDelimitedFile(t, outPath, '\t')
+	if len(records) != 3 || records[1][3] != "10.0000" || records[2][3] != "11" {
+		t.Fatalf("original output rows=%#v", records)
+	}
+}
+
+func TestRunCSVColumnToleranceIsRemovedFromDefaultKey(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,value\n1,10.00\n")
+	mustWriteFile(t, rightPath, "id,value\n1,10.05\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.ColumnTolerances = []ColumnTolerance{{Name: "value", Value: 0.1}}
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 1 || summary.DiffRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestRunCSVToleranceUsesMaximumDuplicateMatching(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	// Sorted order considers the exact 0.0 pair first, but fixing that pair is
+	// wrong: 0.4 can only match right 0.0 while left 0.0 can match right -0.4.
+	mustWriteFile(t, leftPath, "id,value\n1,0.0\n1,0.4\n")
+	mustWriteFile(t, rightPath, "id,value\n1,0.0\n1,-0.4\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.Tolerance, cfg.ToleranceSet = 0.4, true
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 2 || summary.DiffRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
 func TestRunRFC4180MultilineAndGzipOutput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

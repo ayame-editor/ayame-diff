@@ -42,6 +42,11 @@ type diffFlags struct {
 	encoding                       string
 	ignoreCase                     bool
 	whitespace                     string
+	ignoreAllSpace                 bool
+	ignoreSpaceChange              bool
+	ignoreEOL                      bool
+	ignoreTrailingEOL              bool
+	lineFilters                    repeatedFlag[string]
 	detectMoves                    bool
 	moveMinLines                   uint64
 	moveMaxCandidates              int
@@ -107,6 +112,12 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
 	fs.StringVar(&d.whitespace, "ignore-whitespace", "none", "whitespace handling: none, change (collapse runs), all (remove)")
+	fs.BoolVar(&d.ignoreAllSpace, "ignore-all-space", false, "ignore all whitespace (GNU diff compatible alias)")
+	fs.BoolVar(&d.ignoreSpaceChange, "ignore-space-change", false, "collapse whitespace runs (GNU diff compatible alias)")
+	fs.BoolVar(&d.ignoreEOL, "ignore-eol", false, "ignore CRLF/LF line-ending differences")
+	fs.BoolVar(&d.ignoreTrailingEOL, "ignore-trailing-eol", false, "ignore only a missing final line ending")
+	d.lineFilters = stringFlags()
+	fs.Var(&d.lineFilters, "filter-line", "remove regex matches before comparison; repeatable")
 	fs.BoolVar(&d.detectMoves, "detect-moves", false, "detect exact delete/insert blocks as moves")
 	fs.Uint64Var(&d.moveMinLines, "move-min-lines", 2, "minimum lines in a moved block")
 	fs.IntVar(&d.moveMaxCandidates, "move-max-candidates", 10000, "maximum delete and insert candidates examined")
@@ -190,6 +201,31 @@ func whitespaceMode(s string) linediff.Whitespace {
 	}
 }
 
+func (d diffFlags) comparisonOptions() (linediff.Options, error) {
+	whitespace := d.whitespace
+	if d.ignoreAllSpace && d.ignoreSpaceChange {
+		return linediff.Options{}, fmt.Errorf("--ignore-all-space and --ignore-space-change cannot be combined")
+	}
+	if d.ignoreAllSpace {
+		whitespace = "all"
+	}
+	if d.ignoreSpaceChange {
+		whitespace = "change"
+	}
+	if whitespace != "none" && whitespace != "change" && whitespace != "all" {
+		return linediff.Options{}, fmt.Errorf("--ignore-whitespace must be none, change, or all")
+	}
+	filters, err := linediff.CompileLineFilters(d.lineFilters.values)
+	if err != nil {
+		return linediff.Options{}, err
+	}
+	return linediff.Options{
+		IgnoreCase: d.ignoreCase, Whitespace: whitespaceMode(whitespace),
+		IgnoreEOL: d.ignoreEOL, IgnoreTrailingEOL: d.ignoreTrailingEOL,
+		LineFilters: filters,
+	}, nil
+}
+
 // emitDiff runs the line diff and writes it in the selected format. Hunks/JSON
 // go to stdout, the summary to stderr, matching the CSV mode's split.
 func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, stdout, stderr io.Writer) error {
@@ -204,13 +240,12 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 	if err := linediff.ValidateSyncPoints(d.syncPoints, old.Count(), new.Count()); err != nil {
 		return err
 	}
-	res := linediff.DiffWith(old, new, linediff.Options{
-		MaxHunks:   maxHunks,
-		Window:     d.window,
-		IgnoreCase: d.ignoreCase,
-		Whitespace: whitespaceMode(d.whitespace),
-		SyncPoints: d.syncPoints,
-	})
+	comparison, err := d.comparisonOptions()
+	if err != nil {
+		return err
+	}
+	comparison.MaxHunks, comparison.Window, comparison.SyncPoints = maxHunks, d.window, d.syncPoints
+	res := linediff.DiffWith(old, new, comparison)
 	if d.detectMoves {
 		linediff.DetectMoves(old, new, &res, linediff.MoveOptions{
 			MinLines: d.moveMinLines, MaxCandidates: d.moveMaxCandidates,

@@ -2,6 +2,43 @@ package linediff
 
 import "testing"
 
+func TestDiffWithEOLControls(t *testing.T) {
+	lf := SplitTextLines("one\ntwo\n")
+	crlf := SplitTextLines("one\r\ntwo\r\n")
+	if got := DiffWith(lf, crlf, Options{MaxHunks: 10, Window: 8}); got.Modified != 2 {
+		t.Fatalf("EOL-sensitive diff = %+v", got)
+	}
+	if got := DiffWith(lf, crlf, Options{MaxHunks: 10, Window: 8, IgnoreEOL: true}); got.HunkCount != 0 {
+		t.Fatalf("ignore EOL diff = %+v", got)
+	}
+	missing := SplitTextLines("one\ntwo")
+	if got := DiffWith(lf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.HunkCount != 0 {
+		t.Fatalf("ignore trailing EOL diff = %+v", got)
+	}
+	if got := DiffWith(crlf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
+		t.Fatalf("non-trailing EOL must remain = %+v", got)
+	}
+	if got := DiffWith(SplitTextLines("one\r\n"), SplitTextLines("one\n"), Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
+		t.Fatalf("trailing CRLF/LF is not a missing-EOL difference = %+v", got)
+	}
+}
+
+func TestDiffWithLineFiltersKeepsOriginalPositions(t *testing.T) {
+	filters, err := CompileLineFilters([]string{`timestamp=\S+`, `request_id=\d+`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := StringLines{"timestamp=10:00 request_id=1 ok", "real=old"}
+	new := StringLines{"timestamp=10:01 request_id=2 ok", "real=new"}
+	got := DiffWith(old, new, Options{MaxHunks: 10, Window: 8, LineFilters: filters})
+	if got.Modified != 1 || len(got.Hunks) != 1 || got.Hunks[0].OldStart != 1 {
+		t.Fatalf("filtered diff = %+v", got)
+	}
+	if _, err := CompileLineFilters([]string{"["}); err == nil {
+		t.Fatal("invalid regex succeeded")
+	}
+}
+
 func TestDiffWithIgnoreCase(t *testing.T) {
 	t.Parallel()
 	old := SplitLines("Hello\nWorld\n")

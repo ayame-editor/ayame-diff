@@ -156,3 +156,27 @@ func TestSyncFlagUsesOneBasedLines(t *testing.T) {
 		}
 	}
 }
+
+func TestRunTextIgnoreEOLAndLineFilter(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath, newPath := filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(oldPath, []byte("timestamp=1 ok\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("timestamp=2 ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runText([]string{"--summary", "--ignore-eol", "--filter-line", `timestamp=\d+`, oldPath, newPath}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "0 hunk") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestDiffFlagsRejectConflictingWhitespaceAliases(t *testing.T) {
+	t.Parallel()
+	if _, err := (diffFlags{ignoreAllSpace: true, ignoreSpaceChange: true}).comparisonOptions(); err == nil {
+		t.Fatal("conflicting whitespace aliases succeeded")
+	}
+}

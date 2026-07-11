@@ -1,6 +1,8 @@
 package linediff
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -108,11 +110,14 @@ const (
 // fields normalize the text used for *comparison* only — output still shows the
 // original lines.
 type Options struct {
-	MaxHunks   int
-	Window     uint64
-	IgnoreCase bool
-	Whitespace Whitespace
-	SyncPoints []SyncPoint
+	MaxHunks          int
+	Window            uint64
+	IgnoreCase        bool
+	Whitespace        Whitespace
+	IgnoreEOL         bool
+	IgnoreTrailingEOL bool
+	LineFilters       []*regexp.Regexp
+	SyncPoints        []SyncPoint
 }
 
 // Diff computes the line diff of old vs new. At most maxHunks hunks are stored
@@ -135,10 +140,7 @@ func DiffWith(old, new Lines, opts Options) Result {
 		window = 1
 	}
 	maxHunks := opts.MaxHunks
-	if norm := normalizer(opts); norm != nil {
-		old = normLines{Lines: old, norm: norm}
-		new = normLines{Lines: new, norm: norm}
-	}
+	comparison := lineComparator{old: old, new: new, norm: normalizer(opts), opts: opts}
 	oldTotal := old.Count()
 	newTotal := new.Count()
 	res := Result{OldLines: oldTotal, NewLines: newTotal}
@@ -146,16 +148,14 @@ func DiffWith(old, new Lines, opts Options) Result {
 	var i, j uint64
 	for i < oldTotal || j < newTotal {
 		if i < oldTotal && j < newTotal {
-			ol, _ := old.Line(i)
-			nl, _ := new.Line(j)
-			if ol == nl {
+			if comparison.equal(i, j) {
 				i++
 				j++
 				continue
 			}
 		}
 
-		h := nextDiffHunk(old, new, i, j, window)
+		h := nextDiffHunk(comparison, i, j, window)
 		applyStats(&res, h)
 		res.HunkCount++
 		if len(res.Hunks) < maxHunks {
@@ -169,7 +169,8 @@ func DiffWith(old, new Lines, opts Options) Result {
 	return res
 }
 
-func nextDiffHunk(old, new Lines, i, j, window uint64) Hunk {
+func nextDiffHunk(comparison lineComparator, i, j, window uint64) Hunk {
+	old, new := comparison.old, comparison.new
 	oldTotal := old.Count()
 	newTotal := new.Count()
 	if i >= oldTotal {
@@ -180,13 +181,11 @@ func nextDiffHunk(old, new Lines, i, j, window uint64) Hunk {
 	}
 
 	// Anchor lines: the resync scans below read ahead in each source.
-	oldLine, _ := old.Line(i)
-	newLine, _ := new.Line(j)
 	// Insert: the old anchor reappears in new within the window -> the skipped
 	// new lines were inserted. Delete: the new anchor reappears in old -> the
 	// skipped old lines were deleted.
-	rj, insOK := findLine(new, oldLine, j+1, clampEnd(j+1, window, newTotal))
-	li, delOK := findLine(old, newLine, i+1, clampEnd(i+1, window, oldTotal))
+	rj, insOK := comparison.findNew(i, j+1, clampEnd(j+1, window, newTotal))
+	li, delOK := comparison.findOld(j, i+1, clampEnd(i+1, window, oldTotal))
 
 	switch {
 	case insOK && delOK:
@@ -215,15 +214,6 @@ func clampEnd(start, window, total uint64) uint64 {
 	return start + window
 }
 
-func findLine(lines Lines, target string, start, end uint64) (uint64, bool) {
-	for n := start; n < end; n++ {
-		if s, ok := lines.Line(n); ok && s == target {
-			return n, true
-		}
-	}
-	return 0, false
-}
-
 func insertHunk(oldStart, newStart, newLen uint64) Hunk {
 	return Hunk{Kind: Insert, OldStart: oldStart, OldLen: 0, NewStart: newStart, NewLen: newLen}
 }
@@ -232,28 +222,74 @@ func deleteHunk(oldStart, newStart, oldLen uint64) Hunk {
 	return Hunk{Kind: Delete, OldStart: oldStart, OldLen: oldLen, NewStart: newStart, NewLen: 0}
 }
 
-// normLines is a Lines whose Line returns a normalized form (for comparison);
-// its Count and line positions are those of the underlying source.
-type normLines struct {
-	Lines
-	norm func(string) string
+// lineEndings is implemented by line sources that preserve original EOLs.
+// Keeping this optional leaves synthetic StringLines backwards compatible.
+type lineEndings interface {
+	LineEnding(uint64) string
 }
 
-func (n normLines) Line(i uint64) (string, bool) {
-	s, ok := n.Lines.Line(i)
-	if !ok {
-		return "", false
+type lineComparator struct {
+	old, new Lines
+	norm     func(string) string
+	opts     Options
+}
+
+func (c lineComparator) equal(oldIndex, newIndex uint64) bool {
+	oldText, oldOK := c.old.Line(oldIndex)
+	newText, newOK := c.new.Line(newIndex)
+	if !oldOK || !newOK {
+		return false
 	}
-	return n.norm(s), true
+	if c.norm != nil {
+		oldText, newText = c.norm(oldText), c.norm(newText)
+	}
+	if oldText != newText {
+		return false
+	}
+	if c.opts.IgnoreEOL {
+		return true
+	}
+	oldEndings, oldHasEOL := c.old.(lineEndings)
+	newEndings, newHasEOL := c.new.(lineEndings)
+	if !oldHasEOL || !newHasEOL {
+		return true
+	}
+	oldEOL, newEOL := oldEndings.LineEnding(oldIndex), newEndings.LineEnding(newIndex)
+	if oldEOL == newEOL {
+		return true
+	}
+	return c.opts.IgnoreTrailingEOL && oldIndex+1 == c.old.Count() && newIndex+1 == c.new.Count() &&
+		(oldEOL == "" || newEOL == "")
+}
+
+func (c lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
+	for index := start; index < end; index++ {
+		if c.equal(oldIndex, index) {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func (c lineComparator) findOld(newIndex, start, end uint64) (uint64, bool) {
+	for index := start; index < end; index++ {
+		if c.equal(index, newIndex) {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 // normalizer returns the comparison-normalization function for opts, or nil
 // when no ignore option is set (the fast path — no wrapping).
 func normalizer(o Options) func(string) string {
-	if !o.IgnoreCase && o.Whitespace == WSKeep {
+	if !o.IgnoreCase && o.Whitespace == WSKeep && len(o.LineFilters) == 0 {
 		return nil
 	}
 	return func(s string) string {
+		for _, filter := range o.LineFilters {
+			s = filter.ReplaceAllString(s, "")
+		}
 		switch o.Whitespace {
 		case WSAll:
 			s = removeSpace(s)
@@ -265,6 +301,20 @@ func normalizer(o Options) func(string) string {
 		}
 		return s
 	}
+}
+
+// CompileLineFilters validates repeatable --filter-line patterns once, before
+// the diff walk. Matching portions are removed only from the comparison view.
+func CompileLineFilters(patterns []string) ([]*regexp.Regexp, error) {
+	filters := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		filter, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid line filter %q: %w", pattern, err)
+		}
+		filters = append(filters, filter)
+	}
+	return filters, nil
 }
 
 // collapseSpace trims leading/trailing whitespace and collapses each internal

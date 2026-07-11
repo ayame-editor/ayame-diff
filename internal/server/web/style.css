@@ -176,6 +176,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
   background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: 0.72rem;
 }
+.filter-input { min-width: 18rem; }
+.filter-input textarea { width: 100%; min-height: 2.6rem; resize: vertical; }
+.filters-active { flex-basis: 100%; }
 .hunk.ignored .rows { display: none; }
 .hunk.ignored { opacity: 0.68; border-style: dashed; }
 .hunk.ignored .hunk-head::before { content: "⊘ "; color: var(--muted); }

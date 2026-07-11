@@ -88,6 +88,18 @@ WinMerge 風の比較オプションもあります（比較用に正規化す�
 ayame-diff text --ignore-case a.txt b.txt              # 大文字小文字を無視
 ayame-diff text --ignore-whitespace change a.txt b.txt # 空白の連続を 1 個に圧縮・端をトリム
 ayame-diff text --ignore-whitespace all a.txt b.txt    # 空白をすべて無視
+ayame-diff text --ignore-eol a.txt b.txt               # CRLF/LF 差を無視
+ayame-diff text --ignore-trailing-eol a.txt b.txt      # 末尾改行の有無だけを無視
+ayame-diff text --filter-line 'timestamp=\S+' a.log b.log # 可変部分を正規表現で除外
+```
+
+CSV では同じ正規化をキーと値に適用でき、値比較からの列除外と数値許容差にも対応します。
+
+```bash
+ayame-diff csv --left a.csv --right b.csv --key id \
+  --ignore-column updated_at --tolerance 0.0001 --out diff.tsv
+ayame-diff csv --left a.csv --right b.csv \
+  --column-tolerance price=0.01 --out diff.tsv
 ```
 
 `--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わったワードだけを `[-削除-]` / `{+追加+}` のマーカーで強調します。

@@ -8,7 +8,9 @@ const I18N = {
     mode: "モード", encoding: "文字コード", window: "ウィンドウ",
     maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
-    ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
+	ignoreCase: "大小無視", whitespace: "空白", ignoreEOL: "改行コード無視",
+	ignoreTrailingEOL: "末尾改行無視", lineFilters: "行フィルタ", activeFilters: "適用中",
+	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
@@ -30,7 +32,9 @@ const I18N = {
     mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
     maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
     reverse: "reverse", compare: "Compare",
-    ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
+	ignoreCase: "ignore case", whitespace: "whitespace", ignoreEOL: "ignore EOL",
+	ignoreTrailingEOL: "ignore trailing EOL", lineFilters: "line filters", activeFilters: "active",
+	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
@@ -273,6 +277,13 @@ function renderSummary(res) {
   );
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
   if (ignoredHunks.size) el.append(stat("", t("ignored"), ignoredHunks.size));
+	const filters = activeFilters();
+	if (filters.length) {
+	  const applied = document.createElement("span");
+	  applied.className = "note filters-active";
+	  applied.textContent = `${t("activeFilters")}: ${filters.join(", ")}`;
+	  el.append(applied);
+	}
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
@@ -547,11 +558,25 @@ function requestBody() {
     numeric: $("numeric").checked,
     reverse: $("reverse").checked,
     ignoreCase: $("ignoreCase").checked,
+	ignoreEOL: $("ignoreEOL").checked,
+	ignoreTrailingEOL: $("ignoreTrailingEOL").checked,
+	lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
     whitespace: $("whitespace").value,
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
     syncPoints: syncPoints.map((point) => ({ ...point })),
   };
+}
+
+function activeFilters() {
+	const filters = [];
+	if ($("ignoreCase").checked) filters.push(t("ignoreCase"));
+	if ($("whitespace").value !== "none") filters.push(`${t("whitespace")}: ${$("whitespace").value}`);
+	if ($("ignoreEOL").checked) filters.push(t("ignoreEOL"));
+	if ($("ignoreTrailingEOL").checked) filters.push(t("ignoreTrailingEOL"));
+	for (const pattern of $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))
+	  filters.push(`/${pattern}/`);
+	return filters;
 }
 
 function validateInputs(body) {

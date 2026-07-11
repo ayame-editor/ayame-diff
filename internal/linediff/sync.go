@@ -36,6 +36,16 @@ func (r rangeLines) Line(index uint64) (string, bool) {
 	return r.Lines.Line(r.start + index)
 }
 
+func (r rangeLines) LineEnding(index uint64) string {
+	if index >= r.Count() {
+		return ""
+	}
+	if endings, ok := r.Lines.(lineEndings); ok {
+		return endings.LineEnding(r.start + index)
+	}
+	return ""
+}
+
 func diffWithSyncPoints(old, new Lines, opts Options) Result {
 	result := Result{OldLines: old.Count(), NewLines: new.Count()}
 	points := opts.SyncPoints

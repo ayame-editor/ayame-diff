@@ -53,23 +53,26 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old          string               `json:"old"`
-	New          string               `json:"new"`
-	Mode         string               `json:"mode"` // "text" (default) or "sorted"
-	Encoding     string               `json:"encoding"`
-	Window       uint64               `json:"window"`
-	MaxHunks     int                  `json:"maxHunks"`
-	MaxLines     uint64               `json:"maxLines"`
-	Numeric      bool                 `json:"numeric"`
-	Reverse      bool                 `json:"reverse"`
-	IgnoreCase   bool                 `json:"ignoreCase"`
-	Whitespace   string               `json:"whitespace"` // none | change | all
-	PatchFormat  string               `json:"patchFormat,omitempty"`
-	Context      *int                 `json:"context,omitempty"`
-	DetectMoves  bool                 `json:"detectMoves,omitempty"`
-	MoveMinLines uint64               `json:"moveMinLines,omitempty"`
-	SyncPoints   []linediff.SyncPoint `json:"syncPoints,omitempty"`
-	IgnoredHunks []int                `json:"ignoredHunks,omitempty"`
+	Old               string               `json:"old"`
+	New               string               `json:"new"`
+	Mode              string               `json:"mode"` // "text" (default) or "sorted"
+	Encoding          string               `json:"encoding"`
+	Window            uint64               `json:"window"`
+	MaxHunks          int                  `json:"maxHunks"`
+	MaxLines          uint64               `json:"maxLines"`
+	Numeric           bool                 `json:"numeric"`
+	Reverse           bool                 `json:"reverse"`
+	IgnoreCase        bool                 `json:"ignoreCase"`
+	Whitespace        string               `json:"whitespace"` // none | change | all
+	IgnoreEOL         bool                 `json:"ignoreEOL"`
+	IgnoreTrailingEOL bool                 `json:"ignoreTrailingEOL"`
+	LineFilters       []string             `json:"lineFilters,omitempty"`
+	PatchFormat       string               `json:"patchFormat,omitempty"`
+	Context           *int                 `json:"context,omitempty"`
+	DetectMoves       bool                 `json:"detectMoves,omitempty"`
+	MoveMinLines      uint64               `json:"moveMinLines,omitempty"`
+	SyncPoints        []linediff.SyncPoint `json:"syncPoints,omitempty"`
+	IgnoredHunks      []int                `json:"ignoredHunks,omitempty"`
 	// Inline compares OldText/NewText directly instead of the Old/New paths —
 	// "scratch" comparison of pasted text (#55).
 	Inline  bool   `json:"inline"`
@@ -142,13 +145,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
-		MaxHunks:   maxHunks,
-		Window:     window,
-		IgnoreCase: req.IgnoreCase,
-		Whitespace: whitespaceMode(req.Whitespace),
-		SyncPoints: req.SyncPoints,
-	})
+	options, err := requestDiffOptions(req, maxHunks, window)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	res := linediff.DiffWith(oldLines, newLines, options)
 	if req.DetectMoves {
 		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
@@ -213,11 +215,12 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 	if window == 0 {
 		window = 128
 	}
-	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
-		MaxHunks: math.MaxInt, Window: window, IgnoreCase: req.IgnoreCase,
-		Whitespace: whitespaceMode(req.Whitespace),
-		SyncPoints: req.SyncPoints,
-	})
+	options, err := requestDiffOptions(req, math.MaxInt, window)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	res := linediff.DiffWith(oldLines, newLines, options)
 	if req.DetectMoves {
 		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
@@ -273,6 +276,22 @@ func whitespaceMode(s string) linediff.Whitespace {
 	default:
 		return linediff.WSKeep
 	}
+}
+
+func requestDiffOptions(req diffRequest, maxHunks int, window uint64) (linediff.Options, error) {
+	if req.Whitespace != "" && req.Whitespace != "none" && req.Whitespace != "change" && req.Whitespace != "all" {
+		return linediff.Options{}, fmt.Errorf("whitespace must be none, change, or all")
+	}
+	filters, err := linediff.CompileLineFilters(req.LineFilters)
+	if err != nil {
+		return linediff.Options{}, err
+	}
+	return linediff.Options{
+		MaxHunks: maxHunks, Window: window, IgnoreCase: req.IgnoreCase,
+		Whitespace: whitespaceMode(req.Whitespace), IgnoreEOL: req.IgnoreEOL,
+		IgnoreTrailingEOL: req.IgnoreTrailingEOL, LineFilters: filters,
+		SyncPoints: req.SyncPoints,
+	}, nil
 }
 
 // inlineLines builds a linediff.Lines from in-memory text (scratch comparison),

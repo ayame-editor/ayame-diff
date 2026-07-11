@@ -54,7 +54,8 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 ## Using the web UI
 
 Enter the **OLD** and **NEW** file paths, choose the mode (`text` or `sorted`)
-and options (encoding, resync window, ignore-case, whitespace handling, and for
+and options (encoding, resync window, ignore-case, whitespace handling, EOL
+controls, repeatable regex filters entered one per line, and for
 `sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
 side-by-side grid with per-hunk headers, line numbers and word-level
 highlighting. Choose **patch format** (`normal`, `context`, or `unified`) and a
@@ -62,6 +63,9 @@ context-line count, then use **Export patch** to download an applyable
 `ayame.patch`. Patch export preserves CRLF and missing-final-newline markers and
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
+
+Applied ignore settings are shown in the result summary. They affect matching
+only: rendered lines and exported patches retain the original text.
 
 ### Navigating differences
 

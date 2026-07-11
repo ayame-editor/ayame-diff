@@ -85,7 +85,7 @@ func (c *sortedCursor) captureKey() []byte {
 
 func (c *sortedCursor) close() error { return c.file.Close() }
 
-func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, columnCount int, keyIsFullRow bool, maxRecordBytes int64) (stats partitionStats, resultErr error) {
+func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, columnCount int, keyIsFullRow bool, maxRecordBytes int64, comparison comparisonConfig) (stats partitionStats, resultErr error) {
 	left, err := openSortedCursor(leftPath, maxRecordBytes)
 	if err != nil {
 		return stats, err
@@ -177,6 +177,127 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		return nil
 	}
 
+	type comparedRecord struct {
+		record     binRecord
+		comparison preparedComparison
+	}
+	readGroup := func(cursor *sortedCursor, key []byte) ([]comparedRecord, error) {
+		var group []comparedRecord
+		for !cursor.eof && bytes.Equal(cursor.record.Key, key) {
+			record := binRecord{
+				Key: append([]byte(nil), cursor.record.Key...),
+				Row: append([]byte(nil), cursor.record.Row...),
+			}
+			fields, err := decodeRow(record.Row, columnCount, nil)
+			if err != nil {
+				return nil, err
+			}
+			group = append(group, comparedRecord{record: record, comparison: comparison.prepare(fields)})
+			if err := cursor.advance(); err != nil {
+				return nil, err
+			}
+		}
+		return group, nil
+	}
+	compareGroup := func(key []byte) error {
+		leftGroup, err := readGroup(left, key)
+		if err != nil {
+			return err
+		}
+		rightGroup, err := readGroup(right, key)
+		if err != nil {
+			return err
+		}
+		matchRight, matchLeft := make([]int, len(rightGroup)), make([]int, len(leftGroup))
+		for i := range matchRight {
+			matchRight[i] = -1
+		}
+		for i := range matchLeft {
+			matchLeft[i] = -1
+		}
+
+		if !comparison.hasTolerance() {
+			// Exact normalized equivalence is transitive, so groups cancel in O(n).
+			exactRight := make(map[string][]int, len(rightGroup))
+			for i, record := range rightGroup {
+				exactRight[record.comparison.signature] = append(exactRight[record.comparison.signature], i)
+			}
+			for i, record := range leftGroup {
+				indexes := exactRight[record.comparison.signature]
+				if len(indexes) == 0 {
+					continue
+				}
+				rightIndex := indexes[len(indexes)-1]
+				exactRight[record.comparison.signature] = indexes[:len(indexes)-1]
+				matchLeft[i], matchRight[rightIndex] = rightIndex, i
+				stats.EqualRows++
+			}
+		} else {
+			// Tolerance equivalence is not transitive. Find a maximum bipartite
+			// matching using iterative augmenting paths; pre-fixing exact pairs
+			// could otherwise reduce the maximum fuzzy matching.
+			for root := range leftGroup {
+				if matchLeft[root] >= 0 {
+					continue
+				}
+				if root&int(cancellationCheckMask) == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				seenLeft, seenRight := make([]bool, len(leftGroup)), make([]bool, len(rightGroup))
+				fromLeft := make([]int, len(rightGroup))
+				queue, freeRight := []int{root}, -1
+				seenLeft[root] = true
+				for len(queue) > 0 && freeRight < 0 {
+					leftIndex := queue[0]
+					queue = queue[1:]
+					for rightIndex, rightRecord := range rightGroup {
+						if seenRight[rightIndex] || !comparison.equivalentPrepared(leftGroup[leftIndex].comparison, rightRecord.comparison) {
+							continue
+						}
+						seenRight[rightIndex], fromLeft[rightIndex] = true, leftIndex
+						if matchRight[rightIndex] < 0 {
+							freeRight = rightIndex
+							break
+						}
+						nextLeft := matchRight[rightIndex]
+						if !seenLeft[nextLeft] {
+							seenLeft[nextLeft], queue = true, append(queue, nextLeft)
+						}
+					}
+				}
+				if freeRight < 0 {
+					continue
+				}
+				for rightIndex := freeRight; rightIndex >= 0; {
+					leftIndex := fromLeft[rightIndex]
+					previousRight := matchLeft[leftIndex]
+					matchLeft[leftIndex], matchRight[rightIndex] = rightIndex, leftIndex
+					rightIndex = previousRight
+				}
+				stats.EqualRows++
+			}
+		}
+		for i, record := range leftGroup {
+			if matchLeft[i] < 0 {
+				if err := writeDiff(diffChanged, diffLeft, record.record); err != nil {
+					return err
+				}
+				stats.ChangedLeft++
+			}
+		}
+		for i, record := range rightGroup {
+			if matchRight[i] < 0 {
+				if err := writeDiff(diffChanged, diffRight, record.record); err != nil {
+					return err
+				}
+				stats.ChangedRight++
+			}
+		}
+		return nil
+	}
+
 	for !left.eof || !right.eof {
 		if operations&cancellationCheckMask == 0 {
 			if err := ctx.Err(); err != nil {
@@ -213,6 +334,12 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			}
 		default:
 			key := left.captureKey()
+			if comparison.enabled {
+				if err := compareGroup(key); err != nil {
+					return stats, err
+				}
+				continue
+			}
 			for !left.eof && !right.eof && bytes.Equal(left.record.Key, key) && bytes.Equal(right.record.Key, key) {
 				switch rowCompare := bytes.Compare(left.record.Row, right.record.Row); {
 				case rowCompare < 0:

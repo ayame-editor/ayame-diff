@@ -33,6 +33,7 @@ type rowEmitter struct {
 	partitionMask       uint64
 	maxRecordBytes      int64
 	key, row, stored    []byte
+	comparison          comparisonConfig
 	rows                uint64
 }
 
@@ -41,12 +42,17 @@ func newRowEmitter(ctx context.Context, set *partitionSet, progress *progressCou
 		ctx: ctx, set: set, progress: progress,
 		mapping: mapping, keyIndexes: keyIndexes, keyIsFullRow: keyIsFullRow,
 		partitionMask: uint64(cfg.Partitions - 1), maxRecordBytes: cfg.MaxRecordBytes,
+		comparison: cfg.Comparison,
 	}
 }
 
 func emitRow[T fieldBytes](e *rowEmitter, fields []T, rawBytes uint64) error {
 	var err error
-	e.key, e.row, err = encodeFields(fields, e.mapping, e.keyIndexes, e.keyIsFullRow, e.key, e.row)
+	if e.comparison.enabled {
+		e.key, e.row, err = encodeComparedFields(fields, e.mapping, e.keyIndexes, e.comparison, e.key, e.row)
+	} else {
+		e.key, e.row, err = encodeFields(fields, e.mapping, e.keyIndexes, e.keyIsFullRow, e.key, e.row)
+	}
 	if err != nil {
 		return err
 	}

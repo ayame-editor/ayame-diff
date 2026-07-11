@@ -3,9 +3,20 @@ package engine
 import (
 	"fmt"
 	"io"
+	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// ColumnTolerance applies an absolute numeric tolerance to one CSV column.
+// Use either Name (header mode) or Index (with ByIndex=true).
+type ColumnTolerance struct {
+	Name    string  `json:"name,omitempty"`
+	Index   int     `json:"index,omitempty"`
+	ByIndex bool    `json:"by_index,omitempty"`
+	Value   float64 `json:"value"`
+}
 
 type Config struct {
 	LeftPath, RightPath, OutputPath                        string
@@ -25,6 +36,14 @@ type Config struct {
 	TempDir, WorkDir                                       string
 	KeepTemp, Progress                                     bool
 	OutputHeader                                           bool
+	IgnoreCase, IgnoreEOL, IgnoreTrailingEOL               bool
+	IgnoreWhitespace                                       string
+	LineFilters                                            []string
+	IgnoreColumnNames                                      []string
+	IgnoreColumnIndexes                                    []int
+	Tolerance                                              float64
+	ToleranceSet                                           bool
+	ColumnTolerances                                       []ColumnTolerance
 	Log                                                    io.Writer
 	OnProgress                                             func(ProgressEvent)
 }
@@ -49,6 +68,7 @@ type resolvedConfig struct {
 	MemoryBytes          int64
 	PartitionBufferBytes int
 	MaxRecordBytes       int64
+	Comparison           comparisonConfig
 }
 
 type Summary struct {
@@ -78,6 +98,10 @@ func (c Config) resolve() (resolvedConfig, error) {
 	r.KeyIndexes = append([]int(nil), c.KeyIndexes...)
 	r.ExcludeKeyNames = append([]string(nil), c.ExcludeKeyNames...)
 	r.ExcludeKeyIndexes = append([]int(nil), c.ExcludeKeyIndexes...)
+	r.LineFilters = append([]string(nil), c.LineFilters...)
+	r.IgnoreColumnNames = append([]string(nil), c.IgnoreColumnNames...)
+	r.IgnoreColumnIndexes = append([]int(nil), c.IgnoreColumnIndexes...)
+	r.ColumnTolerances = append([]ColumnTolerance(nil), c.ColumnTolerances...)
 
 	if c.LeftPath == "" || c.RightPath == "" || c.OutputPath == "" {
 		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
@@ -103,7 +127,43 @@ func (c Config) resolve() (resolvedConfig, error) {
 			return resolvedConfig{}, fmt.Errorf("excluded key index becomes negative after applying --index-base")
 		}
 	}
+	for i := range r.IgnoreColumnIndexes {
+		r.IgnoreColumnIndexes[i] -= c.IndexBase
+		if r.IgnoreColumnIndexes[i] < 0 {
+			return resolvedConfig{}, fmt.Errorf("ignored column index becomes negative after applying --index-base")
+		}
+	}
+	for i := range r.ColumnTolerances {
+		if r.ColumnTolerances[i].ByIndex {
+			r.ColumnTolerances[i].Index -= c.IndexBase
+			if r.ColumnTolerances[i].Index < 0 {
+				return resolvedConfig{}, fmt.Errorf("tolerance column index becomes negative after applying --index-base")
+			}
+		}
+	}
 	r.IndexBase = 0
+	if c.IgnoreWhitespace == "" {
+		r.IgnoreWhitespace = "none"
+	}
+	if r.IgnoreWhitespace != "none" && r.IgnoreWhitespace != "change" && r.IgnoreWhitespace != "all" {
+		return resolvedConfig{}, fmt.Errorf("--ignore-whitespace must be none, change, or all")
+	}
+	if math.IsNaN(c.Tolerance) || math.IsInf(c.Tolerance, 0) || c.Tolerance < 0 {
+		return resolvedConfig{}, fmt.Errorf("--tolerance must be a finite non-negative number")
+	}
+	for _, tolerance := range r.ColumnTolerances {
+		if math.IsNaN(tolerance.Value) || math.IsInf(tolerance.Value, 0) || tolerance.Value < 0 {
+			return resolvedConfig{}, fmt.Errorf("column tolerance must be a finite non-negative number")
+		}
+		if !tolerance.ByIndex && strings.TrimSpace(tolerance.Name) == "" {
+			return resolvedConfig{}, fmt.Errorf("column tolerance name must not be empty")
+		}
+	}
+	for _, pattern := range r.LineFilters {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return resolvedConfig{}, fmt.Errorf("invalid line filter %q: %w", pattern, err)
+		}
+	}
 	if err := ValidatePartitions(c.Partitions); err != nil {
 		return resolvedConfig{}, err
 	}

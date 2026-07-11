@@ -40,6 +40,7 @@ type schema struct {
 	ColumnCount                   int
 	LeftMap, RightMap, KeyIndexes []int
 	KeyIsFullRow                  bool
+	Comparison                    comparisonConfig
 }
 
 func resolveInputSpec(path, formatText, delimiterText, parserText, label string) (inputSpec, error) {
@@ -246,8 +247,22 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 	if err != nil {
 		return schema{}, err
 	}
+	comparison, err := buildComparisonConfig(left.Header, cfg)
+	if err != nil {
+		return schema{}, err
+	}
+	explicitKey := len(cfg.KeyNames)+len(cfg.KeyIndexes)+len(cfg.ExcludeKeyNames)+len(cfg.ExcludeKeyIndexes) != 0
+	if !explicitKey {
+		keys = comparison.defaultKeys(keys)
+	}
 	if len(keys) == 0 {
 		return schema{}, fmt.Errorf("no key columns remain after applying key selection")
+	}
+	if cfg.ToleranceSet && isIdentityKey(keys, n) {
+		return schema{}, fmt.Errorf("--tolerance requires --key/--key-index or --exclude-key/--exclude-key-index")
+	}
+	if err := comparison.validateToleranceKeys(keys); err != nil {
+		return schema{}, err
 	}
 	return schema{
 		Header:       append([]string(nil), left.Header...),
@@ -255,7 +270,8 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 		LeftMap:      leftMap,
 		RightMap:     rightMap,
 		KeyIndexes:   keys,
-		KeyIsFullRow: isIdentityKey(keys, n),
+		KeyIsFullRow: isIdentityKey(keys, n) && !comparison.enabled,
+		Comparison:   comparison,
 	}, nil
 }
 

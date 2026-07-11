@@ -55,6 +55,13 @@ Excluded columns still appear in the full row comparison and in the output: when
 two rows share the remaining key but differ only in an excluded column, they are
 emitted as a `CHANGED` pair.
 
+Use `--ignore-column` / `--ignore-column-index` when a column should be excluded
+from value comparison as well. `--tolerance FLOAT` compares numeric value
+columns by absolute difference (with an explicit key); repeat
+`--column-tolerance NAME=FLOAT` or `--column-tolerance-index N=FLOAT` for
+per-column tolerances. Case, whitespace, and regex normalization are available
+through `--ignore-case`, `--ignore-whitespace`, and repeatable `--filter-line`.
+
 ### Output
 
 Output is always TSV. Two leading columns, `_diff` and `_side`, are prepended,
@@ -91,6 +98,14 @@ difference *set*.
 --key-index N              (repeatable)
 --exclude-key NAME         (repeatable)
 --exclude-key-index N      (repeatable)
+--ignore-column NAME       (repeatable)
+--ignore-column-index N    (repeatable)
+--ignore-case
+--ignore-whitespace none|change|all
+--filter-line REGEX        (repeatable)
+--tolerance FLOAT
+--column-tolerance NAME=FLOAT       (repeatable)
+--column-tolerance-index N=FLOAT    (repeatable)
 --index-base 0|1
 --header=true|false
 --align-columns-by-name=true|false
@@ -152,6 +167,11 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 --encoding VALUE             auto (default), utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp
 --ignore-case                ignore case when comparing lines
 --ignore-whitespace MODE     none (default), change (collapse runs), all (remove)
+--ignore-all-space           alias for --ignore-whitespace all
+--ignore-space-change        alias for --ignore-whitespace change
+--ignore-eol                 ignore CRLF/LF differences
+--ignore-trailing-eol        ignore only the final missing line ending
+--filter-line REGEX          remove regex matches for comparison (repeatable)
 --detect-moves               pair exact delete/insert blocks as moves (default off)
 --move-min-lines N           minimum moved-block length (default 2)
 --move-max-candidates N      per-side detection guard (default 10000)
@@ -168,8 +188,8 @@ uses locale-independent file-header timestamps. CI applies all three formats
 with GNU `patch` and additionally verifies unified output with `git apply`.
 
 See [Encoding](encoding.md) for `--encoding` and
-[Comparison options](comparison-options.md) for `--ignore-case`,
-`--ignore-whitespace`, `--word`, `--window` and `--max-hunks`.
+[Comparison options](comparison-options.md) for ignore filters, numeric
+tolerance, `--word`, `--window` and `--max-hunks`.
 
 ---
 
