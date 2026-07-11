@@ -74,6 +74,8 @@ func main() {
 		runSorted(args[1:])
 	case "dir":
 		runDir(args[1:])
+	case "bin":
+		runBin(args[1:])
 	case "serve":
 		runServe(args[1:])
 	case "gui":
@@ -95,7 +97,7 @@ func subcommand(args []string) string {
 		return ""
 	}
 	switch args[0] {
-	case "csv", "text", "sorted", "dir", "serve", "gui", "update", "remove":
+	case "csv", "text", "sorted", "dir", "bin", "serve", "gui", "update", "remove":
 		return args[0]
 	}
 	return ""

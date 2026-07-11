@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.1 - 2026-07-11
+
+- Added a `bin` subcommand: byte-level (binary/hex) diff of two files. Streams
+  both files and prints each differing region as its offset with the old/new
+  bytes in hex; nearby differences coalesce into one region. (#57)
+
 ## v0.7.0 - 2026-07-11
 
 - Added a `dir` subcommand: recursively compare two directory trees **by file

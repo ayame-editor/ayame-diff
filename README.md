@@ -52,6 +52,7 @@ ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（
 ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
 ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
 ayame-diff dir    [flags] OLD_DIR NEW_DIR              # フォルダを再帰比較（追加/削除/変更）
+ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
 ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
 ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
 ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
