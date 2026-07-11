@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.1 - 2026-07-11
+
+- Web UI: elapsed-time display and a Cancel button that aborts an in-flight
+  compare. (#13)
+- Added a MkDocs (Material) documentation site under `docs/` with a GitHub Pages
+  deploy workflow. (#17)
+- Expanded server/API test coverage (sorted mode, Shift_JIS decoding via the
+  API, ignore-case/whitespace, max-hunks/max-lines capping). (#16)
+
 ## v0.6.0 - 2026-07-11
 
 - Added a `gui` subcommand: starts the local web UI on a free localhost port and
