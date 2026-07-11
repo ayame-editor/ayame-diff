@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.7.9 - 2026-07-12
+
+- Added two-way and three-way merge workflows for text and keyed CSV, including
+  per-hunk/per-row choices, undo/redo, conflict tracking, and safe result
+  writing.
+- Completed structured CSV comparison: cell-level results, full GUI setup,
+  pagination, tolerance and ignore controls, reusable project files, and
+  portable export settings.
+- Added applyable normal, context, and unified patch output with external
+  `patch`/`git apply` compatibility checks.
+- Expanded diff review in the GUI with first/previous/next/last navigation, a
+  location map, moved-block detection, sync points, and auditable ignored
+  hunks.
+- Completed scalable folder comparison and consolidated the record-processing
+  and CLI exit/stream pipelines; binary record buffers are now reused to reduce
+  allocation pressure.
+- Added native application icons and launchers, file-manager shell integration,
+  generated WinGet/Scoop/Homebrew metadata, and a VirusTotal release gate.
+- Unified GUI typography, the CJK-capable monospace stack, control radii, and
+  semantic color tokens with Ayame Editor. The colorblind scheme now keeps the
+  same translucent Ayame treatment instead of reverting to the legacy solid
+  palette. Added drift tests for the shared tokens. (#63, #64, #65, #66, #67)
+- Added a release gate requiring every pushed version tag to have an exact
+  CHANGELOG section, preventing the release notes drift found in #79.
+
 ## v0.7.8 - 2026-07-11
 
 - Web UI: **scratch / paste comparison** — toggle "paste text" to diff two
