@@ -97,3 +97,21 @@ rm -rf "$ICONS"
   cd "$RELEASE"
   "$ROOT/scripts/checksum.sh" SHA256SUMS ./*.tar.gz ./*.zip
 )
+
+# Generate package-manager metadata from the exact archives above. The WinGet
+# tree is ready to copy into microsoft/winget-pkgs; compact artifacts are also
+# attached to the GitHub release for automated downstream updates.
+PACKAGE_META="$DIST/packaging"
+rm -rf "$PACKAGE_META"
+(cd "$ROOT" && go run ./cmd/packaging-gen -version "$VERSION" -checksums "$RELEASE/SHA256SUMS" -out "$PACKAGE_META")
+(
+  cd "$PACKAGE_META/winget"
+  zip -qr "$RELEASE/ayame-diff-${VERSION}-winget-manifests.zip" manifests
+)
+cp "$PACKAGE_META/scoop/ayame-diff.json" "$RELEASE/ayame-diff-${VERSION}-scoop.json"
+cp "$PACKAGE_META/homebrew/ayame-diff.rb" "$RELEASE/ayame-diff-${VERSION}-homebrew.rb"
+rm -rf "$PACKAGE_META"
+(
+  cd "$RELEASE"
+  "$ROOT/scripts/checksum.sh" SHA256SUMS ./*.tar.gz ./*.zip ./*.json ./*.rb
+)

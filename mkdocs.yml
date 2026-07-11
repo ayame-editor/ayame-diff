@@ -70,6 +70,7 @@ nav:
   - GUI: gui.md
   - GUI setup parity: gui-setup-parity.md
   - File-manager integration: shell-integration.md
+  - Packaging and Windows trust: packaging.md
   - Ayame family design: design.md
   - Comparison projects: projects.md
   - Comparison options: comparison-options.md

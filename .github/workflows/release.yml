@@ -37,6 +37,10 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: ./scripts/package-release.sh
+      - name: VirusTotal pre-release scan
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: ./scripts/virustotal-scan.sh "release/ayame-diff-${GITHUB_REF_NAME}-windows.zip"
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
