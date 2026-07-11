@@ -134,11 +134,13 @@ func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linedif
 // snake_case field names and order the reference (and any GUI consumer) expects,
 // independent of the internal linediff struct layout.
 type jsonHunk struct {
-	Kind     string `json:"kind"` // lowercase insert/delete/replace
-	OldStart uint64 `json:"old_start"`
-	OldLen   uint64 `json:"old_len"`
-	NewStart uint64 `json:"new_start"`
-	NewLen   uint64 `json:"new_len"`
+	Kind     string  `json:"kind"` // lowercase insert/delete/replace
+	OldStart uint64  `json:"old_start"`
+	OldLen   uint64  `json:"old_len"`
+	NewStart uint64  `json:"new_start"`
+	NewLen   uint64  `json:"new_len"`
+	MoveID   uint64  `json:"move_id,omitempty"`
+	MovePeer *uint64 `json:"move_peer,omitempty"`
 }
 
 type jsonResult struct {
@@ -150,6 +152,8 @@ type jsonResult struct {
 	Added        uint64     `json:"added"`
 	Deleted      uint64     `json:"deleted"`
 	Modified     uint64     `json:"modified"`
+	MovedBlocks  uint64     `json:"moved_blocks,omitempty"`
+	MovedLines   uint64     `json:"moved_lines,omitempty"`
 }
 
 func writeJSON(w io.Writer, res linediff.Result) error {
@@ -162,6 +166,11 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 			OldLen:   h.OldLen,
 			NewStart: h.NewStart,
 			NewLen:   h.NewLen,
+			MoveID:   h.MoveID,
+		}
+		if h.MoveID != 0 {
+			peer := h.MovePeer
+			hunks[i].MovePeer = &peer
 		}
 	}
 	data, err := json.MarshalIndent(jsonResult{
@@ -173,6 +182,8 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 		Added:        res.Added,
 		Deleted:      res.Deleted,
 		Modified:     res.Modified,
+		MovedBlocks:  res.MovedBlocks,
+		MovedLines:   res.MovedLines,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -357,8 +368,16 @@ func writeSummary(w io.Writer, res linediff.Result) error {
 
 func writeHeader(bw *bufio.Writer, h linediff.Hunk) {
 	// Starts are 0-based internally but 1-based in the header, like GNU diff.
+	title := kindTitle(h.Kind)
+	if h.MoveID != 0 {
+		if h.Kind == linediff.Delete {
+			title = fmt.Sprintf("MOVED #%d → new line %d", h.MoveID, h.MovePeer+1)
+		} else {
+			title = fmt.Sprintf("MOVED #%d ← old line %d", h.MoveID, h.MovePeer+1)
+		}
+	}
 	fmt.Fprintf(bw, "@@ -%d,%d +%d,%d %s @@\n",
-		h.OldStart+1, h.OldLen, h.NewStart+1, h.NewLen, kindTitle(h.Kind))
+		h.OldStart+1, h.OldLen, h.NewStart+1, h.NewLen, title)
 }
 
 // summaryLine reports the totals from the full diff (which stay accurate even
@@ -366,6 +385,9 @@ func writeHeader(bw *bufio.Writer, h linediff.Hunk) {
 func summaryLine(res linediff.Result) string {
 	s := fmt.Sprintf("%s hunk(s), %s added, %s deleted, %s modified",
 		group(res.HunkCount), group(res.Added), group(res.Deleted), group(res.Modified))
+	if res.MovedBlocks > 0 {
+		s += fmt.Sprintf(", %s moved block(s) / %s line(s)", group(res.MovedBlocks), group(res.MovedLines))
+	}
 	if res.OmittedHunks > 0 {
 		s += " (output truncated; raise --max-hunks)"
 	}

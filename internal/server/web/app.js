@@ -15,6 +15,7 @@ const I18N = {
     exporting: "patch生成中…", exported: "patchを書き出しました",
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
     navHelpText: "差分移動: Alt+↓ 次 / Alt+↑ 前 / Alt+End 最後 / Alt+Home 最初",
+    detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -32,6 +33,7 @@ const I18N = {
     exporting: "Exporting patch…", exported: "Patch exported",
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
     navHelpText: "Navigate: Alt+↓ next / Alt+↑ previous / Alt+End last / Alt+Home first",
+    detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -171,10 +173,30 @@ function renderHunk(h, useWord, index) {
   box.id = `hunk-${index}`;
   box.dataset.hunk = String(index);
   box.tabIndex = -1;
+  if (h.move_id) {
+    box.classList.add("moved");
+    box.dataset.moveId = String(h.move_id);
+  }
   const head = document.createElement("div");
   head.className = "hunk-head";
   const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
-  head.textContent = `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
+  head.textContent = h.move_id
+    ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
+    : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
+  if (h.move_id) {
+    const jump = document.createElement("button");
+    jump.type = "button";
+    jump.className = "move-jump";
+    jump.textContent = "↔";
+    jump.title = t("moved");
+    jump.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const peer = [...document.querySelectorAll(`.hunk[data-move-id="${h.move_id}"]`)]
+        .find((node) => Number(node.dataset.hunk) !== index);
+      if (peer) jumpToHunk(Number(peer.dataset.hunk));
+    });
+    head.append(jump);
+  }
   box.append(head);
 
   const rows = document.createElement("div");
@@ -219,6 +241,7 @@ function renderSummary(res) {
     stat("del", t("deleted"), res.deleted),
     stat("chg", t("modified"), res.modified),
   );
+  if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
@@ -284,7 +307,7 @@ function buildMinimap(data) {
   data.hunks.forEach((h, index) => {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `minimap-marker ${h.kind}`;
+    marker.className = `minimap-marker ${h.kind}${h.move_id ? " moved" : ""}`;
     marker.dataset.hunk = String(index);
     marker.title = `${index + 1}: ${h.kind}`;
     marker.style.top = `${Math.min(99, (Math.max(h.old_start, h.new_start) / totalLines) * 100)}%`;
@@ -399,6 +422,8 @@ function requestBody() {
     reverse: $("reverse").checked,
     ignoreCase: $("ignoreCase").checked,
     whitespace: $("whitespace").value,
+    detectMoves: $("detectMoves").checked,
+    moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
   };
 }
 

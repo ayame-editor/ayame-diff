@@ -73,6 +73,11 @@ click-to-jump, and overlays the current viewport. Left/right text stays vertical
 and horizontally synchronized because each hunk is rendered as one shared grid
 and scroll row rather than two independent panes.
 
+Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
+dedicated purple color and an `↔` button jumps to the paired location. Detection
+is off by default; **move min lines** and the engine candidate cap prevent the
+optional post-processing pass from dominating huge comparisons.
+
 ## HTTP API
 
 The GUI is a thin client over a small JSON API. You can call it directly.

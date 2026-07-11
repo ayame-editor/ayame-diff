@@ -85,6 +85,27 @@ func TestDiffAPI(t *testing.T) {
 	}
 }
 
+func TestDiffAPIDetectsMovedBlocks(t *testing.T) {
+	t.Parallel()
+	body, _ := json.Marshal(diffRequest{
+		Inline: true, DetectMoves: true, MoveMinLines: 2,
+		OldText: "top\nmove-a\nmove-b\nstay-a\nstay-b\nstay-c\nbottom\n",
+		NewText: "top\nstay-a\nstay-b\nstay-c\nmove-a\nmove-b\nbottom\n",
+	})
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response diffResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.MovedBlocks != 1 || response.MovedLines != 2 {
+		t.Fatalf("moved = %d/%d hunks=%+v", response.MovedBlocks, response.MovedLines, response.Hunks)
+	}
+}
+
 func TestDiffAPIErrors(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)

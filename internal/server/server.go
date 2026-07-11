@@ -53,19 +53,21 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old         string `json:"old"`
-	New         string `json:"new"`
-	Mode        string `json:"mode"` // "text" (default) or "sorted"
-	Encoding    string `json:"encoding"`
-	Window      uint64 `json:"window"`
-	MaxHunks    int    `json:"maxHunks"`
-	MaxLines    uint64 `json:"maxLines"`
-	Numeric     bool   `json:"numeric"`
-	Reverse     bool   `json:"reverse"`
-	IgnoreCase  bool   `json:"ignoreCase"`
-	Whitespace  string `json:"whitespace"` // none | change | all
-	PatchFormat string `json:"patchFormat,omitempty"`
-	Context     *int   `json:"context,omitempty"`
+	Old          string `json:"old"`
+	New          string `json:"new"`
+	Mode         string `json:"mode"` // "text" (default) or "sorted"
+	Encoding     string `json:"encoding"`
+	Window       uint64 `json:"window"`
+	MaxHunks     int    `json:"maxHunks"`
+	MaxLines     uint64 `json:"maxLines"`
+	Numeric      bool   `json:"numeric"`
+	Reverse      bool   `json:"reverse"`
+	IgnoreCase   bool   `json:"ignoreCase"`
+	Whitespace   string `json:"whitespace"` // none | change | all
+	PatchFormat  string `json:"patchFormat,omitempty"`
+	Context      *int   `json:"context,omitempty"`
+	DetectMoves  bool   `json:"detectMoves,omitempty"`
+	MoveMinLines uint64 `json:"moveMinLines,omitempty"`
 	// Inline compares OldText/NewText directly instead of the Old/New paths —
 	// "scratch" comparison of pasted text (#55).
 	Inline  bool   `json:"inline"`
@@ -82,6 +84,8 @@ type hunkOut struct {
 	NewLen   uint64   `json:"new_len"`
 	Old      []string `json:"old"`
 	New      []string `json:"new"`
+	MoveID   uint64   `json:"move_id,omitempty"`
+	MovePeer *uint64  `json:"move_peer,omitempty"`
 }
 
 type diffResponse struct {
@@ -93,6 +97,8 @@ type diffResponse struct {
 	Added        uint64    `json:"added"`
 	Deleted      uint64    `json:"deleted"`
 	Modified     uint64    `json:"modified"`
+	MovedBlocks  uint64    `json:"moved_blocks,omitempty"`
+	MovedLines   uint64    `json:"moved_lines,omitempty"`
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +141,11 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		IgnoreCase: req.IgnoreCase,
 		Whitespace: whitespaceMode(req.Whitespace),
 	})
+	if req.DetectMoves {
+		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
+		})
+	}
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
 }
 
@@ -287,6 +298,11 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 			NewLen:   h.NewLen,
 			Old:      sliceLines(old, h.OldStart, h.OldLen, maxLines),
 			New:      sliceLines(new, h.NewStart, h.NewLen, maxLines),
+			MoveID:   h.MoveID,
+		}
+		if h.MoveID != 0 {
+			peer := h.MovePeer
+			hunks[i].MovePeer = &peer
 		}
 	}
 	return diffResponse{
@@ -298,6 +314,8 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		Added:        res.Added,
 		Deleted:      res.Deleted,
 		Modified:     res.Modified,
+		MovedBlocks:  res.MovedBlocks,
+		MovedLines:   res.MovedLines,
 	}
 }
 

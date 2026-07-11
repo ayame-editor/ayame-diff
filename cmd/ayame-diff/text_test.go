@@ -73,6 +73,28 @@ func TestRunSortedRejectsPatchOutput(t *testing.T) {
 	}
 }
 
+func TestRunTextDetectMoves(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "old.txt")
+	newPath := filepath.Join(dir, "new.txt")
+	oldText := "top\nmove-a\nmove-b\nstay-a\nstay-b\nstay-c\nbottom\n"
+	newText := "top\nstay-a\nstay-b\nstay-c\nmove-a\nmove-b\nbottom\n"
+	if err := os.WriteFile(oldPath, []byte(oldText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte(newText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runText([]string{"--detect-moves", oldPath, newPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d stderr=%q", code, stderr.String())
+	}
+	if strings.Count(stdout.String(), "MOVED #1") != 2 || !strings.Contains(stderr.String(), "1 moved block(s) / 2 line(s)") {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestDiffFlagsFormat(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

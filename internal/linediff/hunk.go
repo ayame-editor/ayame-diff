@@ -47,6 +47,10 @@ type Hunk struct {
 	OldLen   uint64
 	NewStart uint64
 	NewLen   uint64
+	// MoveID pairs an exact Delete/Insert block detected by DetectMoves.
+	// MovePeer is the corresponding 0-based line in the opposite document.
+	MoveID   uint64
+	MovePeer uint64
 }
 
 // Result is the outcome of a diff: the surviving hunks (capped at the caller's
@@ -65,4 +69,6 @@ type Result struct {
 	Added        uint64
 	Deleted      uint64
 	Modified     uint64
+	MovedBlocks  uint64
+	MovedLines   uint64
 }

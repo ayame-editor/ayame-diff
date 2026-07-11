@@ -42,6 +42,9 @@ type diffFlags struct {
 	encoding                       string
 	ignoreCase                     bool
 	whitespace                     string
+	detectMoves                    bool
+	moveMinLines                   uint64
+	moveMaxCandidates              int
 }
 
 type optionalInt struct {
@@ -80,6 +83,9 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
 	fs.StringVar(&d.whitespace, "ignore-whitespace", "none", "whitespace handling: none, change (collapse runs), all (remove)")
+	fs.BoolVar(&d.detectMoves, "detect-moves", false, "detect exact delete/insert blocks as moves")
+	fs.Uint64Var(&d.moveMinLines, "move-min-lines", 2, "minimum lines in a moved block")
+	fs.IntVar(&d.moveMaxCandidates, "move-max-candidates", 10000, "maximum delete and insert candidates examined")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -176,6 +182,11 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 		IgnoreCase: d.ignoreCase,
 		Whitespace: whitespaceMode(d.whitespace),
 	})
+	if d.detectMoves {
+		linediff.DetectMoves(old, new, &res, linediff.MoveOptions{
+			MinLines: d.moveMinLines, MaxCandidates: d.moveMaxCandidates,
+		})
+	}
 	if d.html != "" {
 		f, err := os.Create(d.html)
 		if err != nil {
