@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/encoding"
@@ -29,6 +31,7 @@ type diffFlags struct {
 	word       bool
 	normal     bool
 	html       string
+	pre        string
 	encoding   string
 	ignoreCase bool
 	whitespace string
@@ -41,6 +44,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.normal, "normal", false, "GNU normal-diff (patch) output")
 	fs.StringVar(&d.html, "html", "", "write a self-contained HTML report to this file")
+	fs.StringVar(&d.pre, "pre", "", "preprocess each input through this shell command before diffing (e.g. --pre 'jq -S .')")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
@@ -130,9 +134,9 @@ inputs. OLD or NEW may be - to read standard input.`)
 		return
 	}
 
-	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding)
+	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding, d.pre)
 	defer closeOld()
-	newSrc, closeNew := openSource(fs.Arg(1), d.encoding)
+	newSrc, closeNew := openSource(fs.Arg(1), d.encoding, d.pre)
 	defer closeNew()
 	emitDiff(oldSrc, newSrc, d, fs.Arg(0)+" vs "+fs.Arg(1))
 }
@@ -167,9 +171,9 @@ Note: v1 sorts in memory.`)
 		return
 	}
 
-	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding)
+	oldSrc, closeOld := openSource(fs.Arg(0), d.encoding, d.pre)
 	defer closeOld()
-	newSrc, closeNew := openSource(fs.Arg(1), d.encoding)
+	newSrc, closeNew := openSource(fs.Arg(1), d.encoding, d.pre)
 	defer closeNew()
 	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
 	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
@@ -194,9 +198,13 @@ func parseDiffArgs(fs *flag.FlagSet, args []string) bool {
 }
 
 // openSource returns a line source for path plus a close func. A path of "-"
-// reads the whole of standard input (decoded per encHint); otherwise the file
-// is streamed with bounded memory.
-func openSource(path, encHint string) (linediff.Lines, func()) {
+// reads standard input; a non-empty pre command preprocesses the input first
+// (both read fully into memory). Otherwise a file is streamed with bounded
+// memory.
+func openSource(path, encHint, pre string) (linediff.Lines, func()) {
+	if pre != "" {
+		return preprocessLines(path, encHint, pre), func() {}
+	}
 	if path == "-" {
 		return readStdin(encHint), func() {}
 	}
@@ -206,6 +214,43 @@ func openSource(path, encHint string) (linediff.Lines, func()) {
 		os.Exit(2)
 	}
 	return f, func() { f.Close() }
+}
+
+// preprocessLines runs pre as a shell command with path's content on stdin
+// (stdin itself when path is "-"), then decodes and splits its output. This is
+// the "prediffer/unpacker" hook: normalize or transform inputs before diffing
+// (e.g. --pre 'jq -S .' to canonicalize JSON).
+func preprocessLines(path, encHint, pre string) linediff.StringLines {
+	var stdin io.Reader = os.Stdin
+	if path != "-" {
+		f, err := os.Open(path)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(2)
+		}
+		defer f.Close()
+		stdin = f
+	}
+	name, args := "sh", []string{"-c", pre}
+	if runtime.GOOS == "windows" {
+		name, args = "cmd", []string{"/c", pre}
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = stdin
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: preprocess %q on %s: %v\n", pre, path, err)
+		os.Exit(2)
+	}
+	dname := encoding.Detect(out, encHint)
+	decoded, err := io.ReadAll(encoding.Decoder(bytes.NewReader(out), dname))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
+	return linediff.SplitLines(string(decoded))
 }
 
 // readStdin reads all of stdin, decodes it to UTF-8 (encHint, "auto" to detect),

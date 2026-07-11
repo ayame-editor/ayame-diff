@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.5 - 2026-07-11
+
+- Added `--pre <command>` to `text`/`sorted`: preprocess each input through a
+  shell command before diffing (WinMerge's unpacker/prediffer, Unix-style) —
+  e.g. `--pre 'jq -S .'` to canonicalize JSON, `--pre 'sort'`, `--pre 'tr A-Z a-z'`.
+  The command's output is then encoding-detected and diffed. (#56)
+
 ## v0.7.4 - 2026-07-11
 
 - `dir` now compares archives too: pass a `.zip`, `.tar`, `.tar.gz`, or `.tgz`
