@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.2 - 2026-07-11
+
+- Added `--normal` to `text`/`sorted`: GNU normal-diff (patch) output
+  (`<n>c<n>` / `<n>a<n>` / `<n>d<n>` with `< `/`> ` lines) — byte-identical to
+  `diff`. (#54, normal format; applyable unified/context patches with
+  patch/git-apply CI verification remain.)
+
 ## v0.7.1 - 2026-07-11
 
 - Added a `bin` subcommand: byte-level (binary/hex) diff of two files. Streams

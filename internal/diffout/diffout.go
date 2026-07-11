@@ -35,6 +35,9 @@ const (
 	JSON
 	// Summary emits only the one-line stats summary.
 	Summary
+	// Normal emits a classic (GNU diff, no-flags) patch: <n>c<n> / <n>a<n> /
+	// <n>d<n> headers with "< " old and "> " new lines.
+	Normal
 )
 
 // Options tunes rendering. Zero values fall back to the reference defaults
@@ -78,6 +81,11 @@ func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linedif
 	case JSON:
 		return writeJSON(w, res)
 	case Summary:
+		return writeSummary(summaryW, res)
+	case Normal:
+		if err := writeNormal(w, old, new, res, maxLines); err != nil {
+			return err
+		}
 		return writeSummary(summaryW, res)
 	case SideBySide:
 		if err := writeSideBySide(w, old, new, res, maxLines, width); err != nil {
@@ -173,6 +181,48 @@ func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, max
 		}
 	}
 	return bw.Flush()
+}
+
+// writeNormal renders the result as a classic GNU-diff (no-flags) patch. The
+// current hunk model (1:1 replaces, insert/delete runs) maps directly onto the
+// c/a/d commands, so no context-line assembly is needed.
+func writeNormal(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64) error {
+	bw := bufio.NewWriter(w)
+	for _, h := range res.Hunks {
+		switch h.Kind {
+		case linediff.Delete:
+			fmt.Fprintf(bw, "%sd%d\n", normalRange(h.OldStart, h.OldLen), h.NewStart)
+			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen, maxLines)
+		case linediff.Insert:
+			fmt.Fprintf(bw, "%da%s\n", h.OldStart, normalRange(h.NewStart, h.NewLen))
+			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen, maxLines)
+		default: // Replace
+			fmt.Fprintf(bw, "%sc%s\n", normalRange(h.OldStart, h.OldLen), normalRange(h.NewStart, h.NewLen))
+			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen, maxLines)
+			fmt.Fprintln(bw, "---")
+			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen, maxLines)
+		}
+	}
+	return bw.Flush()
+}
+
+// normalRange renders a 1-based line range: "S" for a single line, else "S1,S2".
+func normalRange(start0, count uint64) string {
+	s := start0 + 1
+	if count <= 1 {
+		return strconv.FormatUint(s, 10)
+	}
+	return fmt.Sprintf("%d,%d", s, start0+count)
+}
+
+func writeNormalLines(bw *bufio.Writer, lines linediff.Lines, prefix string, start, count, maxLines uint64) {
+	shown := min(count, maxLines)
+	for n := start; n < start+shown; n++ {
+		fmt.Fprintf(bw, "%s%s\n", prefix, lineAt(lines, n))
+	}
+	if count > shown {
+		fmt.Fprintf(bw, "%s... %d more line(s)\n", prefix, count-shown)
+	}
 }
 
 // writeWordReplace renders a Replace hunk with intra-line word markers. It pairs

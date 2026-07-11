@@ -26,6 +26,7 @@ type diffFlags struct {
 	window     uint64
 	width      int
 	word       bool
+	normal     bool
 	encoding   string
 	ignoreCase bool
 	whitespace string
@@ -36,6 +37,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.side, "side-by-side", false, "two-column (old | new) output")
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
+	fs.BoolVar(&d.normal, "normal", false, "GNU normal-diff (patch) output")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
@@ -52,6 +54,8 @@ func (d *diffFlags) format() diffout.Format {
 		return diffout.JSON
 	case d.summary:
 		return diffout.Summary
+	case d.normal:
+		return diffout.Normal
 	case d.side:
 		return diffout.SideBySide
 	default:
