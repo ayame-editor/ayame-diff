@@ -39,6 +39,7 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		{name: "sorted help", args: []string{"sorted", "--help"}, code: 0, stdout: "Sort both text files"},
 		{name: "dir help", args: []string{"dir", "--help"}, code: 0, stdout: "Recursively compare"},
 		{name: "bin help", args: []string{"bin", "--help"}, code: 0, stdout: "Byte-level"},
+		{name: "3way help", args: []string{"3way", "--help"}, code: 0, stdout: "common base"},
 		{name: "serve help", args: []string{"serve", "--help"}, code: 0, stdout: "local web UI"},
 		{name: "gui help", args: []string{"gui", "--help"}, code: 0, stdout: "open it in your browser"},
 		{name: "update help", args: []string{"update", "--help"}, code: 0, stdout: "latest release"},

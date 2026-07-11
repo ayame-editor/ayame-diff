@@ -55,6 +55,7 @@ ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
 ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
 ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT の3-way比較
 ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
 ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
 ayame-diff shell-install                               # ファイルマネージャ連携を登録

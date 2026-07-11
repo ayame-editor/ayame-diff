@@ -16,7 +16,7 @@ const I18N = {
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
-    navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右、Alt+Home/End 最初/最後",
+    navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右 / Alt+B ベース、Alt+Home/End",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
     ignoreHunk: "この差分を無視", restoreHunk: "無視を解除", ignored: "無視",
@@ -41,7 +41,8 @@ const I18N = {
 	selectKey: "キー列を1つ以上選択してください。",
 	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
-	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", allLeft: "すべて左", allRight: "すべて右",
+	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
+	threeWay: "3-way 比較", conflicts: "競合",
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
@@ -59,7 +60,7 @@ const I18N = {
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
-    navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right; Alt+Home/End first/last",
+    navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right / Alt+B base; Alt+Home/End",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
     ignoreHunk: "Ignore this difference", restoreHunk: "Restore difference", ignored: "ignored",
@@ -84,7 +85,8 @@ const I18N = {
 	selectKey: "Select at least one key column.",
 	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
-	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", allLeft: "All left", allRight: "All right",
+	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
+	threeWay: "3-way comparison", conflicts: "conflicts",
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
@@ -177,6 +179,7 @@ const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
 let directoryData = null, directoryBody = null;
 let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
+let threeWayData = null;
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -382,6 +385,8 @@ function mutateMerge(mutator) {
 }
 function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
 function updateMergeUI() {
+	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
+	$("allBase").hidden = true;
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
   const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
   $("mergePanel").hidden = !mergeable;
@@ -449,7 +454,71 @@ async function saveCSVMerge() {
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-function saveMergeResult() { return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+function saveMergeResult() { if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(); return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+
+function threeWayRequestBody() { return { ...requestBody(), base: $("base").value.trim() }; }
+function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) => row.join("\t")) : (value || []); }
+function renderThreeWay(data, csvMode) {
+  threeWayData = { ...data, csvMode }; csvData = null;
+  const summary = $("summary"); summary.innerHTML = "";
+  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
+  add(t("conflicts"), data.conflicts, "del"); add("left", data.left_only); add("right", data.right_only); add("same", data.same_change); summary.hidden = false;
+  const result = $("result"); result.innerHTML = "";
+  lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
+  setupNavigation(lastData);
+  for (let index = 0; index < data.events.length; index++) {
+    const event = data.events[index], box = document.createElement("section");
+    box.className = `hunk three-event ${event.kind}`; box.id = `hunk-${index}`; box.dataset.hunk = String(index); box.dataset.mergeId = String(event.id); box.tabIndex = -1;
+    const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `BASE ${event.base_start + 1},${event.base_len}`}`));
+    if (event.kind === "conflict") {
+      const actions = document.createElement("span"); actions.className = "hunk-merge";
+      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
+      head.append(actions);
+    }
+    const grid = document.createElement("div"); grid.className = "three-grid";
+    for (const [name, values] of [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]]) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
+    box.append(head, grid); result.append(box);
+  }
+  if (!data.events.length) { const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = t("noDiff"); result.append(empty); }
+  observeHunks(); updateThreeWayMergeUI(); updateMinimapViewport();
+}
+function updateThreeWayMergeUI() {
+	$("allBase").hidden = false;
+  $("mergePanel").hidden = !threeWayData;
+  if (!threeWayData) return;
+  for (const event of threeWayData.events) {
+    const row = document.querySelector(`.three-event[data-merge-id="${CSS.escape(String(event.id))}"]`), side = mergeChoices.get(event.id);
+    for (const value of ["left", "right", "base"]) row?.classList.toggle(`merge-${value}`, side === value);
+  }
+  $("mergeUnresolved").textContent = t("unresolved", Math.max(0, threeWayData.conflicts - mergeChoices.size));
+  $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+}
+async function compareThreeWay(csvMode) {
+  if (!$("base").value.trim() || !$("old").value.trim() || !$("new").value.trim()) { setStatus(t("enterPaths"), "error"); return; }
+  let body;
+  if (csvMode) { if (!csvInspection && !(await inspectCSV())) return; body = { ...csvRequestBody(), base: $("base").value.trim() }; }
+  else body = threeWayRequestBody();
+  $("compare").disabled = true; setStatus(t("comparing"), "busy");
+  try {
+    const response = await fetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
+    renderThreeWay(data, csvMode); setStatus("");
+  } catch (err) { setStatus(String(err.message || err), "error"); }
+  finally { $("compare").disabled = false; }
+}
+async function saveThreeWayMerge() {
+  const output = $("mergeOutput").value.trim(); if (!output) { setStatus(`${t("saveMerge")}: output required`, "error"); return; }
+  const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
+  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
+  const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || confirm(t("overwriteWarning")); if (!confirmOverwrite) return;
+  const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
+  const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
+  $("saveMerge").disabled = true;
+  try { const response = await fetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), ""); }
+  catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
+}
 
 function updateCounter() {
   const active = activeHunkIndexes();
@@ -464,7 +533,7 @@ function updateCounter() {
 }
 
 function activeHunkIndexes() {
-  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index));
+  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index) && (!threeWayData || threeWayData.events[index]?.kind === "conflict"));
 }
 
 function stepHunk(delta) {
@@ -806,7 +875,7 @@ async function compareCSV() {
   try {
     const resp = await fetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
@@ -911,6 +980,8 @@ async function compareDirectory() {
 }
 
 async function compare() {
+  if ($("mode").value === "threeway") { await compareThreeWay(false); return; }
+  if ($("mode").value === "threeway-csv") { await compareThreeWay(true); return; }
   if ($("mode").value === "csv") { await compareCSV(); return; }
 	if ($("mode").value === "dir") { await compareDirectory(); return; }
   const body = requestBody();
@@ -938,6 +1009,7 @@ async function compare() {
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     setStatus("");
     lastData = data;
+    threeWayData = null;
     mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
@@ -1039,12 +1111,16 @@ async function exportPatch() {
 
 function syncModeOpts() {
   const sorted = $("mode").value === "sorted";
-	const csv = $("mode").value === "csv";
+	const csv = $("mode").value === "csv" || $("mode").value === "threeway-csv";
+	const threeway = $("mode").value === "threeway" || $("mode").value === "threeway-csv";
 	const directory = $("mode").value === "dir";
 	const structured = csv || directory;
   $("numericWrap").hidden = !sorted;
   $("reverseWrap").hidden = !sorted;
 	$("csvOptions").hidden = !csv;
+	$("exportCSV").hidden = $("mode").value === "threeway-csv";
+	$("projectPath").closest(".project-actions").hidden = $("mode").value === "threeway-csv";
+	$("basePathRow").hidden = !threeway;
 	$("dirOptions").hidden = !directory;
 	$("scratch").closest("label").hidden = structured;
 	if (structured && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
@@ -1052,6 +1128,7 @@ function syncModeOpts() {
 		const node = $(id), holder = node?.closest("label") || node;
 		if (holder) holder.hidden = structured;
 	}
+	for (const id of ["patchFormat", "patchContext", "exportPatch", "detectMoves", "moveMinLines", "word"]) { const node = $(id), holder = node?.closest("label") || node; if (holder && threeway) holder.hidden = true; }
 	$("exportPatch").disabled = sorted || structured;
 	if (csv) updateCSVReview();
 }
@@ -1217,8 +1294,9 @@ $("nextDiff").addEventListener("click", () => stepHunk(1));
 $("lastDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]); });
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
-$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
-$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
+$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
+$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
+$("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);
@@ -1227,9 +1305,10 @@ document.addEventListener("keydown", (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
   let target = null;
   const active = activeHunkIndexes();
-  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight" || (threeWayData && event.key.toLowerCase() === "b")) {
     event.preventDefault(); const index = currentHunk >= 0 ? currentHunk : active[0];
-    if (index != null) chooseMerge(index, event.key === "ArrowLeft" ? "left" : "right");
+    const key = threeWayData?.events?.[index]?.id ?? index;
+    if (index != null) chooseMerge(key, event.key === "ArrowLeft" ? "left" : (event.key === "ArrowRight" ? "right" : "base"));
     return;
   } else if (event.key === "ArrowDown") { event.preventDefault(); stepHunk(1); return; }
   else if (event.key === "ArrowUp") { event.preventDefault(); stepHunk(-1); return; }
@@ -1253,7 +1332,7 @@ $("showWs").addEventListener("change", () => {
   if (lastData) renderResult(lastData); // re-render so the change is immediate
 });
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
-for (const id of ["old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
+for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
 }
 function applyScratch() {

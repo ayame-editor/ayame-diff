@@ -8,6 +8,7 @@ ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
 ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
 ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
 ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
 ayame-diff serve  [--addr host:port]                   # local web GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
 ayame-diff shell-install                               # file-manager integration

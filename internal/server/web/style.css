@@ -175,6 +175,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }
 .hunk.merge-left .choose-left, .hunk.merge-right .choose-right { background: var(--accent); color: #fff; }
+.hunk.merge-base { border-color: var(--gold); }
+.hunk.merge-base .choose-base { background: var(--gold); color: #fff; }
+.three-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: auto; }
+.three-pane { min-width: 0; border-right: 1px solid var(--border); }
+.three-pane:last-child { border-right: 0; }
+.three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: 0.75rem; }
+.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: 0.8rem var(--mono); border-top: 1px solid var(--border); }
+.three-event.conflict { border-color: var(--danger); }
+.three-event.same_change { border-color: var(--accent); }
 .sync-chip {
   display: inline-flex; margin: 0 0.25rem 0.2rem 0; padding: 0.12rem 0.45rem;
   border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); background: var(--bg);

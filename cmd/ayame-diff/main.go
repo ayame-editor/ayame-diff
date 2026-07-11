@@ -27,6 +27,7 @@ Subcommands:
   csv     CSV/TSV key comparison (this default; a bare invocation is csv)
   text    line diff of two text files
   sorted  sort both files, then line-diff
+  3way   compare BASE, LEFT, and RIGHT (text or CSV)
   serve   local web GUI    gui   web GUI + open browser
   shell-install  register file-manager integration
   shell-uninstall remove file-manager integration
@@ -201,6 +202,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDir(args[1:], stdout, stderr)
 	case "bin":
 		return runBin(args[1:], stdout, stderr)
+	case "3way":
+		return runThreeWay(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
 	case "gui":
@@ -253,7 +256,7 @@ func subcommand(args []string) string {
 		return ""
 	}
 	switch args[0] {
-	case "csv", "text", "sorted", "dir", "bin", "serve", "gui", "update", "remove", "shell-install", "shell-uninstall", "shell-select":
+	case "csv", "text", "sorted", "dir", "bin", "3way", "serve", "gui", "update", "remove", "shell-install", "shell-uninstall", "shell-select":
 		return args[0]
 	}
 	return ""

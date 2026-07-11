@@ -29,6 +29,7 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
 	"github.com/hjosugi/ayame-diff/internal/merge"
 	"github.com/hjosugi/ayame-diff/internal/project"
+	"github.com/hjosugi/ayame-diff/internal/threeway"
 )
 
 //go:embed web
@@ -54,10 +55,14 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/diff", s.handleDiff)
 	s.mux.HandleFunc("/api/patch", s.handlePatch)
 	s.mux.HandleFunc("/api/merge/text", s.handleTextMerge)
+	s.mux.HandleFunc("/api/three-way/text", s.handleThreeWayText)
+	s.mux.HandleFunc("/api/merge/three-way/text", s.handleThreeWayTextMerge)
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
 	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
 	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
 	s.mux.HandleFunc("/api/merge/csv", s.handleCSVMerge)
+	s.mux.HandleFunc("/api/three-way/csv", s.handleThreeWayCSV)
+	s.mux.HandleFunc("/api/merge/three-way/csv", s.handleThreeWayCSVMerge)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
 	s.mux.HandleFunc("/api/drop", s.handleDrop)
@@ -950,6 +955,199 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, merged)
+}
+
+type threeWayTextRequest struct {
+	diffRequest
+	Base             string            `json:"base"`
+	Output           string            `json:"output,omitempty"`
+	Choices          map[string]string `json:"choices,omitempty"`
+	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	Overwrite        bool              `json:"overwrite,omitempty"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
+}
+
+func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, linediff.Lines, func(), error) {
+	base, closeBase, err := openMode(req.Base, "text", req.Encoding, false, false)
+	if err != nil {
+		return nil, nil, nil, func() {}, fmt.Errorf("base: %w", err)
+	}
+	left, closeLeft, err := openMode(req.Old, "text", req.Encoding, false, false)
+	if err != nil {
+		closeBase()
+		return nil, nil, nil, func() {}, fmt.Errorf("left: %w", err)
+	}
+	right, closeRight, err := openMode(req.New, "text", req.Encoding, false, false)
+	if err != nil {
+		closeLeft()
+		closeBase()
+		return nil, nil, nil, func() {}, fmt.Errorf("right: %w", err)
+	}
+	return base, left, right, func() { closeRight(); closeLeft(); closeBase() }, nil
+}
+
+func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
+	if req.Base == "" || req.Old == "" || req.New == "" {
+		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, old/left, and new/right paths are required")
+	}
+	base, left, right, closeLines, err := openThreeWayText(req)
+	if err != nil {
+		return nil, threeway.Result{}, func() {}, err
+	}
+	window := req.Window
+	if window == 0 {
+		window = 128
+	}
+	options, err := requestDiffOptions(req.diffRequest, math.MaxInt, window)
+	if err != nil {
+		closeLines()
+		return nil, threeway.Result{}, func() {}, err
+	}
+	return base, threeway.Compare(base, left, right, options), closeLines, nil
+}
+
+func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	_, result, closeLines, err := threeWayTextResult(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	maxLines := req.MaxLines
+	if maxLines == 0 {
+		maxLines = 200
+	}
+	for i := range result.Events {
+		if uint64(len(result.Events[i].Base)) > maxLines {
+			result.Events[i].Base = result.Events[i].Base[:maxLines]
+		}
+		if uint64(len(result.Events[i].Left)) > maxLines {
+			result.Events[i].Left = result.Events[i].Left[:maxLines]
+		}
+		if uint64(len(result.Events[i].Right)) > maxLines {
+			result.Events[i].Right = result.Events[i].Right[:maxLines]
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if aliases := pathsEqual(req.Output, req.Base) || pathsEqual(req.Output, req.Old) || pathsEqual(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
+		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		return
+	}
+	base, result, closeLines, err := threeWayTextResult(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	choices := make(map[int]string, len(req.Choices))
+	for idText, side := range req.Choices {
+		id, parseErr := strconv.Atoi(idText)
+		if parseErr != nil || id < 0 || (side != "left" && side != "right" && side != "base") {
+			writeError(w, http.StatusBadRequest, "invalid conflict choice")
+			return
+		}
+		choices[id] = side
+	}
+	lines, unresolved, err := threeway.MergeLines(base, result, choices, req.AllowUnresolved)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := threeway.WriteMerged(req.Output, lines); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
+}
+
+type threeWayCSVRequest struct {
+	csvRequest
+	Base             string            `json:"base"`
+	Choices          map[string]string `json:"choices,omitempty"`
+	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	Overwrite        bool              `json:"overwrite,omitempty"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
+}
+
+func compareThreeWayCSV(r *http.Request, req threeWayCSVRequest) (threeway.CSVResult, error) {
+	if req.Base == "" || req.Old == "" || req.New == "" {
+		return threeway.CSVResult{}, fmt.Errorf("base, old/left, and new/right paths are required")
+	}
+	if req.KeyMode == "include" && len(req.KeyNames)+len(req.KeyIndexes) == 0 {
+		return threeway.CSVResult{}, fmt.Errorf("select at least one key column")
+	}
+	cfg := csvConfig(req.csvRequest, filepath.Join(os.TempDir(), "three-way-unused.tsv"))
+	return threeway.CompareCSV(r.Context(), req.Base, req.Old, req.New, cfg)
+}
+
+func (s *Server) handleThreeWayCSV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayCSVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	result, err := compareThreeWayCSV(r, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayCSVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Output) == "" {
+		writeError(w, http.StatusBadRequest, "output path is required")
+		return
+	}
+	if aliases := pathsEqual(req.Output, req.Base) || pathsEqual(req.Output, req.Old) || pathsEqual(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
+		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		return
+	}
+	result, err := compareThreeWayCSV(r, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	unresolved, err := threeway.WriteCSVMerge(req.Base, req.Output, result, req.Choices, req.AllowUnresolved)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
 }
 
 func pathModTime(path string) time.Time {

@@ -23,6 +23,8 @@ dependency — no database, no CGO, no runtime to install.
   can compare files in the browser. See [GUI](gui.md).
 - **Merge and reconcile** — choose either side per text hunk or keyed CSV row,
   undo/redo decisions, and atomically save a new result. See [Merge](merge.md).
+- **Three-way comparison** — compare BASE / LEFT / RIGHT text or keyed CSV,
+  detect conflicts, resolve in three panes, and save. See [Three-way](three-way.md).
 - **Single binary** — cross-compiled for Linux, macOS and Windows.
 
 ## Install
