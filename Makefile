@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test race vet check build-all clean
+.PHONY: build test race vet smoke check build-all clean
 
 build:
 	mkdir -p dist
@@ -16,7 +16,10 @@ race:
 vet:
 	go vet ./...
 
-check: test race vet
+smoke: build
+	./scripts/smoke-test.sh ./dist/ayame-diff
+
+check: test race vet smoke
 
 build-all:
 	VERSION=$(VERSION) ./scripts/build-all.sh

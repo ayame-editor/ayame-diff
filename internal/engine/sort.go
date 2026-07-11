@@ -78,7 +78,7 @@ func createSortedRuns(ctx context.Context, inputPath, workDir, prefix string, ch
 	}
 	defer f.Close()
 
-	reader := newBinRecordReader(f, 4*1024*1024, maxRecordBytes)
+	reader := newBinRecordReader(f, ioBufferBytes, maxRecordBytes)
 	runs := make([]string, 0, 8)
 	eof := false
 	for !eof {
@@ -97,8 +97,8 @@ func createSortedRuns(ctx context.Context, inputPath, workDir, prefix string, ch
 				return nil, readErr
 			}
 			records = append(records, record)
-			used += int64(8 + len(record.Key) + len(record.Row) + 64)
-			if len(records)&0x3fff == 0 {
+			used += int64(8 + len(record.Key) + len(record.Row) + recordMemoryOverhead)
+			if len(records)&cancellationCheckMask == 0 {
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
@@ -131,7 +131,7 @@ func writeRun(path string, records []binRecord) error {
 	if err != nil {
 		return err
 	}
-	w := bufio.NewWriterSize(f, 4*1024*1024)
+	w := bufio.NewWriterSize(f, ioBufferBytes)
 	var writeErr error
 	for _, record := range records {
 		if err := writeBinRecord(w, record); err != nil {
@@ -212,7 +212,7 @@ func mergeRunGroup(ctx context.Context, inputs []string, output string, maxRecor
 	if err != nil {
 		return err
 	}
-	writer := bufio.NewWriterSize(out, 4*1024*1024)
+	writer := bufio.NewWriterSize(out, ioBufferBytes)
 	defer func() {
 		if err := writer.Flush(); resultErr == nil && err != nil {
 			resultErr = err
@@ -238,7 +238,7 @@ func mergeRunGroup(ctx context.Context, inputs []string, output string, maxRecor
 			return err
 		}
 		count++
-		if count&0x3fff == 0 {
+		if count&cancellationCheckMask == 0 {
 			if err := ctx.Err(); err != nil {
 				return err
 			}

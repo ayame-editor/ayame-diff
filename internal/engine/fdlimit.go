@@ -7,14 +7,14 @@ const fdSafetyReserve = 16
 // estimatedFileDescriptors returns a conservative upper bound for descriptors
 // opened by the two descriptor-heavy phases. Partitioning keeps every output
 // partition open; external merge sort opens up to MergeFanIn runs per worker.
-func estimatedFileDescriptors(cfg Config) uint64 {
+func estimatedFileDescriptors(cfg resolvedConfig) uint64 {
 	partitionPhase := cfg.Partitions + fdSafetyReserve
 	workers := minInt(cfg.Workers, cfg.Partitions)
 	mergePhase := workers*(cfg.MergeFanIn+4) + fdSafetyReserve
 	return uint64(max(partitionPhase, mergePhase))
 }
 
-func ensureFileDescriptorBudget(cfg Config) error {
+func ensureFileDescriptorBudget(cfg resolvedConfig) error {
 	required := estimatedFileDescriptors(cfg)
 	soft, hard, supported, err := openFileLimits()
 	if err != nil || !supported || soft >= required {

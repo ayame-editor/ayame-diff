@@ -188,3 +188,16 @@ With `--diff-exit-code` (`csv`):
 - `0` — no differences
 - `1` — differences found
 - `2` — error
+
+---
+
+## Scope boundaries
+
+`ayame-diff` is intentionally focused on large structured/text data. Image
+rendering and web-page screenshot comparison are out of scope: those workflows
+need image decoders or a browser engine and are better served by WinMerge or a
+dedicated visual-regression tool.
+
+Images and other non-text files can still participate in `dir` comparisons as
+binary content. Use `ayame-diff bin LEFT RIGHT` to inspect differing byte
+offsets; there is no pixel-level image viewer or DOM/rendered-page comparison.

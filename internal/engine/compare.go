@@ -89,7 +89,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 	if err != nil {
 		return stats, err
 	}
-	buffer := bufio.NewWriterSize(out, 4*1024*1024)
+	buffer := bufio.NewWriterSize(out, ioBufferBytes)
 	writer := csv.NewWriter(buffer)
 	writer.Comma = '\t'
 	defer func() {
@@ -165,7 +165,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 	}
 
 	for !left.eof || !right.eof {
-		if operations&0x3fff == 0 {
+		if operations&cancellationCheckMask == 0 {
 			if err := ctx.Err(); err != nil {
 				return stats, err
 			}

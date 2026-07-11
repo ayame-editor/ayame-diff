@@ -3,24 +3,39 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-type progressCounter struct {
-	label       string
-	enabled     bool
-	rows, bytes atomic.Uint64
-	start       time.Time
-	cancel      context.CancelFunc
-	done        chan struct{}
-	once        sync.Once
+// ProgressEvent is a transport-neutral snapshot suitable for CLI logging,
+// GUI polling, or SSE delivery.
+type ProgressEvent struct {
+	Phase         string        `json:"phase"`
+	Label         string        `json:"label,omitempty"`
+	Done          bool          `json:"done"`
+	Rows          uint64        `json:"rows,omitempty"`
+	Bytes         uint64        `json:"bytes,omitempty"`
+	Elapsed       time.Duration `json:"elapsed"`
+	RowsPerSecond float64       `json:"rows_per_second,omitempty"`
+	MiBPerSecond  float64       `json:"mib_per_second,omitempty"`
 }
 
-func startProgress(parent context.Context, label string, enabled bool) *progressCounter {
-	p := &progressCounter{label: label, enabled: enabled, start: time.Now()}
+type progressCounter struct {
+	phase, label string
+	enabled      bool
+	log          io.Writer
+	onProgress   func(ProgressEvent)
+	rows, bytes  atomic.Uint64
+	start        time.Time
+	cancel       context.CancelFunc
+	done         chan struct{}
+	once         sync.Once
+}
+
+func startProgress(parent context.Context, phase, label string, enabled bool, log io.Writer, onProgress func(ProgressEvent)) *progressCounter {
+	p := &progressCounter{phase: phase, label: label, enabled: enabled, log: log, onProgress: onProgress, start: time.Now()}
 	if !enabled {
 		return p
 	}
@@ -53,21 +68,41 @@ func (p *progressCounter) stop() {
 	})
 }
 func (p *progressCounter) print(final bool) {
-	elapsed := time.Since(p.start).Seconds()
-	if elapsed <= 0 {
-		elapsed = .001
+	duration := time.Since(p.start)
+	elapsedSeconds := duration.Seconds()
+	if elapsedSeconds <= 0 {
+		elapsedSeconds = .001
 	}
 	rows := p.rows.Load()
 	b := p.bytes.Load()
+	event := ProgressEvent{
+		Phase: p.phase, Label: p.label, Done: final, Rows: rows, Bytes: b,
+		Elapsed: duration, RowsPerSecond: float64(rows) / elapsedSeconds,
+	}
+	if b > 0 {
+		event.MiBPerSecond = float64(b) / (1024 * 1024) / elapsedSeconds
+	}
+	if p.onProgress != nil {
+		p.onProgress(event)
+	}
+	if p.log == nil {
+		return
+	}
 	prefix := "progress"
 	if final {
 		prefix = "stage done"
 	}
 	if b > 0 {
-		fmt.Fprintf(os.Stderr, "%s: %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.label, rows, formatBytes(b), float64(rows)/elapsed, float64(b)/(1024*1024)/elapsed, time.Since(p.start).Round(time.Second))
+		fmt.Fprintf(p.log, "%s: %s %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.phase, p.label, rows, formatBytes(b), event.RowsPerSecond, event.MiBPerSecond, duration.Round(time.Second))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%s: %s rows=%d rows/s=%.0f elapsed=%s\n", prefix, p.label, rows, float64(rows)/elapsed, time.Since(p.start).Round(time.Second))
+	fmt.Fprintf(p.log, "%s: %s %s rows=%d rows/s=%.0f elapsed=%s\n", prefix, p.phase, p.label, rows, event.RowsPerSecond, duration.Round(time.Second))
+}
+
+func emitProgress(cfg resolvedConfig, event ProgressEvent) {
+	if cfg.OnProgress != nil {
+		cfg.OnProgress(event)
+	}
 }
 func formatBytes(v uint64) string {
 	const unit = 1024

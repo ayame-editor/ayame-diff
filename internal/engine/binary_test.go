@@ -22,6 +22,32 @@ func TestXXHash64Vectors(t *testing.T) {
 	}
 }
 
+func TestXXHash64OfficialLongVectors(t *testing.T) {
+	t.Parallel()
+	// Official zero-seed vectors and input generator from xxHash's primary
+	// sanity suite: tests/sanity_test_vectors.h and its generator.
+	// https://github.com/Cyan4973/xxHash/tree/dev/tests
+	buffer := make([]byte, 65)
+	byteGen := uint64(2654435761)
+	const prime64 = uint64(11400714785074694797)
+	for i := range buffer {
+		buffer[i] = byte(byteGen >> 56)
+		byteGen *= prime64
+	}
+	for _, tc := range []struct {
+		length int
+		want   uint64
+	}{
+		{length: 32, want: 0x18B216492BB44B70},
+		{length: 64, want: 0xEF558F8ACAC2B5CD},
+		{length: 65, want: 0xDE0F20DC2631AF7A},
+	} {
+		if got := xxhash64(buffer[:tc.length]); got != tc.want {
+			t.Fatalf("xxhash64(official[%d]) = 0x%x, want 0x%x", tc.length, got, tc.want)
+		}
+	}
+}
+
 func TestEncodeDecodeRow(t *testing.T) {
 	t.Parallel()
 	input := []string{"plain", "comma,value", "tab\tvalue", "line1\nline2", "日本語", ""}

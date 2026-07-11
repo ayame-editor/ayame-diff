@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -21,13 +22,33 @@ type Config struct {
 	MemoryText, PartitionBufferText                        string
 	MergeFanIn                                             int
 	MaxRecordText                                          string
-	MemoryBytes                                            int64
-	PartitionBufferBytes                                   int
-	MaxRecordBytes                                         int64
 	TempDir, WorkDir                                       string
 	KeepTemp, Progress                                     bool
-	SummaryJSON                                            string
-	DiffExitCode, OutputHeader                             bool
+	OutputHeader                                           bool
+	Log                                                    io.Writer
+	OnProgress                                             func(ProgressEvent)
+}
+
+// Resource limits are exported so CLI and GUI validation can share the
+// engine's exact constraints instead of duplicating magic numbers.
+const (
+	MinPartitions           = 2
+	MaxPartitions           = 1024
+	MinMergeFanIn           = 2
+	MaxMergeFanIn           = 256
+	MinPartitionBuffer      = 4 * 1024
+	MaxPartitionBuffer      = 16 * 1024 * 1024
+	MinRecordBytes          = 1024
+	MinMemoryBytesPerWorker = 16 * 1024 * 1024
+)
+
+// resolvedConfig is the validated, normalized form used only inside engine.
+// Config remains a caller-owned description and is never mutated by resolve.
+type resolvedConfig struct {
+	Config
+	MemoryBytes          int64
+	PartitionBufferBytes int
+	MaxRecordBytes       int64
 }
 
 type Summary struct {
@@ -44,78 +65,108 @@ type Summary struct {
 	Elapsed      string `json:"elapsed"`
 }
 
-func (c *Config) Validate() error {
+// Validate reports whether c can be resolved. It is idempotent and does not
+// mutate c or any slices owned by the caller.
+func (c Config) Validate() error {
+	_, err := c.resolve()
+	return err
+}
+
+func (c Config) resolve() (resolvedConfig, error) {
+	r := resolvedConfig{Config: c}
+	r.KeyNames = append([]string(nil), c.KeyNames...)
+	r.KeyIndexes = append([]int(nil), c.KeyIndexes...)
+	r.ExcludeKeyNames = append([]string(nil), c.ExcludeKeyNames...)
+	r.ExcludeKeyIndexes = append([]int(nil), c.ExcludeKeyIndexes...)
+
 	if c.LeftPath == "" || c.RightPath == "" || c.OutputPath == "" {
-		return fmt.Errorf("--left, --right, and --out are required")
+		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
 	}
 	includeCount := len(c.KeyNames) + len(c.KeyIndexes)
 	excludeCount := len(c.ExcludeKeyNames) + len(c.ExcludeKeyIndexes)
 	if includeCount > 0 && excludeCount > 0 {
-		return fmt.Errorf("include options (--key/--key-index) cannot be combined with exclude options (--exclude-key/--exclude-key-index)")
+		return resolvedConfig{}, fmt.Errorf("include options (--key/--key-index) cannot be combined with exclude options (--exclude-key/--exclude-key-index)")
 	}
 	if !c.HasHeader && (len(c.KeyNames) > 0 || len(c.ExcludeKeyNames) > 0) {
-		return fmt.Errorf("--key and --exclude-key require --header=true; use index options without a header")
+		return resolvedConfig{}, fmt.Errorf("--key and --exclude-key require --header=true; use index options without a header")
 	}
 	if c.IndexBase != 0 && c.IndexBase != 1 {
-		return fmt.Errorf("--index-base must be 0 or 1")
+		return resolvedConfig{}, fmt.Errorf("--index-base must be 0 or 1")
 	}
-	for i := range c.KeyIndexes {
-		c.KeyIndexes[i] -= c.IndexBase
-		if c.KeyIndexes[i] < 0 {
-			return fmt.Errorf("key index becomes negative after applying --index-base")
+	for i := range r.KeyIndexes {
+		r.KeyIndexes[i] -= c.IndexBase
+		if r.KeyIndexes[i] < 0 {
+			return resolvedConfig{}, fmt.Errorf("key index becomes negative after applying --index-base")
 		}
 	}
-	for i := range c.ExcludeKeyIndexes {
-		c.ExcludeKeyIndexes[i] -= c.IndexBase
-		if c.ExcludeKeyIndexes[i] < 0 {
-			return fmt.Errorf("excluded key index becomes negative after applying --index-base")
+	for i := range r.ExcludeKeyIndexes {
+		r.ExcludeKeyIndexes[i] -= c.IndexBase
+		if r.ExcludeKeyIndexes[i] < 0 {
+			return resolvedConfig{}, fmt.Errorf("excluded key index becomes negative after applying --index-base")
 		}
 	}
-	if c.Partitions < 2 || c.Partitions > 1024 || c.Partitions&(c.Partitions-1) != 0 {
-		return fmt.Errorf("--partitions must be a power of two from 2 to 1024")
+	r.IndexBase = 0
+	if err := ValidatePartitions(c.Partitions); err != nil {
+		return resolvedConfig{}, err
 	}
 	if c.ParseWorkers < 1 || c.Workers < 1 {
-		return fmt.Errorf("--parse-workers and --workers must be at least 1")
+		return resolvedConfig{}, fmt.Errorf("--parse-workers and --workers must be at least 1")
 	}
-	if c.MergeFanIn < 2 || c.MergeFanIn > 256 {
-		return fmt.Errorf("--merge-fan-in must be from 2 to 256")
+	if err := ValidateMergeFanIn(c.MergeFanIn); err != nil {
+		return resolvedConfig{}, err
 	}
 	var err error
-	c.MemoryBytes, err = parseBytes(c.MemoryText)
+	r.MemoryBytes, err = parseBytes(c.MemoryText)
 	if err != nil {
-		return fmt.Errorf("--memory: %w", err)
+		return resolvedConfig{}, fmt.Errorf("--memory: %w", err)
 	}
 	partitionBuffer, err := parseBytes(c.PartitionBufferText)
 	if err != nil {
-		return fmt.Errorf("--partition-buffer: %w", err)
+		return resolvedConfig{}, fmt.Errorf("--partition-buffer: %w", err)
 	}
-	if partitionBuffer < 4*1024 || partitionBuffer > 16*1024*1024 {
-		return fmt.Errorf("--partition-buffer must be between 4KiB and 16MiB")
+	if partitionBuffer < MinPartitionBuffer || partitionBuffer > MaxPartitionBuffer {
+		return resolvedConfig{}, fmt.Errorf("--partition-buffer must be between 4KiB and 16MiB")
 	}
-	c.PartitionBufferBytes = int(partitionBuffer)
-	c.MaxRecordBytes, err = parseBytes(c.MaxRecordText)
+	r.PartitionBufferBytes = int(partitionBuffer)
+	r.MaxRecordBytes, err = parseBytes(c.MaxRecordText)
 	if err != nil {
-		return fmt.Errorf("--max-record-bytes: %w", err)
+		return resolvedConfig{}, fmt.Errorf("--max-record-bytes: %w", err)
 	}
-	if c.MaxRecordBytes < 1024 {
-		return fmt.Errorf("--max-record-bytes must be at least 1KiB")
+	if r.MaxRecordBytes < MinRecordBytes {
+		return resolvedConfig{}, fmt.Errorf("--max-record-bytes must be at least 1KiB")
 	}
-	minimumMemory := int64(c.Workers) * 16 * 1024 * 1024
-	if c.MemoryBytes < minimumMemory {
-		return fmt.Errorf("--memory must be at least %dMiB for %d workers", minimumMemory/(1024*1024), c.Workers)
+	minimumMemory := int64(c.Workers) * MinMemoryBytesPerWorker
+	if r.MemoryBytes < minimumMemory {
+		return resolvedConfig{}, fmt.Errorf("--memory must be at least %dMiB for %d workers", minimumMemory/(1024*1024), c.Workers)
 	}
-	if int64(c.Partitions)*int64(c.PartitionBufferBytes) > c.MemoryBytes/2 {
-		return fmt.Errorf("partition buffers use too much memory; lower --partition-buffer or --partitions")
+	if int64(c.Partitions)*int64(r.PartitionBufferBytes) > r.MemoryBytes/2 {
+		return resolvedConfig{}, fmt.Errorf("partition buffers use too much memory; lower --partition-buffer or --partitions")
 	}
 	for name, value := range map[string]string{"--left-format": c.LeftFormat, "--right-format": c.RightFormat} {
 		if value != "auto" && value != "csv" && value != "tsv" {
-			return fmt.Errorf("%s must be auto, csv, or tsv", name)
+			return resolvedConfig{}, fmt.Errorf("%s must be auto, csv, or tsv", name)
 		}
 	}
 	for name, value := range map[string]string{"--left-parser": c.LeftParser, "--right-parser": c.RightParser} {
 		if value != "auto" && value != "simple" && value != "rfc4180" {
-			return fmt.Errorf("%s must be auto, simple, or rfc4180", name)
+			return resolvedConfig{}, fmt.Errorf("%s must be auto, simple, or rfc4180", name)
 		}
+	}
+	return r, nil
+}
+
+// ValidatePartitions validates the hash partition count shared by all clients.
+func ValidatePartitions(partitions int) error {
+	if partitions < MinPartitions || partitions > MaxPartitions || partitions&(partitions-1) != 0 {
+		return fmt.Errorf("--partitions must be a power of two from %d to %d", MinPartitions, MaxPartitions)
+	}
+	return nil
+}
+
+// ValidateMergeFanIn validates the external-sort merge fan-in.
+func ValidateMergeFanIn(fanIn int) error {
+	if fanIn < MinMergeFanIn || fanIn > MaxMergeFanIn {
+		return fmt.Errorf("--merge-fan-in must be from %d to %d", MinMergeFanIn, MaxMergeFanIn)
 	}
 	return nil
 }

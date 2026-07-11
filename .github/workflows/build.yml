@@ -2,6 +2,7 @@ name: build
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -22,6 +23,18 @@ jobs:
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
+      - run: make smoke
+
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: targets
+        run: |
+          matrix=$(jq -Rsc 'split("\n") | map(select(length > 0 and (startswith("#") | not)) | split(" ") | {goos: .[0], goarch: .[1], ext: (if .[2] == "-" then "" else .[2] end)})' < scripts/targets.txt)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   windows-native:
     runs-on: windows-latest
@@ -43,29 +56,12 @@ jobs:
       - run: .\ayame-diff.exe --version
 
   build:
+    needs: targets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            ext: ''
-          - goos: linux
-            goarch: arm64
-            ext: ''
-          - goos: darwin
-            goarch: amd64
-            ext: ''
-          - goos: darwin
-            goarch: arm64
-            ext: ''
-          - goos: windows
-            goarch: amd64
-            ext: '.exe'
-          - goos: windows
-            goarch: arm64
-            ext: '.exe'
+        include: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
         with:

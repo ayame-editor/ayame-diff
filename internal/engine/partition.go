@@ -64,12 +64,12 @@ func (s *partitionSet) close() error {
 	return result
 }
 
-func partitionInput(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg Config, outDir string) ([]string, uint64, error) {
+func partitionInput(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, outDir string) ([]string, uint64, error) {
 	set, err := newPartitionSet(outDir, cfg.Partitions, cfg.PartitionBufferBytes)
 	if err != nil {
 		return nil, 0, err
 	}
-	progress := startProgress(ctx, "partition "+spec.Label, cfg.Progress)
+	progress := startProgress(ctx, "partition", spec.Label, cfg.Progress || cfg.OnProgress != nil, cfg.Log, cfg.OnProgress)
 	defer progress.stop()
 	var rows uint64
 	if spec.Parser == parserSimple {
@@ -92,18 +92,18 @@ func partitionInput(ctx context.Context, spec inputSpec, info inspectedInput, ma
 	}
 	return append([]string(nil), set.paths...), rows, nil
 }
-func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg Config, set *partitionSet, p *progressCounter) (uint64, error) {
+func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter) (uint64, error) {
 	r, err := openInput(spec.Path)
 	if err != nil {
 		return 0, err
 	}
 	defer r.Close()
-	reader := csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+	reader := csv.NewReader(bufio.NewReaderSize(r, ioBufferBytes))
 	if !cfg.HasHeader && info.DataOffset > 0 {
 		if _, err := io.CopyN(io.Discard, r, info.DataOffset); err != nil {
 			return 0, fmt.Errorf("skip %s BOM: %w", spec.Label, err)
 		}
-		reader = csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+		reader = csv.NewReader(bufio.NewReaderSize(r, ioBufferBytes))
 	}
 	reader.Comma = rune(spec.Delimiter)
 	reader.FieldsPerRecord = -1
@@ -112,9 +112,10 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 	reader.TrimLeadingSpace = cfg.TrimLeadingSpace
 	if cfg.HasHeader {
 		if _, err := reader.Read(); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("read %s header: %w", spec.Label, err)
 		}
 	}
+	previousOffset := reader.InputOffset()
 	var rows uint64
 	var key, row, stored []byte
 	for {
@@ -125,6 +126,9 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 		if e != nil {
 			return rows, fmt.Errorf("read %s record %d: %w", spec.Label, rows+1, e)
 		}
+		currentOffset := reader.InputOffset()
+		rawBytes := currentOffset - previousOffset
+		previousOffset = currentOffset
 		if len(record) != info.ColumnCount {
 			return rows, fmt.Errorf("%s record %d has %d columns; expected %d", spec.Label, rows+1, len(record), info.ColumnCount)
 		}
@@ -141,8 +145,8 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 			return rows, err
 		}
 		rows++
-		p.add(1, uint64(len(stored)))
-		if rows&0x3fff == 0 {
+		p.add(1, uint64(rawBytes))
+		if rows&cancellationCheckMask == 0 {
 			if err := ctx.Err(); err != nil {
 				return rows, err
 			}
@@ -150,13 +154,13 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 	}
 	return rows, nil
 }
-func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg Config, set *partitionSet, p *progressCounter) (uint64, error) {
+func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter) (uint64, error) {
 	r, err := openInput(spec.Path)
 	if err != nil {
 		return 0, err
 	}
 	defer r.Close()
-	reader := bufio.NewReaderSize(r, 4*1024*1024)
+	reader := bufio.NewReaderSize(r, ioBufferBytes)
 	if cfg.HasHeader {
 		_, raw, _, err := readPhysicalLine(reader, nil)
 		if err != nil && !(errors.Is(err, io.EOF) && raw > 0) {
@@ -207,7 +211,7 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 		}
 		rows++
 		p.add(1, uint64(raw))
-		if rows&0x3fff == 0 {
+		if rows&cancellationCheckMask == 0 {
 			if err := ctx.Err(); err != nil {
 				return rows, err
 			}
@@ -218,14 +222,24 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 	}
 	return rows, nil
 }
-func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg Config, set *partitionSet, p *progressCounter, fileSize int64) (uint64, error) {
+func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, fileSize int64) (uint64, error) {
+	return partitionSimpleParallelWithChunk(ctx, spec, info, mapping, keyIndexes, keyIsFullRow, cfg, set, p, fileSize, minParallelSpanBytes)
+}
+
+// partitionSimpleParallelWithChunk exposes the minimum bytes per worker as an
+// argument so tests can exercise true multi-worker range splitting with small
+// deterministic fixtures.
+func partitionSimpleParallelWithChunk(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, fileSize, minChunkBytes int64) (uint64, error) {
 	start := info.DataOffset
 	if start >= fileSize {
 		return 0, nil
 	}
 	workers := cfg.ParseWorkers
 	data := fileSize - start
-	if max := int(data / (8 * 1024 * 1024)); max+1 < workers {
+	if minChunkBytes < 1 {
+		minChunkBytes = 1
+	}
+	if max := int(data / minChunkBytes); max+1 < workers {
 		workers = max + 1
 	}
 	if workers < 1 {
@@ -264,7 +278,7 @@ func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspected
 	}
 	return total, ctx.Err()
 }
-func partitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg Config, set *partitionSet, p *progressCounter, dataStart, nominalStart, nominalEnd int64, last bool) (uint64, error) {
+func partitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, dataStart, nominalStart, nominalEnd int64, last bool) (uint64, error) {
 	f, err := os.Open(spec.Path)
 	if err != nil {
 		return 0, err
@@ -280,7 +294,7 @@ func partitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInp
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return 0, err
 	}
-	reader := bufio.NewReaderSize(f, 4*1024*1024)
+	reader := bufio.NewReaderSize(f, ioBufferBytes)
 	pos := start
 	var rows uint64
 	var scratch []byte

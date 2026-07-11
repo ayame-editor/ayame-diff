@@ -183,6 +183,35 @@ func TestRunHeaderlessIndexes(t *testing.T) {
 	}
 }
 
+func TestRunIsRepeatableAndSetsElapsed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath := filepath.Join(dir, "left.tsv")
+	rightPath := filepath.Join(dir, "right.tsv")
+	mustWriteFile(t, leftPath, "id\tvalue\n1\tsame\n")
+	mustWriteFile(t, rightPath, "id\tvalue\n1\tsame\n")
+
+	cfg := testConfig(leftPath, rightPath, filepath.Join(dir, "first.tsv"))
+	cfg.IndexBase = 1
+	cfg.KeyIndexes = []int{1}
+	for i, output := range []string{"first.tsv", "second.tsv"} {
+		cfg.OutputPath = filepath.Join(dir, output)
+		summary, err := Run(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("Run %d: %v", i+1, err)
+		}
+		if summary.EqualRows != 1 || summary.DiffRows != 0 {
+			t.Fatalf("Run %d summary: %#v", i+1, summary)
+		}
+		if summary.Elapsed == "" {
+			t.Fatalf("Run %d did not set elapsed time", i+1)
+		}
+	}
+	if !reflect.DeepEqual(cfg.KeyIndexes, []int{1}) {
+		t.Fatalf("Run mutated caller indexes: %#v", cfg.KeyIndexes)
+	}
+}
+
 func TestRunHeaderOnlyWithoutTrailingNewline(t *testing.T) {
 	t.Parallel()
 	for _, parser := range []string{"simple", "rfc4180"} {

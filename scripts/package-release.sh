@@ -13,6 +13,7 @@ esac
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 DIST="$ROOT/dist"
 RELEASE="$ROOT/release"
+TARGETS="$ROOT/scripts/targets.txt"
 
 require_file() {
   if [ ! -f "$1" ]; then
@@ -21,13 +22,11 @@ require_file() {
   fi
 }
 
-for target in \
-  linux-amd64 linux-arm64 \
-  darwin-amd64 darwin-arm64 \
-  windows-amd64.exe windows-arm64.exe
-do
-  require_file "$DIST/ayame-diff-$target"
-done
+while read -r os arch ext; do
+  case "$os" in ''|'#'*) continue ;; esac
+  [ "$ext" = "-" ] && ext=""
+  require_file "$DIST/ayame-diff-${os}-${arch}${ext}"
+done < "$TARGETS"
 
 rm -rf "$RELEASE"
 mkdir -p "$RELEASE"
@@ -46,16 +45,26 @@ package_unix() {
   rm -rf "$stage"
 }
 
-package_unix linux amd64
-package_unix linux arm64
-package_unix darwin amd64
-package_unix darwin arm64
+while read -r os arch ext; do
+  case "$os" in ''|'#'*) continue ;; esac
+  case "$os" in linux|darwin) package_unix "$os" "$arch" ;; esac
+done < "$TARGETS"
 
 windows_name="ayame-diff-${VERSION}-windows"
 windows_stage="$RELEASE/$windows_name"
-mkdir -p "$windows_stage/arm64"
-cp "$DIST/ayame-diff-windows-amd64.exe" "$windows_stage/ayame-diff.exe"
-cp "$DIST/ayame-diff-windows-arm64.exe" "$windows_stage/arm64/ayame-diff.exe"
+mkdir -p "$windows_stage"
+while read -r os arch ext; do
+  case "$os" in ''|'#'*) continue ;; esac
+  [ "$os" = "windows" ] || continue
+  [ "$ext" = "-" ] && ext=""
+  if [ "$arch" = "amd64" ]; then
+    destination="$windows_stage/ayame-diff.exe"
+  else
+    mkdir -p "$windows_stage/$arch"
+    destination="$windows_stage/$arch/ayame-diff.exe"
+  fi
+  cp "$DIST/ayame-diff-${os}-${arch}${ext}" "$destination"
+done < "$TARGETS"
 cp "$ROOT/packaging/windows/start-gui.cmd" "$windows_stage/"
 cp "$ROOT/README_WINDOWS.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$windows_stage/"
 (
@@ -66,5 +75,5 @@ rm -rf "$windows_stage"
 
 (
   cd "$RELEASE"
-  sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
+  "$ROOT/scripts/checksum.sh" SHA256SUMS ./*.tar.gz ./*.zip
 )

@@ -10,17 +10,17 @@ func TestEstimatedFileDescriptors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		cfg  Config
+		cfg  resolvedConfig
 		want uint64
 	}{
 		{
 			name: "partitions dominate",
-			cfg:  Config{Partitions: 1024, Workers: 2, MergeFanIn: 4},
+			cfg:  resolvedConfig{Config: Config{Partitions: 1024, Workers: 2, MergeFanIn: 4}},
 			want: 1040,
 		},
 		{
 			name: "merge workers dominate",
-			cfg:  Config{Partitions: 256, Workers: 8, MergeFanIn: 256},
+			cfg:  resolvedConfig{Config: Config{Partitions: 256, Workers: 8, MergeFanIn: 256}},
 			want: 2096,
 		},
 	}

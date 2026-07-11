@@ -1,17 +1,16 @@
 $ErrorActionPreference = "Stop"
-$Version = if ($env:VERSION) { $env:VERSION } else { "v0.3.1" }
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$Version = if ($env:VERSION) { $env:VERSION } else { (git -C $Root describe --tags --always --dirty) }
 $Dist = Join-Path $Root "dist"
+Remove-Item -Recurse -Force $Dist -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
-
-$Targets = @(
-    @{ OS = "linux";   Arch = "amd64"; Ext = "" },
-    @{ OS = "linux";   Arch = "arm64"; Ext = "" },
-    @{ OS = "darwin";  Arch = "amd64"; Ext = "" },
-    @{ OS = "darwin";  Arch = "arm64"; Ext = "" },
-    @{ OS = "windows"; Arch = "amd64"; Ext = ".exe" },
-    @{ OS = "windows"; Arch = "arm64"; Ext = ".exe" }
-)
+$Targets = Get-Content (Join-Path $Root "scripts/targets.txt") | ForEach-Object {
+    $Line = $_.Trim()
+    if ($Line -and -not $Line.StartsWith("#")) {
+        $Parts = $Line -split '\s+'
+        @{ OS = $Parts[0]; Arch = $Parts[1]; Ext = $(if ($Parts[2] -eq "-") { "" } else { $Parts[2] }) }
+    }
+}
 
 Push-Location $Root
 try {

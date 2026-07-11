@@ -3,6 +3,7 @@ package engine
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -109,7 +110,7 @@ func makeStoredRecord(dst, key, row []byte, max int64) ([]byte, error) {
 	}
 	total := int64(len(key) + len(row))
 	if total > max {
-		return nil, fmt.Errorf("encoded record is %d bytes, larger than --max-record-bytes=%d", total, max)
+		return nil, fmt.Errorf("encoded record is %d bytes, larger than configured maximum %d", total, max)
 	}
 	dst = dst[:0]
 	dst = append(dst, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -148,7 +149,7 @@ func (r *binRecordReader) Next() (binRecord, error) {
 	var h [8]byte
 	n, err := io.ReadFull(r.r, h[:])
 	if err != nil {
-		if err == io.EOF && n == 0 {
+		if errors.Is(err, io.EOF) && n == 0 {
 			return binRecord{}, io.EOF
 		}
 		return binRecord{}, fmt.Errorf("read record header: %w", err)
@@ -204,12 +205,13 @@ func xxhash64(input []byte) uint64 {
 	i := 0
 	var h uint64
 	if len(input) >= 32 {
-		v1 := p1
-		v1 += p2
-		v2 := p2
-		v3 := uint64(0)
-		v4 := uint64(0)
-		v4 -= p1
+		// XXH64's four-lane initialization, written in the reference form so
+		// future seeded variants cannot accidentally initialize only some lanes.
+		seed := uint64(0)
+		v1 := seed + p1 + p2
+		v2 := seed + p2
+		v3 := seed
+		v4 := seed - p1
 		limit := len(input) - 32
 		for i <= limit {
 			v1 = xxRound(v1, binary.LittleEndian.Uint64(input[i:i+8]))

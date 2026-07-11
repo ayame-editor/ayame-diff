@@ -12,67 +12,80 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 func Run(ctx context.Context, cfg Config) (Summary, error) {
+	started := time.Now()
 	var summary Summary
-	if err := cfg.Validate(); err != nil {
+	resolved, err := cfg.resolve()
+	if err != nil {
 		return summary, err
 	}
-	if err := ensureFileDescriptorBudget(cfg); err != nil {
+	if err := ensureFileDescriptorBudget(resolved); err != nil {
 		return summary, err
 	}
-	if err := validateDistinctOutput(cfg.LeftPath, cfg.RightPath, cfg.OutputPath); err != nil {
+	if err := validateDistinctOutput(resolved.LeftPath, resolved.RightPath, resolved.OutputPath); err != nil {
 		return summary, err
 	}
 
-	leftSpec, err := resolveInputSpec(cfg.LeftPath, cfg.LeftFormat, cfg.LeftDelimiter, cfg.LeftParser, "left")
+	leftSpec, err := resolveInputSpec(resolved.LeftPath, resolved.LeftFormat, resolved.LeftDelimiter, resolved.LeftParser, "left")
 	if err != nil {
 		return summary, err
 	}
-	rightSpec, err := resolveInputSpec(cfg.RightPath, cfg.RightFormat, cfg.RightDelimiter, cfg.RightParser, "right")
+	rightSpec, err := resolveInputSpec(resolved.RightPath, resolved.RightFormat, resolved.RightDelimiter, resolved.RightParser, "right")
 	if err != nil {
 		return summary, err
 	}
-	leftInfo, err := inspectInput(leftSpec, cfg.HasHeader, cfg.LazyQuotes, cfg.TrimLeadingSpace)
+	leftInfo, err := inspectInput(leftSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
 	if err != nil {
 		return summary, err
 	}
-	rightInfo, err := inspectInput(rightSpec, cfg.HasHeader, cfg.LazyQuotes, cfg.TrimLeadingSpace)
+	rightInfo, err := inspectInput(rightSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
 	if err != nil {
 		return summary, err
 	}
-	resolvedSchema, err := buildSchema(leftInfo, rightInfo, cfg)
+	resolvedSchema, err := buildSchema(leftInfo, rightInfo, resolved.Config)
 	if err != nil {
 		return summary, err
 	}
 
-	workRoot, createdByUs, err := createWorkRoot(cfg)
+	workRoot, createdByUs, err := createWorkRoot(resolved.Config)
 	if err != nil {
 		return summary, err
 	}
-	if !cfg.KeepTemp {
+	if !resolved.KeepTemp {
 		defer cleanupWorkRoot(workRoot, createdByUs)
 	} else {
-		defer fmt.Fprintln(os.Stderr, "temporary data kept at:", workRoot)
+		defer func() {
+			if resolved.Log != nil {
+				fmt.Fprintln(resolved.Log, "temporary data kept at:", workRoot)
+			}
+		}()
 	}
 
-	leftParts, leftRows, err := partitionInput(ctx, leftSpec, leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, cfg, filepath.Join(workRoot, "partitions-left"))
+	leftParts, leftRows, err := partitionInput(ctx, leftSpec, leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-left"))
 	if err != nil {
 		return summary, fmt.Errorf("partition left input: %w", err)
 	}
-	rightParts, rightRows, err := partitionInput(ctx, rightSpec, rightInfo, resolvedSchema.RightMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, cfg, filepath.Join(workRoot, "partitions-right"))
+	rightParts, rightRows, err := partitionInput(ctx, rightSpec, rightInfo, resolvedSchema.RightMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-right"))
 	if err != nil {
 		return summary, fmt.Errorf("partition right input: %w", err)
 	}
 
-	stats, outputParts, err := compareAllPartitions(ctx, leftParts, rightParts, resolvedSchema.ColumnCount, resolvedSchema.KeyIsFullRow, cfg, workRoot)
+	compareStarted := time.Now()
+	emitProgress(resolved, ProgressEvent{Phase: "compare"})
+	stats, outputParts, err := compareAllPartitions(ctx, leftParts, rightParts, resolvedSchema.ColumnCount, resolvedSchema.KeyIsFullRow, resolved, workRoot)
 	if err != nil {
 		return summary, err
 	}
-	if err := assembleOutput(ctx, cfg.OutputPath, outputParts, resolvedSchema.Header, cfg.OutputHeader); err != nil {
+	emitProgress(resolved, ProgressEvent{Phase: "compare", Done: true, Elapsed: time.Since(compareStarted)})
+	assembleStarted := time.Now()
+	emitProgress(resolved, ProgressEvent{Phase: "assemble"})
+	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader); err != nil {
 		return summary, err
 	}
+	emitProgress(resolved, ProgressEvent{Phase: "assemble", Done: true, Elapsed: time.Since(assembleStarted)})
 
 	summary = Summary{
 		LeftRows:     leftRows,
@@ -83,8 +96,9 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		ChangedLeft:  stats.ChangedLeft,
 		ChangedRight: stats.ChangedRight,
 		DiffRows:     stats.DiffRows,
-		Partitions:   cfg.Partitions,
-		Workers:      minInt(cfg.Workers, cfg.Partitions),
+		Partitions:   resolved.Partitions,
+		Workers:      minInt(resolved.Workers, resolved.Partitions),
+		Elapsed:      time.Since(started).Round(time.Millisecond).String(),
 	}
 	return summary, nil
 }
@@ -107,7 +121,7 @@ func preferRootCause(current, next error) error {
 	return current
 }
 
-func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, columnCount int, keyIsFullRow bool, cfg Config, workRoot string) (partitionStats, []string, error) {
+func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, columnCount int, keyIsFullRow bool, cfg resolvedConfig, workRoot string) (partitionStats, []string, error) {
 	var total partitionStats
 	if len(leftParts) != cfg.Partitions || len(rightParts) != cfg.Partitions {
 		return total, nil, fmt.Errorf("internal error: partition count mismatch")
@@ -162,7 +176,7 @@ func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, c
 	return total, paths, nil
 }
 
-func processPartition(ctx context.Context, index int, leftPart, rightPart string, columnCount int, keyIsFullRow bool, cfg Config, workRoot string) (partitionStats, string, error) {
+func processPartition(ctx context.Context, index int, leftPart, rightPart string, columnCount int, keyIsFullRow bool, cfg resolvedConfig, workRoot string) (partitionStats, string, error) {
 	var stats partitionStats
 	partitionWork := filepath.Join(workRoot, "sort", fmt.Sprintf("part-%05d", index))
 	if err := os.MkdirAll(partitionWork, 0o755); err != nil {
@@ -176,8 +190,8 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 
 	perWorkerMemory := cfg.MemoryBytes / int64(minInt(cfg.Workers, cfg.Partitions))
 	chunkBytes := perWorkerMemory * 3 / 4
-	if chunkBytes < 8*1024*1024 {
-		chunkBytes = 8 * 1024 * 1024
+	if chunkBytes < minSortChunkBytes {
+		chunkBytes = minSortChunkBytes
 	}
 	leftSorted, err := makeSortedFile(ctx, leftPart, partitionWork, "left", chunkBytes, cfg.MergeFanIn, cfg.MaxRecordBytes)
 	if err != nil {
@@ -210,23 +224,35 @@ func assembleOutput(ctx context.Context, outputPath string, parts []string, head
 		return err
 	}
 	tempPath := temp.Name()
+	tempOpen := true
+	var compressed *gzip.Writer
+	compressedOpen := false
 	defer func() {
+		if compressedOpen {
+			if err := compressed.Close(); resultErr == nil && err != nil {
+				resultErr = err
+			}
+		}
+		if tempOpen {
+			if err := temp.Close(); resultErr == nil && err != nil {
+				resultErr = err
+			}
+		}
 		if resultErr != nil {
 			_ = os.Remove(tempPath)
 		}
 	}()
 
-	var compressed *gzip.Writer
 	var destination io.Writer = temp
 	if strings.HasSuffix(strings.ToLower(outputPath), ".gz") {
 		compressed, err = gzip.NewWriterLevel(temp, gzip.BestSpeed)
 		if err != nil {
-			_ = temp.Close()
 			return err
 		}
+		compressedOpen = true
 		destination = compressed
 	}
-	buffer := bufio.NewWriterSize(destination, 4*1024*1024)
+	buffer := bufio.NewWriterSize(destination, ioBufferBytes)
 
 	if writeHeader {
 		writer := csv.NewWriter(buffer)
@@ -236,54 +262,49 @@ func assembleOutput(ctx context.Context, outputPath string, parts []string, head
 		outputHeader[1] = "_side"
 		copy(outputHeader[2:], header)
 		if err := writer.Write(outputHeader); err != nil {
-			_ = temp.Close()
 			return err
 		}
 		writer.Flush()
 		if err := writer.Error(); err != nil {
-			_ = temp.Close()
 			return err
 		}
 	}
 
-	copyBuffer := make([]byte, 4*1024*1024)
+	copyBuffer := make([]byte, ioBufferBytes)
 	for _, partPath := range parts {
 		if err := ctx.Err(); err != nil {
-			_ = temp.Close()
 			return err
 		}
 		part, err := os.Open(partPath)
 		if err != nil {
-			_ = temp.Close()
 			return err
 		}
 		_, copyErr := io.CopyBuffer(buffer, part, copyBuffer)
 		closeErr := part.Close()
 		if copyErr != nil {
-			_ = temp.Close()
 			return copyErr
 		}
 		if closeErr != nil {
-			_ = temp.Close()
 			return closeErr
 		}
 	}
 	if err := buffer.Flush(); err != nil {
-		_ = temp.Close()
 		return err
 	}
 	if compressed != nil {
-		if err := compressed.Close(); err != nil {
-			_ = temp.Close()
-			return err
+		closeErr := compressed.Close()
+		compressedOpen = false
+		if closeErr != nil {
+			return closeErr
 		}
 	}
 	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
 		return err
 	}
-	if err := temp.Close(); err != nil {
-		return err
+	closeErr := temp.Close()
+	tempOpen = false
+	if closeErr != nil {
+		return closeErr
 	}
 	if err := os.Chmod(tempPath, 0o644); err != nil {
 		return err
@@ -321,7 +342,7 @@ func createWorkRoot(cfg Config) (string, bool, error) {
 		return "", false, err
 	}
 	if len(entries) != 0 {
-		return "", false, fmt.Errorf("--work-dir must be empty: %s", path)
+		return "", false, fmt.Errorf("work directory must be empty: %s", path)
 	}
 	return path, false, nil
 }

@@ -1,9 +1,11 @@
 #!/usr/bin/env sh
 set -eu
 
-VERSION="${VERSION:-v0.3.1}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION="${VERSION:-$(cd "$ROOT" && git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 DIST="$ROOT/dist"
+TARGETS="$ROOT/scripts/targets.txt"
+rm -rf "$DIST"
 mkdir -p "$DIST"
 
 build() {
@@ -20,15 +22,10 @@ build() {
   )
 }
 
-build linux amd64 ""
-build linux arm64 ""
-build darwin amd64 ""
-build darwin arm64 ""
-build windows amd64 ".exe"
-build windows arm64 ".exe"
+while read -r os arch ext; do
+  case "$os" in ''|'#'*) continue ;; esac
+  [ "$ext" = "-" ] && ext=""
+  build "$os" "$arch" "$ext"
+done < "$TARGETS"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$DIST" && sha256sum ayame-diff-* > SHA256SUMS)
-elif command -v shasum >/dev/null 2>&1; then
-  (cd "$DIST" && shasum -a 256 ayame-diff-* > SHA256SUMS)
-fi
+(cd "$DIST" && "$ROOT/scripts/checksum.sh" SHA256SUMS ayame-diff-*)

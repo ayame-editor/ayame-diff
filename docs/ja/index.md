@@ -92,6 +92,17 @@ ayame-diff text --help
 - `csv`: `LEFT_ONLY` / `RIGHT_ONLY` / `CHANGED`。
 - `text` / `sorted`: Insert / Delete / Replace のハンク。
 
+## 対象範囲
+
+本プロジェクトは巨大な CSV / TSV / テキストなど、構造化データの比較に集中します。
+画像のピクセル比較と Web ページのレンダリング比較は対象外です。これらには画像
+デコーダやブラウザエンジンが必要となり、単一バイナリ・小さな依存関係という方針と
+合わないため、WinMerge や専用のビジュアルリグレッションツールを推奨します。
+
+画像などの非テキストファイルも `dir` ではバイナリ内容の同一性を比較でき、差異の
+バイト位置は `ayame-diff bin LEFT RIGHT` で確認できます。ただし画像ビューアや
+DOM / スクリーンショット比較は提供しません。
+
 ## リンク
 
 - [GitHub repository](https://github.com/hjosugi/ayame-diff)

@@ -12,12 +12,20 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
 var version = "dev"
+
+// cliOptions contains process-level behavior that does not belong to the diff
+// engine's reusable Config API.
+type cliOptions struct {
+	Engine       engine.Config
+	SummaryJSON  string
+	DiffExitCode bool
+	ShowVersion  bool
+}
 
 type stringList []string
 
@@ -109,7 +117,7 @@ func printVersion() {
 
 // runCSV is the CSV/TSV key-comparison mode (the original behavior).
 func runCSV(args []string) {
-	cfg, showVersion, err := parseFlags(args)
+	opts, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -117,10 +125,11 @@ func runCSV(args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
-	if showVersion {
+	if opts.ShowVersion {
 		printVersion()
 		return
 	}
+	cfg := opts.Engine
 
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "ayame-diff: no arguments given; --left, --right, and --out are required.")
@@ -130,21 +139,18 @@ func runCSV(args []string) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	started := time.Now()
 	summary, err := engine.Run(ctx, cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
-	summary.Elapsed = time.Since(started).Round(time.Millisecond).String()
-
-	if cfg.SummaryJSON != "" {
+	if opts.SummaryJSON != "" {
 		data, marshalErr := json.MarshalIndent(summary, "", "  ")
 		if marshalErr != nil {
 			fmt.Fprintln(os.Stderr, "error: encode summary:", marshalErr)
 			os.Exit(2)
 		}
-		if writeErr := os.WriteFile(cfg.SummaryJSON, append(data, '\n'), 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(opts.SummaryJSON, append(data, '\n'), 0o644); writeErr != nil {
 			fmt.Fprintln(os.Stderr, "error: write summary:", writeErr)
 			os.Exit(2)
 		}
@@ -154,18 +160,19 @@ func runCSV(args []string) {
 		"done: left=%d right=%d equal=%d diff_rows=%d left_only=%d right_only=%d changed_left=%d changed_right=%d elapsed=%s\n",
 		summary.LeftRows, summary.RightRows, summary.EqualRows, summary.DiffRows,
 		summary.LeftOnly, summary.RightOnly, summary.ChangedLeft, summary.ChangedRight, summary.Elapsed)
-	if cfg.DiffExitCode && summary.DiffRows > 0 {
+	if opts.DiffExitCode && summary.DiffRows > 0 {
 		os.Exit(1)
 	}
 }
 
-func parseFlags(args []string) (engine.Config, bool, error) {
-	var cfg engine.Config
+func parseFlags(args []string) (cliOptions, error) {
+	var opts cliOptions
+	cfg := &opts.Engine
+	cfg.Log = os.Stderr
 	var keys stringList
 	var keyIndexes intList
 	var excludeKeys stringList
 	var excludeKeyIndexes intList
-	var showVersion bool
 	fs := flag.NewFlagSet("ayame-diff", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
@@ -216,32 +223,32 @@ rows: one for the left row and one for the right row.`)
 	fs.StringVar(&cfg.RightParser, "right-parser", "auto", "auto, simple, or rfc4180")
 	fs.BoolVar(&cfg.LazyQuotes, "lazy-quotes", false, "allow malformed quotes in RFC 4180 parser")
 	fs.BoolVar(&cfg.TrimLeadingSpace, "trim-leading-space", false, "trim leading spaces in RFC 4180 fields")
-	fs.IntVar(&cfg.Partitions, "partitions", 256, "hash partition count; power of two, 2..1024")
+	fs.IntVar(&cfg.Partitions, "partitions", 256, fmt.Sprintf("hash partition count; power of two, %d..%d", engine.MinPartitions, engine.MaxPartitions))
 	fs.IntVar(&cfg.ParseWorkers, "parse-workers", min(runtime.NumCPU(), 8), "parallel readers for uncompressed simple parser")
 	fs.IntVar(&cfg.Workers, "workers", min(runtime.NumCPU(), 8), "parallel partition comparison workers")
 	fs.StringVar(&cfg.MemoryText, "memory", "2GiB", "total sorting memory, e.g. 512MiB or 8GiB")
 	fs.StringVar(&cfg.PartitionBufferText, "partition-buffer", "256KiB", "buffer per partition file")
-	fs.IntVar(&cfg.MergeFanIn, "merge-fan-in", 32, "maximum sorted runs merged at once")
+	fs.IntVar(&cfg.MergeFanIn, "merge-fan-in", 32, fmt.Sprintf("maximum sorted runs merged at once (%d..%d)", engine.MinMergeFanIn, engine.MaxMergeFanIn))
 	fs.StringVar(&cfg.MaxRecordText, "max-record-bytes", "256MiB", "maximum encoded key plus row size")
 	fs.StringVar(&cfg.TempDir, "temp-dir", "", "parent directory for temporary work data")
 	fs.StringVar(&cfg.WorkDir, "work-dir", "", "exact empty work directory")
 	fs.BoolVar(&cfg.KeepTemp, "keep-temp", false, "keep partition and sort files")
 	fs.BoolVar(&cfg.Progress, "progress", true, "print periodic progress to stderr")
-	fs.StringVar(&cfg.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
-	fs.BoolVar(&cfg.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
+	fs.StringVar(&opts.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
+	fs.BoolVar(&opts.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
 	fs.BoolVar(&cfg.OutputHeader, "output-header", true, "write a header to the output TSV")
-	fs.BoolVar(&showVersion, "version", false, "print version and exit")
+	fs.BoolVar(&opts.ShowVersion, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
-		return cfg, false, err
+		return opts, err
 	}
 	if fs.NArg() != 0 {
-		return cfg, false, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
+		return opts, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
 	cfg.KeyNames = append([]string(nil), keys...)
 	cfg.KeyIndexes = append([]int(nil), keyIndexes...)
 	cfg.ExcludeKeyNames = append([]string(nil), excludeKeys...)
 	cfg.ExcludeKeyIndexes = append([]int(nil), excludeKeyIndexes...)
-	return cfg, showVersion, nil
+	return opts, nil
 }
 
 func min(a, b int) int {

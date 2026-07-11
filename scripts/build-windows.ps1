@@ -1,13 +1,18 @@
 $ErrorActionPreference = "Stop"
-$Version = if ($env:VERSION) { $env:VERSION } else { "v0.3.1" }
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$Version = if ($env:VERSION) { $env:VERSION } else { (git -C $Root describe --tags --always --dirty) }
 $Dist = Join-Path $Root "dist"
+Remove-Item -Recurse -Force $Dist -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
-
-$Targets = @(
-    @{ Arch = "amd64"; Name = "ayame-diff-windows-amd64.exe" },
-    @{ Arch = "arm64"; Name = "ayame-diff-windows-arm64.exe" }
-)
+$Targets = Get-Content (Join-Path $Root "scripts/targets.txt") | ForEach-Object {
+    $Line = $_.Trim()
+    if ($Line -and -not $Line.StartsWith("#")) {
+        $Parts = $Line -split '\s+'
+        if ($Parts[0] -eq "windows") {
+            @{ Arch = $Parts[1]; Name = "ayame-diff-windows-$($Parts[1])$($Parts[2])" }
+        }
+    }
+}
 
 Push-Location $Root
 try {

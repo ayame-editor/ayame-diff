@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -197,7 +197,7 @@ func inspectRFC4180(spec inputSpec, hasHeader, lazyQuotes, trimLeadingSpace bool
 		return inspectedInput{}, err
 	}
 	defer r.Close()
-	reader := csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+	reader := csv.NewReader(bufio.NewReaderSize(r, ioBufferBytes))
 	reader.Comma = rune(spec.Delimiter)
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = lazyQuotes
@@ -232,90 +232,22 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 		return schema{}, fmt.Errorf("column count differs: left=%d right=%d", left.ColumnCount, right.ColumnCount)
 	}
 	n := left.ColumnCount
-	leftMap := identityMap(n)
-	rightMap := identityMap(n)
-	if cfg.HasHeader {
-		if err := validateUniqueHeader(left.Header, "left"); err != nil {
-			return schema{}, err
-		}
-		if err := validateUniqueHeader(right.Header, "right"); err != nil {
-			return schema{}, err
-		}
-		if cfg.AlignColumnsByName {
-			rightByName := make(map[string]int, n)
-			for i, name := range right.Header {
-				rightByName[name] = i
-			}
-			for i, name := range left.Header {
-				j, ok := rightByName[name]
-				if !ok {
-					return schema{}, fmt.Errorf("right header is missing column %q", name)
-				}
-				rightMap[i] = j
-			}
-		} else if !reflect.DeepEqual(left.Header, right.Header) {
-			return schema{}, fmt.Errorf("headers differ; enable --align-columns-by-name or make the headers identical")
-		}
-	}
-	nameToIndex := make(map[string]int, n)
-	for i, name := range left.Header {
-		nameToIndex[name] = i
+	leftMap, rightMap, err := alignHeaders(left.Header, right.Header, n, cfg.HasHeader, cfg.AlignColumnsByName)
+	if err != nil {
+		return schema{}, err
 	}
 	includeMode := len(cfg.KeyNames)+len(cfg.KeyIndexes) > 0
-	keys := make([]int, 0, n)
+	var keys []int
 	if includeMode {
-		seen := map[int]struct{}{}
-		for _, name := range cfg.KeyNames {
-			i, ok := nameToIndex[name]
-			if !ok {
-				return schema{}, fmt.Errorf("key header %q not found in left header", name)
-			}
-			if _, ok := seen[i]; !ok {
-				seen[i] = struct{}{}
-				keys = append(keys, i)
-			}
-		}
-		for _, i := range cfg.KeyIndexes {
-			if i < 0 || i >= n {
-				return schema{}, fmt.Errorf("key index %d is outside 0..%d", i, n-1)
-			}
-			if _, ok := seen[i]; !ok {
-				seen[i] = struct{}{}
-				keys = append(keys, i)
-			}
-		}
+		keys, err = resolveIncludeKeys(left.Header, n, cfg.KeyNames, cfg.KeyIndexes)
 	} else {
-		excluded := map[int]struct{}{}
-		for _, name := range cfg.ExcludeKeyNames {
-			i, ok := nameToIndex[name]
-			if !ok {
-				return schema{}, fmt.Errorf("excluded key header %q not found in left header", name)
-			}
-			excluded[i] = struct{}{}
-		}
-		for _, i := range cfg.ExcludeKeyIndexes {
-			if i < 0 || i >= n {
-				return schema{}, fmt.Errorf("excluded key index %d is outside 0..%d", i, n-1)
-			}
-			excluded[i] = struct{}{}
-		}
-		for i := 0; i < n; i++ {
-			if _, skip := excluded[i]; !skip {
-				keys = append(keys, i)
-			}
-		}
+		keys, err = resolveExcludeKeys(left.Header, n, cfg.ExcludeKeyNames, cfg.ExcludeKeyIndexes)
+	}
+	if err != nil {
+		return schema{}, err
 	}
 	if len(keys) == 0 {
 		return schema{}, fmt.Errorf("no key columns remain after applying key selection")
-	}
-	keyIsFullRow := len(keys) == n
-	if keyIsFullRow {
-		for i, keyIndex := range keys {
-			if keyIndex != i {
-				keyIsFullRow = false
-				break
-			}
-		}
 	}
 	return schema{
 		Header:       append([]string(nil), left.Header...),
@@ -323,8 +255,113 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 		LeftMap:      leftMap,
 		RightMap:     rightMap,
 		KeyIndexes:   keys,
-		KeyIsFullRow: keyIsFullRow,
+		KeyIsFullRow: isIdentityKey(keys, n),
 	}, nil
+}
+
+func alignHeaders(left, right []string, columnCount int, hasHeader, alignByName bool) ([]int, []int, error) {
+	leftMap := identityMap(columnCount)
+	rightMap := identityMap(columnCount)
+	if !hasHeader {
+		return leftMap, rightMap, nil
+	}
+	if err := validateUniqueHeader(left, "left"); err != nil {
+		return nil, nil, err
+	}
+	if err := validateUniqueHeader(right, "right"); err != nil {
+		return nil, nil, err
+	}
+	if !alignByName {
+		if !slices.Equal(left, right) {
+			return nil, nil, fmt.Errorf("headers differ; enable column-name alignment or make the headers identical")
+		}
+		return leftMap, rightMap, nil
+	}
+	rightByName := make(map[string]int, columnCount)
+	for i, name := range right {
+		rightByName[name] = i
+	}
+	for i, name := range left {
+		j, ok := rightByName[name]
+		if !ok {
+			return nil, nil, fmt.Errorf("right header is missing column %q", name)
+		}
+		rightMap[i] = j
+	}
+	return leftMap, rightMap, nil
+}
+
+func resolveIncludeKeys(header []string, columnCount int, names []string, indexes []int) ([]int, error) {
+	nameToIndex := indexHeaders(header)
+	seen := make(map[int]struct{}, len(names)+len(indexes))
+	keys := make([]int, 0, len(names)+len(indexes))
+	for _, name := range names {
+		i, ok := nameToIndex[name]
+		if !ok {
+			return nil, fmt.Errorf("key header %q not found in left header", name)
+		}
+		keys = appendUniqueIndex(keys, seen, i)
+	}
+	for _, i := range indexes {
+		if i < 0 || i >= columnCount {
+			return nil, fmt.Errorf("key index %d is outside 0..%d", i, columnCount-1)
+		}
+		keys = appendUniqueIndex(keys, seen, i)
+	}
+	return keys, nil
+}
+
+func resolveExcludeKeys(header []string, columnCount int, names []string, indexes []int) ([]int, error) {
+	nameToIndex := indexHeaders(header)
+	excluded := make(map[int]struct{}, len(names)+len(indexes))
+	for _, name := range names {
+		i, ok := nameToIndex[name]
+		if !ok {
+			return nil, fmt.Errorf("excluded key header %q not found in left header", name)
+		}
+		excluded[i] = struct{}{}
+	}
+	for _, i := range indexes {
+		if i < 0 || i >= columnCount {
+			return nil, fmt.Errorf("excluded key index %d is outside 0..%d", i, columnCount-1)
+		}
+		excluded[i] = struct{}{}
+	}
+	keys := make([]int, 0, columnCount-len(excluded))
+	for i := 0; i < columnCount; i++ {
+		if _, skip := excluded[i]; !skip {
+			keys = append(keys, i)
+		}
+	}
+	return keys, nil
+}
+
+func indexHeaders(header []string) map[string]int {
+	result := make(map[string]int, len(header))
+	for i, name := range header {
+		result[name] = i
+	}
+	return result
+}
+
+func appendUniqueIndex(indexes []int, seen map[int]struct{}, index int) []int {
+	if _, ok := seen[index]; ok {
+		return indexes
+	}
+	seen[index] = struct{}{}
+	return append(indexes, index)
+}
+
+func isIdentityKey(keys []int, columnCount int) bool {
+	if len(keys) != columnCount {
+		return false
+	}
+	for i, key := range keys {
+		if key != i {
+			return false
+		}
+	}
+	return true
 }
 func validateUniqueHeader(header []string, side string) error {
 	seen := map[string]int{}
