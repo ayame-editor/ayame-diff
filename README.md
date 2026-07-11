@@ -1,5 +1,7 @@
 # ayame-diff
 
+[English](README.md) | [日本語](README.ja.md)
+
 [![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 

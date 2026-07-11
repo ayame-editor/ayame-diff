@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.2 - 2026-07-11
+
+- Display width is now grapheme-cluster / emoji / East-Asian-width aware, so
+  `--side-by-side` columns align for emoji (including ZWJ sequences and flags)
+  and CJK text.
+- The external-merge sort now raises the process open-file limit to fit the
+  partition/fan-in configuration, failing early with a clear message when the
+  hard limit is too low.
+- Added a Japanese README (`README.ja.md`) and an EN/JA language switcher. (#18)
+- Added installers and package manifests: `scripts/install.sh` (Linux/macOS),
+  `scripts/install.ps1` (Windows), plus Scoop and Homebrew manifests. (#19)
+- Added a `lint` CI workflow (gofmt, `go vet`, staticcheck) and strengthened the
+  release gate to run gofmt + vet + `go test -race` before publishing. (#22)
+
 ## v0.5.1 - 2026-07-11
 
 - Added WinMerge-style comparison options to `text` and `sorted` (and the web
