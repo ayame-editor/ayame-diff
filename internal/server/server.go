@@ -46,15 +46,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old      string `json:"old"`
-	New      string `json:"new"`
-	Mode     string `json:"mode"` // "text" (default) or "sorted"
-	Encoding string `json:"encoding"`
-	Window   uint64 `json:"window"`
-	MaxHunks int    `json:"maxHunks"`
-	MaxLines uint64 `json:"maxLines"`
-	Numeric  bool   `json:"numeric"`
-	Reverse  bool   `json:"reverse"`
+	Old        string `json:"old"`
+	New        string `json:"new"`
+	Mode       string `json:"mode"` // "text" (default) or "sorted"
+	Encoding   string `json:"encoding"`
+	Window     uint64 `json:"window"`
+	MaxHunks   int    `json:"maxHunks"`
+	MaxLines   uint64 `json:"maxLines"`
+	Numeric    bool   `json:"numeric"`
+	Reverse    bool   `json:"reverse"`
+	IgnoreCase bool   `json:"ignoreCase"`
+	Whitespace string `json:"whitespace"` // none | change | all
 }
 
 // hunkOut is a hunk with its (capped) line text, ready for the frontend.
@@ -120,8 +122,25 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeNew()
 
-	res := linediff.Diff(oldLines, newLines, maxHunks, window)
+	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
+		MaxHunks:   maxHunks,
+		Window:     window,
+		IgnoreCase: req.IgnoreCase,
+		Whitespace: whitespaceMode(req.Whitespace),
+	})
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
+}
+
+// whitespaceMode maps the request's whitespace option to the linediff enum.
+func whitespaceMode(s string) linediff.Whitespace {
+	switch s {
+	case "change":
+		return linediff.WSChange
+	case "all":
+		return linediff.WSAll
+	default:
+		return linediff.WSKeep
+	}
 }
 
 // openMode builds a linediff.Lines for path in the given mode, decoded from

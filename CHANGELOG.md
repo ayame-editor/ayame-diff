@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.1 - 2026-07-11
+
+- Added WinMerge-style comparison options to `text` and `sorted` (and the web
+  UI): `--ignore-case` and `--ignore-whitespace <none|change|all>` (change
+  collapses runs of whitespace and trims ends; all removes whitespace). These
+  normalize only the text used for comparison — the output still shows the
+  original lines.
+- Version embedding is now derived from `git describe` in the Makefile and CI,
+  instead of a hard-coded (and stale) string. (#21)
+
 ## v0.5.0 - 2026-07-11 — full Japanese encoding support
 
 - Added character-encoding detection and decoding for non-UTF-8 input (#9):

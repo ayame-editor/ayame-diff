@@ -1,6 +1,9 @@
 package linediff
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // Lines is a random-access, count-known source of text lines. Implementations
 // back it however they like — an in-memory slice ([StringLines]) or a batched,
@@ -47,14 +50,50 @@ func SplitLines(s string) StringLines {
 	return StringLines(parts)
 }
 
+// Whitespace selects how whitespace is treated when comparing lines.
+type Whitespace uint8
+
+const (
+	// WSKeep compares whitespace exactly (default).
+	WSKeep Whitespace = iota
+	// WSChange collapses each run of whitespace to a single space and trims
+	// the ends, so indentation and spacing changes are ignored (WinMerge's
+	// "ignore change").
+	WSChange
+	// WSAll removes all whitespace before comparing (WinMerge's "ignore all").
+	WSAll
+)
+
+// Options tunes the diff. MaxHunks and Window are always used; the Ignore*
+// fields normalize the text used for *comparison* only — output still shows the
+// original lines.
+type Options struct {
+	MaxHunks   int
+	Window     uint64
+	IgnoreCase bool
+	Whitespace Whitespace
+}
+
 // Diff computes the line diff of old vs new. At most maxHunks hunks are stored
 // in the result; any beyond that are still counted (HunkCount / OmittedHunks /
 // stats). window bounds how far the resync scan looks ahead when it hits a
-// difference: a larger window recovers cleaner insert/delete hunks across
-// bigger gaps, at the cost of a longer scan. window is clamped to at least 1.
+// difference. It is Diff­With with no ignore options.
 func Diff(old, new Lines, maxHunks int, window uint64) Result {
+	return DiffWith(old, new, Options{MaxHunks: maxHunks, Window: window})
+}
+
+// DiffWith is Diff with comparison options. When any ignore option is set, the
+// comparison runs over a normalized view of each line while positions (and thus
+// the output, rendered from the caller's originals) are unchanged.
+func DiffWith(old, new Lines, opts Options) Result {
+	window := opts.Window
 	if window < 1 {
 		window = 1
+	}
+	maxHunks := opts.MaxHunks
+	if norm := normalizer(opts); norm != nil {
+		old = normLines{Lines: old, norm: norm}
+		new = normLines{Lines: new, norm: norm}
 	}
 	oldTotal := old.Count()
 	newTotal := new.Count()
@@ -147,6 +186,73 @@ func insertHunk(oldStart, newStart, newLen uint64) Hunk {
 
 func deleteHunk(oldStart, newStart, oldLen uint64) Hunk {
 	return Hunk{Kind: Delete, OldStart: oldStart, OldLen: oldLen, NewStart: newStart, NewLen: 0}
+}
+
+// normLines is a Lines whose Line returns a normalized form (for comparison);
+// its Count and line positions are those of the underlying source.
+type normLines struct {
+	Lines
+	norm func(string) string
+}
+
+func (n normLines) Line(i uint64) (string, bool) {
+	s, ok := n.Lines.Line(i)
+	if !ok {
+		return "", false
+	}
+	return n.norm(s), true
+}
+
+// normalizer returns the comparison-normalization function for opts, or nil
+// when no ignore option is set (the fast path — no wrapping).
+func normalizer(o Options) func(string) string {
+	if !o.IgnoreCase && o.Whitespace == WSKeep {
+		return nil
+	}
+	return func(s string) string {
+		switch o.Whitespace {
+		case WSAll:
+			s = removeSpace(s)
+		case WSChange:
+			s = collapseSpace(s)
+		}
+		if o.IgnoreCase {
+			s = strings.ToLower(s)
+		}
+		return s
+	}
+}
+
+// collapseSpace trims leading/trailing whitespace and collapses each internal
+// run of whitespace to a single space.
+func collapseSpace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inRun, started := false, false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			inRun = true
+			continue
+		}
+		if inRun && started {
+			b.WriteByte(' ')
+		}
+		b.WriteRune(r)
+		started, inRun = true, false
+	}
+	return b.String()
+}
+
+// removeSpace drops all whitespace.
+func removeSpace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if !unicode.IsSpace(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func applyStats(res *Result, h Hunk) {

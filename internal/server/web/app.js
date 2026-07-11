@@ -8,6 +8,7 @@ const I18N = {
     mode: "モード", encoding: "文字コード", window: "ウィンドウ",
     maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
     word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
+    ignoreCase: "大小無視", whitespace: "空白",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -18,6 +19,7 @@ const I18N = {
     mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
     maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
     reverse: "reverse", compare: "Compare",
+    ignoreCase: "ignore case", whitespace: "whitespace",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -203,6 +205,8 @@ async function compare() {
     maxLines: Number($("maxLines").value) || 200,
     numeric: $("numeric").checked,
     reverse: $("reverse").checked,
+    ignoreCase: $("ignoreCase").checked,
+    whitespace: $("whitespace").value,
   };
   if (!body.old || !body.new) {
     setStatus(t("enterPaths"), "error");

@@ -68,6 +68,14 @@ ayame-diff text --encoding shift_jis a.txt b.txt  # 文字コードを明示（�
 
 Shift_JIS / EUC-JP / UTF-16 / ISO-2022-JP は自動判定されます（BOM 優先、その後ヒューリスティック）。誤判定時は `--encoding` で上書きしてください。
 
+WinMerge 風の比較オプションもあります（比較用に正規化するだけで、出力は元の行のまま）:
+
+```bash
+ayame-diff text --ignore-case a.txt b.txt              # 大文字小文字を無視
+ayame-diff text --ignore-whitespace change a.txt b.txt # 空白の連続を 1 個に圧縮・端をトリム
+ayame-diff text --ignore-whitespace all a.txt b.txt    # 空白をすべて無視
+```
+
 `--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わったワードだけを `[-削除-]` / `{+追加+}` のマーカーで強調します。
 
 ### `sorted` — ソート済み比較

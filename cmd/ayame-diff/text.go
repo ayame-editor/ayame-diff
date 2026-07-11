@@ -15,15 +15,17 @@ import (
 // diffFlags are the output/algorithm options shared by the text and sorted
 // subcommands.
 type diffFlags struct {
-	json     bool
-	side     bool
-	summary  bool
-	maxHunks int
-	maxLines uint64
-	window   uint64
-	width    int
-	word     bool
-	encoding string
+	json       bool
+	side       bool
+	summary    bool
+	maxHunks   int
+	maxLines   uint64
+	window     uint64
+	width      int
+	word       bool
+	encoding   string
+	ignoreCase bool
+	whitespace string
 }
 
 func (d *diffFlags) register(fs *flag.FlagSet) {
@@ -33,6 +35,8 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
+	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
+	fs.StringVar(&d.whitespace, "ignore-whitespace", "none", "whitespace handling: none, change (collapse runs), all (remove)")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -52,10 +56,27 @@ func (d *diffFlags) format() diffout.Format {
 	}
 }
 
+// whitespaceMode maps the --ignore-whitespace flag to the linediff enum.
+func whitespaceMode(s string) linediff.Whitespace {
+	switch s {
+	case "change":
+		return linediff.WSChange
+	case "all":
+		return linediff.WSAll
+	default:
+		return linediff.WSKeep
+	}
+}
+
 // emitDiff runs the line diff and writes it in the selected format. Hunks/JSON
 // go to stdout, the summary to stderr, matching the CSV mode's split.
 func emitDiff(old, new linediff.Lines, d diffFlags) {
-	res := linediff.Diff(old, new, d.maxHunks, d.window)
+	res := linediff.DiffWith(old, new, linediff.Options{
+		MaxHunks:   d.maxHunks,
+		Window:     d.window,
+		IgnoreCase: d.ignoreCase,
+		Whitespace: whitespaceMode(d.whitespace),
+	})
 	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width, Word: d.word}
 	if err := diffout.Write(os.Stdout, os.Stderr, old, new, res, opts); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

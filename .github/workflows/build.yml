@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
@@ -25,6 +27,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
@@ -33,7 +37,7 @@ jobs:
       - name: Build native Windows executable
         run: >-
           go build -trimpath
-          -ldflags "-s -w -X main.version=v0.3.2"
+          -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)"
           -o ayame-diff.exe
           ./cmd/ayame-diff
       - run: .\ayame-diff.exe --version
@@ -64,6 +68,8 @@ jobs:
             ext: '.exe'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.x'
@@ -75,7 +81,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: >-
           go build -trimpath
-          -ldflags "-s -w -X main.version=v0.3.2"
+          -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)"
           -o "ayame-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
           ./cmd/ayame-diff
       - uses: actions/upload-artifact@v7

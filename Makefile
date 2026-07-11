@@ -1,4 +1,4 @@
-VERSION ?= v0.3.1
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build test race vet check build-all clean
