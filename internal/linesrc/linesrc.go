@@ -53,6 +53,7 @@ type FileLines struct {
 	// Sliding window: buf holds line indexes [bufStart, next). Lines below
 	// bufStart have been dropped; lines at or above next are unread.
 	buf      []string
+	endings  []string
 	bufStart uint64
 	next     uint64
 }
@@ -139,6 +140,27 @@ func (f *FileLines) Line(i uint64) (string, bool) {
 	return f.buf[i-f.bufStart], true
 }
 
+// LineEnding reports the original decoded terminator for line i: "\n",
+// "\r\n", or "" for a final line without a newline. Patch renderers use this
+// optional metadata; ordinary comparisons continue to see normalized text.
+func (f *FileLines) LineEnding(i uint64) string {
+	if i >= f.count {
+		return ""
+	}
+	if i < f.bufStart {
+		if err := f.reset(); err != nil {
+			return ""
+		}
+	}
+	if i >= f.next {
+		f.fill(i)
+	}
+	if i < f.bufStart || i >= f.next {
+		return ""
+	}
+	return f.endings[i-f.bufStart]
+}
+
 // Close releases the underlying file (and gzip) handles.
 func (f *FileLines) Close() error { return f.closeStream() }
 
@@ -146,11 +168,12 @@ func (f *FileLines) Close() error { return f.closeStream() }
 // already bounded by count), compacting the window as it grows.
 func (f *FileLines) fill(target uint64) {
 	for f.next <= target {
-		line, ok := f.readLine()
+		line, ending, ok := f.readLine()
 		if !ok {
 			break
 		}
 		f.buf = append(f.buf, line)
+		f.endings = append(f.endings, ending)
 		f.next++
 		if uint64(len(f.buf)) > highWater {
 			f.compact()
@@ -167,10 +190,13 @@ func (f *FileLines) compact() {
 	}
 	drop := len(f.buf) - keepBehind
 	n := copy(f.buf, f.buf[drop:])
+	copy(f.endings, f.endings[drop:])
 	for k := n; k < len(f.buf); k++ {
 		f.buf[k] = "" // release the pinned tail duplicates for GC
+		f.endings[k] = ""
 	}
 	f.buf = f.buf[:n]
+	f.endings = f.endings[:n]
 	f.bufStart += uint64(drop)
 }
 
@@ -178,9 +204,9 @@ func (f *FileLines) compact() {
 // produce, or ok=false at end of input. A mid-stream read error stops the
 // stream; the whole file was already validated readable by the pre-count pass,
 // and the Lines interface has no error channel to surface it.
-func (f *FileLines) readLine() (string, bool) {
+func (f *FileLines) readLine() (string, string, bool) {
 	if f.eof {
-		return "", false
+		return "", "", false
 	}
 	chunk, err := f.reader.ReadString('\n')
 	if err != nil {
@@ -189,9 +215,15 @@ func (f *FileLines) readLine() (string, bool) {
 	// A trailing empty chunk (input ended exactly on a newline, or was empty)
 	// is not a line, matching SplitLines dropping the final empty field.
 	if len(chunk) == 0 {
-		return "", false
+		return "", "", false
 	}
-	return normalizeLine(chunk), true
+	ending := ""
+	if strings.HasSuffix(chunk, "\r\n") {
+		ending = "\r\n"
+	} else if strings.HasSuffix(chunk, "\n") {
+		ending = "\n"
+	}
+	return normalizeLine(chunk), ending, true
 }
 
 // skipUTF8BOM discards a leading UTF-8 byte-order mark (EF BB BF) if present, so
@@ -281,6 +313,7 @@ func (f *FileLines) reset() error {
 		return err
 	}
 	f.buf = nil
+	f.endings = nil
 	f.bufStart = 0
 	f.next = 0
 	f.eof = false

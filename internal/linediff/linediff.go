@@ -32,6 +32,46 @@ func (s StringLines) Line(i uint64) (string, bool) {
 	return s[i], true
 }
 
+// TextLines is an in-memory line source that also preserves each original line
+// terminator for patch output. Comparison still uses the normalized text.
+type TextLines struct {
+	lines   StringLines
+	endings []string
+}
+
+func (t *TextLines) Count() uint64 { return t.lines.Count() }
+func (t *TextLines) Line(i uint64) (string, bool) {
+	return t.lines.Line(i)
+}
+func (t *TextLines) LineEnding(i uint64) string {
+	if i >= uint64(len(t.endings)) {
+		return ""
+	}
+	return t.endings[i]
+}
+
+// SplitTextLines is SplitLines plus exact LF/CRLF/final-no-newline metadata.
+func SplitTextLines(s string) *TextLines {
+	result := &TextLines{}
+	for len(s) > 0 {
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			line, ending := s[:i], "\n"
+			if strings.HasSuffix(line, "\r") {
+				line = strings.TrimSuffix(line, "\r")
+				ending = "\r\n"
+			}
+			result.lines = append(result.lines, line)
+			result.endings = append(result.endings, ending)
+			s = s[i+1:]
+			continue
+		}
+		result.lines = append(result.lines, strings.TrimSuffix(s, "\r"))
+		result.endings = append(result.endings, "")
+		break
+	}
+	return result
+}
+
 // SplitLines splits s into lines the same way the reference implementation's
 // document reader does: on "\n", with a trailing "\r" trimmed from each line
 // (CRLF) and a single trailing newline not producing an extra empty line.

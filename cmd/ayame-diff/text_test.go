@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
@@ -34,6 +38,41 @@ func TestSubcommandDispatch(t *testing.T) {
 	}
 }
 
+func TestRunTextUnifiedPatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "old.txt")
+	newPath := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(oldPath, []byte("a\r\nold"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("a\r\nnew"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runText([]string{"--format", "unified", "-U", "1", oldPath, newPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "--- "+oldPath+"\t") || !strings.Contains(stdout.String(), "@@ -1,2 +1,2 @@") {
+		t.Fatalf("patch output:\n%s", stdout.String())
+	}
+	if strings.Count(stdout.String(), `\ No newline at end of file`) != 2 {
+		t.Fatalf("missing newline markers:\n%s", stdout.String())
+	}
+}
+
+func TestRunSortedRejectsPatchOutput(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	if code := runSorted([]string{"--format", "unified", "old", "new"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "require text mode") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestDiffFlagsFormat(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -51,5 +90,31 @@ func TestDiffFlagsFormat(t *testing.T) {
 		if got := c.d.format(); got != c.want {
 			t.Fatalf("format(%+v) = %v, want %v", c.d, got, c.want)
 		}
+	}
+}
+
+func TestPatchFormatFlags(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		d    diffFlags
+		want diffout.Format
+		ctx  int
+	}{
+		{name: "normal alias", d: diffFlags{normal: true}, want: diffout.Normal},
+		{name: "normal format", d: diffFlags{patchFormat: "normal"}, want: diffout.Normal},
+		{name: "context", d: diffFlags{patchFormat: "context", contextLines: 5}, want: diffout.PatchContext, ctx: 5},
+		{name: "unified U0", d: diffFlags{unifiedContext: optionalInt{value: 0, set: true}}, want: diffout.PatchUnified},
+		{name: "context C2", d: diffFlags{contextContext: optionalInt{value: 2, set: true}}, want: diffout.PatchContext, ctx: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ctx, patch, err := tc.d.outputFormat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want || ctx != tc.ctx || !patch {
+				t.Fatalf("format/context/patch = %v/%d/%v, want %v/%d/true", got, ctx, patch, tc.want, tc.ctx)
+			}
+		})
 	}
 }

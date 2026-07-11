@@ -1,5 +1,5 @@
-// Package diffout renders a [linediff.Result] to text in four formats:
-// unified (default), side-by-side, JSON, and a one-line summary. It is a thin
+// Package diffout renders a [linediff.Result] as display hunks, side-by-side,
+// JSON, summary, or applyable normal/context/unified patches. It is a thin
 // presentation layer kept separate from the pure diff core so that core stays
 // I/O- and format-agnostic (see hjosugi/ayame-diff#6, ADR 0002).
 //
@@ -16,6 +16,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/textwidth"
@@ -38,6 +39,10 @@ const (
 	// Normal emits a classic (GNU diff, no-flags) patch: <n>c<n> / <n>a<n> /
 	// <n>d<n> headers with "< " old and "> " new lines.
 	Normal
+	// PatchContext emits a GNU context patch (`diff -c` / `-C N`).
+	PatchContext
+	// PatchUnified emits an applyable GNU unified patch (`diff -u` / `-U N`).
+	PatchUnified
 )
 
 // Options tunes rendering. Zero values fall back to the reference defaults
@@ -50,6 +55,12 @@ type Options struct {
 	// hunk using git-style [-removed-] / {+added+} markers instead of plain
 	// -/+ lines. Ignored for the other formats.
 	Word bool
+	// Patch metadata. Context defaults to 3 unless ContextSet is true. Labels
+	// are file-header paths; timestamps are omitted when zero.
+	Context            int
+	ContextSet         bool
+	OldLabel, NewLabel string
+	OldTime, NewTime   time.Time
 }
 
 const (
@@ -62,9 +73,9 @@ const (
 
 // Write renders res to w (unified/side-by-side hunks or JSON) and the summary
 // line to summaryW, matching the reference. Which streams are used depends on
-// opts.Format: JSON writes only w, Summary writes only summaryW, and the two
-// hunk formats write hunks to w followed by the summary to summaryW (mirroring
-// the reference's stdout/stderr split).
+// opts.Format: JSON writes only w, Summary writes only summaryW, and display or
+// patch formats write to w followed by the summary to summaryW (mirroring the
+// reference's stdout/stderr split).
 func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linediff.Result, opts Options) error {
 	// A per-hunk cap of 0 would print nothing but the "more" line, which is
 	// useless; treat 0 as "unset" and use the reference default instead.
@@ -83,7 +94,26 @@ func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linedif
 	case Summary:
 		return writeSummary(summaryW, res)
 	case Normal:
-		if err := writeNormal(w, old, new, res, maxLines); err != nil {
+		if err := ValidatePatchable(old, new); err != nil {
+			return err
+		}
+		if err := writeNormal(w, old, new, res); err != nil {
+			return err
+		}
+		return writeSummary(summaryW, res)
+	case PatchContext:
+		if err := ValidatePatchable(old, new); err != nil {
+			return err
+		}
+		if err := writeContextPatch(w, old, new, res, opts); err != nil {
+			return err
+		}
+		return writeSummary(summaryW, res)
+	case PatchUnified:
+		if err := ValidatePatchable(old, new); err != nil {
+			return err
+		}
+		if err := writeUnifiedPatch(w, old, new, res, opts); err != nil {
 			return err
 		}
 		return writeSummary(summaryW, res)
@@ -186,21 +216,21 @@ func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, max
 // writeNormal renders the result as a classic GNU-diff (no-flags) patch. The
 // current hunk model (1:1 replaces, insert/delete runs) maps directly onto the
 // c/a/d commands, so no context-line assembly is needed.
-func writeNormal(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64) error {
+func writeNormal(w io.Writer, old, new linediff.Lines, res linediff.Result) error {
 	bw := bufio.NewWriter(w)
 	for _, h := range res.Hunks {
 		switch h.Kind {
 		case linediff.Delete:
 			fmt.Fprintf(bw, "%sd%d\n", normalRange(h.OldStart, h.OldLen), h.NewStart)
-			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen, maxLines)
+			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen)
 		case linediff.Insert:
 			fmt.Fprintf(bw, "%da%s\n", h.OldStart, normalRange(h.NewStart, h.NewLen))
-			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen, maxLines)
+			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen)
 		default: // Replace
 			fmt.Fprintf(bw, "%sc%s\n", normalRange(h.OldStart, h.OldLen), normalRange(h.NewStart, h.NewLen))
-			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen, maxLines)
+			writeNormalLines(bw, old, "< ", h.OldStart, h.OldLen)
 			fmt.Fprintln(bw, "---")
-			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen, maxLines)
+			writeNormalLines(bw, new, "> ", h.NewStart, h.NewLen)
 		}
 	}
 	return bw.Flush()
@@ -215,13 +245,9 @@ func normalRange(start0, count uint64) string {
 	return fmt.Sprintf("%d,%d", s, start0+count)
 }
 
-func writeNormalLines(bw *bufio.Writer, lines linediff.Lines, prefix string, start, count, maxLines uint64) {
-	shown := min(count, maxLines)
-	for n := start; n < start+shown; n++ {
-		fmt.Fprintf(bw, "%s%s\n", prefix, lineAt(lines, n))
-	}
-	if count > shown {
-		fmt.Fprintf(bw, "%s... %d more line(s)\n", prefix, count-shown)
+func writeNormalLines(bw *bufio.Writer, lines linediff.Lines, prefix string, start, count uint64) {
+	for n := start; n < start+count; n++ {
+		writePatchLine(bw, prefix, lines, n)
 	}
 }
 

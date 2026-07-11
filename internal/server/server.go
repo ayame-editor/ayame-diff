@@ -7,9 +7,15 @@ package server
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
+	"math"
 	"net/http"
+	"os"
+	"time"
 
+	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
@@ -34,6 +40,7 @@ func New(version string) (*Server, error) {
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/diff", s.handleDiff)
+	s.mux.HandleFunc("/api/patch", s.handlePatch)
 	return s, nil
 }
 
@@ -46,17 +53,19 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old        string `json:"old"`
-	New        string `json:"new"`
-	Mode       string `json:"mode"` // "text" (default) or "sorted"
-	Encoding   string `json:"encoding"`
-	Window     uint64 `json:"window"`
-	MaxHunks   int    `json:"maxHunks"`
-	MaxLines   uint64 `json:"maxLines"`
-	Numeric    bool   `json:"numeric"`
-	Reverse    bool   `json:"reverse"`
-	IgnoreCase bool   `json:"ignoreCase"`
-	Whitespace string `json:"whitespace"` // none | change | all
+	Old         string `json:"old"`
+	New         string `json:"new"`
+	Mode        string `json:"mode"` // "text" (default) or "sorted"
+	Encoding    string `json:"encoding"`
+	Window      uint64 `json:"window"`
+	MaxHunks    int    `json:"maxHunks"`
+	MaxLines    uint64 `json:"maxLines"`
+	Numeric     bool   `json:"numeric"`
+	Reverse     bool   `json:"reverse"`
+	IgnoreCase  bool   `json:"ignoreCase"`
+	Whitespace  string `json:"whitespace"` // none | change | all
+	PatchFormat string `json:"patchFormat,omitempty"`
+	Context     *int   `json:"context,omitempty"`
 	// Inline compares OldText/NewText directly instead of the Old/New paths —
 	// "scratch" comparison of pasted text (#55).
 	Inline  bool   `json:"inline"`
@@ -100,7 +109,6 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
-
 	window := req.Window
 	if window == 0 {
 		window = 128
@@ -114,26 +122,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		maxLines = 200
 	}
 
-	var oldLines, newLines linediff.Lines
-	if req.Inline {
-		oldLines = inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse)
-		newLines = inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse)
-	} else {
-		var closeOld, closeNew func()
-		var err error
-		oldLines, closeOld, err = openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "old: "+err.Error())
-			return
-		}
-		defer closeOld()
-		newLines, closeNew, err = openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "new: "+err.Error())
-			return
-		}
-		defer closeNew()
+	oldLines, newLines, closeLines, err := openRequestLines(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	defer closeLines()
 
 	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
 		MaxHunks:   maxHunks,
@@ -142,6 +136,99 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		Whitespace: whitespaceMode(req.Whitespace),
 	})
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
+}
+
+func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req diffRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if !req.Inline && (req.Old == "" || req.New == "") {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
+		return
+	}
+	if req.Mode == "sorted" {
+		writeError(w, http.StatusBadRequest, "patch export requires text mode; sorted output cannot be applied to the original file")
+		return
+	}
+	format := diffout.PatchUnified
+	switch req.PatchFormat {
+	case "", "unified":
+	case "context":
+		format = diffout.PatchContext
+	case "normal":
+		format = diffout.Normal
+	default:
+		writeError(w, http.StatusBadRequest, "patchFormat must be normal, context, or unified")
+		return
+	}
+	contextLines := 3
+	if req.Context != nil {
+		contextLines = *req.Context
+	}
+	if contextLines < 0 {
+		writeError(w, http.StatusBadRequest, "context must be non-negative")
+		return
+	}
+	oldLines, newLines, closeLines, err := openRequestLines(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	if err := diffout.ValidatePatchable(oldLines, newLines); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	window := req.Window
+	if window == 0 {
+		window = 128
+	}
+	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
+		MaxHunks: math.MaxInt, Window: window, IgnoreCase: req.IgnoreCase,
+		Whitespace: whitespaceMode(req.Whitespace),
+	})
+	oldLabel, newLabel := req.Old, req.New
+	if req.Inline {
+		oldLabel, newLabel = "old.txt", "new.txt"
+	}
+	w.Header().Set("Content-Type", "text/x-diff; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="ayame.patch"`)
+	_ = diffout.Write(w, io.Discard, oldLines, newLines, res, diffout.Options{
+		Format: format, Context: contextLines, ContextSet: true,
+		OldLabel: oldLabel, NewLabel: newLabel,
+		OldTime: pathModTime(req.Old), NewTime: pathModTime(req.New),
+	})
+}
+
+func pathModTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), error) {
+	if req.Inline {
+		return inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse),
+			inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse), func() {}, nil
+	}
+	oldLines, closeOld, err := openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+	if err != nil {
+		return nil, nil, func() {}, fmt.Errorf("old: %w", err)
+	}
+	newLines, closeNew, err := openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+	if err != nil {
+		closeOld()
+		return nil, nil, func() {}, fmt.Errorf("new: %w", err)
+	}
+	return oldLines, newLines, func() { closeNew(); closeOld() }, nil
 }
 
 // whitespaceMode maps the request's whitespace option to the linediff enum.
@@ -159,9 +246,14 @@ func whitespaceMode(s string) linediff.Whitespace {
 // inlineLines builds a linediff.Lines from in-memory text (scratch comparison),
 // sorting it when the sorted mode is selected.
 func inlineLines(text, mode string, numeric, reverse bool) linediff.Lines {
-	lines := linediff.SplitLines(text)
+	lines := linediff.SplitTextLines(text)
 	if mode == "sorted" {
-		return linesort.SortLines(lines, numeric, reverse)
+		values := make([]string, 0, lines.Count())
+		for i := uint64(0); i < lines.Count(); i++ {
+			line, _ := lines.Line(i)
+			values = append(values, line)
+		}
+		return linesort.SortLines(values, numeric, reverse)
 	}
 	return lines
 }

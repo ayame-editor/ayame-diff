@@ -57,7 +57,11 @@ Enter the **OLD** and **NEW** file paths, choose the mode (`text` or `sorted`)
 and options (encoding, resync window, ignore-case, whitespace handling, and for
 `sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
 side-by-side grid with per-hunk headers, line numbers and word-level
-highlighting.
+highlighting. Choose **patch format** (`normal`, `context`, or `unified`) and a
+context-line count, then use **Export patch** to download an applyable
+`ayame.patch`. Patch export preserves CRLF and missing-final-newline markers and
+rejects binary/NUL input. Export is available in `text` mode only; a patch of a
+sorted view would not apply safely to the original file.
 
 ## HTTP API
 
@@ -145,3 +149,21 @@ curl -s http://127.0.0.1:8080/api/diff \
   -H 'Content-Type: application/json' \
   -d '{"old":"old.txt","new":"new.txt","mode":"text","ignoreCase":true,"whitespace":"change"}'
 ```
+
+### `POST /api/patch`
+
+Accepts the same path, inline-text, mode, encoding and comparison fields as
+`/api/diff`, plus:
+
+```json
+{
+  "old": "old.txt",
+  "new": "new.txt",
+  "patchFormat": "unified",
+  "context": 3
+}
+```
+
+The response is `text/x-diff` with `Content-Disposition: attachment`. Valid
+formats are `normal`, `context`, and `unified`; `context` is non-negative and
+defaults to 3 when omitted.

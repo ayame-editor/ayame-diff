@@ -101,6 +101,21 @@ func TestLineSemanticsMatchSplitLines(t *testing.T) {
 	}
 }
 
+func TestFileLinesPreservesLineEndings(t *testing.T) {
+	t.Parallel()
+	path := writeFile(t, t.TempDir(), "mixed.txt", "lf\ncrlf\r\nfinal")
+	lines, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lines.Close()
+	for i, want := range []string{"\n", "\r\n", ""} {
+		if got := lines.LineEnding(uint64(i)); got != want {
+			t.Errorf("ending %d = %q, want %q", i, got, want)
+		}
+	}
+}
+
 // TestLongLineExceedsReaderBuffer proves ReadString handles a line far larger
 // than the bufio buffer (a bufio.Scanner would fail here).
 func TestLongLineExceedsReaderBuffer(t *testing.T) {

@@ -6,9 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/encoding"
@@ -21,20 +25,43 @@ import (
 // diffFlags are the output/algorithm options shared by the text and sorted
 // subcommands.
 type diffFlags struct {
-	json       bool
-	side       bool
-	summary    bool
-	maxHunks   int
-	maxLines   uint64
-	window     uint64
-	width      int
-	word       bool
-	normal     bool
-	html       string
-	pre        string
-	encoding   string
-	ignoreCase bool
-	whitespace string
+	json                           bool
+	side                           bool
+	summary                        bool
+	maxHunks                       int
+	maxLines                       uint64
+	window                         uint64
+	width                          int
+	word                           bool
+	normal                         bool
+	patchFormat                    string
+	contextLines                   int
+	unifiedContext, contextContext optionalInt
+	html                           string
+	pre                            string
+	encoding                       string
+	ignoreCase                     bool
+	whitespace                     string
+}
+
+type optionalInt struct {
+	value int
+	set   bool
+}
+
+func (o *optionalInt) String() string {
+	if !o.set {
+		return ""
+	}
+	return strconv.Itoa(o.value)
+}
+func (o *optionalInt) Set(text string) error {
+	value, err := strconv.Atoi(text)
+	if err != nil || value < 0 {
+		return fmt.Errorf("context line count must be a non-negative integer")
+	}
+	o.value, o.set = value, true
+	return nil
 }
 
 func (d *diffFlags) register(fs *flag.FlagSet) {
@@ -43,6 +70,10 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.normal, "normal", false, "GNU normal-diff (patch) output")
+	fs.StringVar(&d.patchFormat, "format", "", "patch format: normal, context, or unified")
+	fs.IntVar(&d.contextLines, "context-lines", 3, "context lines for context/unified patch formats")
+	fs.Var(&d.unifiedContext, "U", "unified patch with N context lines")
+	fs.Var(&d.contextContext, "C", "context patch with N context lines")
 	fs.StringVar(&d.html, "html", "", "write a self-contained HTML report to this file")
 	fs.StringVar(&d.pre, "pre", "", "preprocess each input through this shell command before diffing (e.g. --pre 'jq -S .')")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
@@ -56,17 +87,63 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 }
 
 func (d *diffFlags) format() diffout.Format {
+	format, _, _, _ := d.outputFormat()
+	return format
+}
+
+func (d *diffFlags) outputFormat() (diffout.Format, int, bool, error) {
+	patchRequested := d.normal || strings.TrimSpace(d.patchFormat) != "" || d.unifiedContext.set || d.contextContext.set
+	if patchRequested && (d.json || d.summary || d.side || d.html != "") {
+		return 0, 0, false, fmt.Errorf("patch format cannot be combined with JSON, summary, side-by-side, or HTML output")
+	}
 	switch {
 	case d.json:
-		return diffout.JSON
+		return diffout.JSON, 0, false, nil
 	case d.summary:
-		return diffout.Summary
-	case d.normal:
-		return diffout.Normal
+		return diffout.Summary, 0, false, nil
 	case d.side:
-		return diffout.SideBySide
+		return diffout.SideBySide, 0, false, nil
+	}
+	selected := strings.ToLower(strings.TrimSpace(d.patchFormat))
+	if d.normal {
+		if selected != "" && selected != "normal" {
+			return 0, 0, false, fmt.Errorf("--normal conflicts with --format=%s", selected)
+		}
+		selected = "normal"
+	}
+	if d.unifiedContext.set {
+		if selected != "" && selected != "unified" {
+			return 0, 0, false, fmt.Errorf("-U conflicts with --format=%s", selected)
+		}
+		selected = "unified"
+	}
+	if d.contextContext.set {
+		if selected != "" && selected != "context" {
+			return 0, 0, false, fmt.Errorf("-C conflicts with --format=%s", selected)
+		}
+		selected = "context"
+	}
+	contextLines := d.contextLines
+	if d.unifiedContext.set {
+		contextLines = d.unifiedContext.value
+	}
+	if d.contextContext.set {
+		contextLines = d.contextContext.value
+	}
+	if contextLines < 0 {
+		return 0, 0, false, fmt.Errorf("patch context lines must be non-negative")
+	}
+	switch selected {
+	case "":
+		return diffout.Unified, 0, false, nil
+	case "normal":
+		return diffout.Normal, 0, true, nil
+	case "context":
+		return diffout.PatchContext, contextLines, true, nil
+	case "unified":
+		return diffout.PatchUnified, contextLines, true, nil
 	default:
-		return diffout.Unified
+		return 0, 0, false, fmt.Errorf("--format must be normal, context, or unified")
 	}
 }
 
@@ -84,9 +161,17 @@ func whitespaceMode(s string) linediff.Whitespace {
 
 // emitDiff runs the line diff and writes it in the selected format. Hunks/JSON
 // go to stdout, the summary to stderr, matching the CSV mode's split.
-func emitDiff(old, new linediff.Lines, d diffFlags, title string, stdout, stderr io.Writer) error {
+func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, stdout, stderr io.Writer) error {
+	format, contextLines, patch, err := d.outputFormat()
+	if err != nil {
+		return err
+	}
+	maxHunks := d.maxHunks
+	if patch {
+		maxHunks = math.MaxInt
+	}
 	res := linediff.DiffWith(old, new, linediff.Options{
-		MaxHunks:   d.maxHunks,
+		MaxHunks:   maxHunks,
 		Window:     d.window,
 		IgnoreCase: d.ignoreCase,
 		Whitespace: whitespaceMode(d.whitespace),
@@ -96,7 +181,7 @@ func emitDiff(old, new linediff.Lines, d diffFlags, title string, stdout, stderr
 		if err != nil {
 			return err
 		}
-		if err := htmlreport.Write(f, old, new, res, title); err != nil {
+		if err := htmlreport.Write(f, old, new, res, oldLabel+" vs "+newLabel); err != nil {
 			_ = f.Close()
 			return err
 		}
@@ -110,8 +195,23 @@ func emitDiff(old, new linediff.Lines, d diffFlags, title string, stdout, stderr
 		fmt.Fprintf(stderr, "wrote %s\n", d.html)
 		return nil
 	}
-	opts := diffout.Options{Format: d.format(), MaxLines: d.maxLines, Width: d.width, Word: d.word}
+	opts := diffout.Options{
+		Format: format, MaxLines: d.maxLines, Width: d.width, Word: d.word,
+		Context: contextLines, ContextSet: patch, OldLabel: oldLabel, NewLabel: newLabel,
+		OldTime: fileModTime(oldLabel), NewTime: fileModTime(newLabel),
+	}
 	return diffout.Write(stdout, stderr, old, new, res, opts)
+}
+
+func fileModTime(path string) time.Time {
+	if path == "-" {
+		return time.Time{}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 // runText implements: ayame-diff text [flags] OLD NEW
@@ -132,6 +232,10 @@ inputs. OLD or NEW may be - to read standard input.`)
 	if err := parseDiffArgs(fs, args); err != nil {
 		return reportFlagError(err, stderr)
 	}
+	if _, _, _, err := d.outputFormat(); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
 	if err != nil {
@@ -145,7 +249,7 @@ inputs. OLD or NEW may be - to read standard input.`)
 		return 2
 	}
 	defer closeNew()
-	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0)+" vs "+fs.Arg(1), stdout, stderr); err != nil {
+	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
 	}
@@ -181,6 +285,13 @@ Note: v1 sorts in memory.`)
 	if err := parseDiffArgs(fs, args); err != nil {
 		return reportFlagError(err, stderr)
 	}
+	if _, _, patch, err := d.outputFormat(); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	} else if patch {
+		fmt.Fprintln(stderr, "error: patch formats require text mode; sorted output cannot be applied to the original file")
+		return 2
+	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
 	if err != nil {
@@ -196,7 +307,7 @@ Note: v1 sorts in memory.`)
 	defer closeNew()
 	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
 	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
-	if err := emitDiff(oldLines, newLines, d, fs.Arg(0)+" vs "+fs.Arg(1)+" (sorted)", stdout, stderr); err != nil {
+	if err := emitDiff(oldLines, newLines, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
 	}
@@ -246,7 +357,7 @@ func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, fu
 // (stdin itself when path is "-"), then decodes and splits its output. This is
 // the "prediffer/unpacker" hook: normalize or transform inputs before diffing
 // (e.g. --pre 'jq -S .' to canonicalize JSON).
-func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.StringLines, error) {
+func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.Lines, error) {
 	var stdin io.Reader = os.Stdin
 	if path != "-" {
 		f, err := os.Open(path)
@@ -273,12 +384,12 @@ func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.Stri
 		return nil, err
 	}
 	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
-	return linediff.SplitLines(string(decoded)), nil
+	return linediff.SplitTextLines(string(decoded)), nil
 }
 
 // readStdin reads all of stdin, decodes it to UTF-8 (encHint, "auto" to detect),
 // strips a UTF-8 BOM, and splits into lines.
-func readStdin(encHint string) (linediff.StringLines, error) {
+func readStdin(encHint string) (linediff.Lines, error) {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return nil, fmt.Errorf("reading stdin: %w", err)
@@ -289,7 +400,7 @@ func readStdin(encHint string) (linediff.StringLines, error) {
 		return nil, fmt.Errorf("decoding stdin: %w", err)
 	}
 	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
-	return linediff.SplitLines(string(decoded)), nil
+	return linediff.SplitTextLines(string(decoded)), nil
 }
 
 // collectLines reads every line of l into a slice (for in-memory sorting).

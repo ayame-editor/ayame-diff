@@ -110,3 +110,44 @@ func TestDiffAPIErrors(t *testing.T) {
 		t.Fatalf("missing-file status = %d", rec.Code)
 	}
 }
+
+func TestPatchAPI(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	contextLines := 1
+	for _, format := range []string{"normal", "context", "unified"} {
+		t.Run(format, func(t *testing.T) {
+			body, _ := json.Marshal(diffRequest{
+				Inline: true, OldText: "a\r\nold", NewText: "a\r\nnew",
+				PatchFormat: format, Context: &contextLines,
+			})
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/patch", bytes.NewReader(body)))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/x-diff") {
+				t.Fatalf("content type = %q", got)
+			}
+			if !strings.Contains(rec.Body.String(), `\ No newline at end of file`) {
+				t.Fatalf("missing final-newline marker in:\n%s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestPatchAPIRejectsInvalidFormatAndBinary(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	for _, reqBody := range []diffRequest{
+		{Inline: true, OldText: "a", NewText: "b", PatchFormat: "invalid"},
+		{Inline: true, OldText: "a\x00b", NewText: "a\x00c", PatchFormat: "unified"},
+	} {
+		body, _ := json.Marshal(reqBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/patch", bytes.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+}

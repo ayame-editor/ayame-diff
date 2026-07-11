@@ -11,6 +11,8 @@ const I18N = {
     ignoreCase: "大小無視", whitespace: "空白", cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     showWs: "空白表示", scratch: "テキスト貼り付け",
+    patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
+    exporting: "patch生成中…", exported: "patchを書き出しました",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -24,6 +26,8 @@ const I18N = {
     ignoreCase: "ignore case", whitespace: "whitespace", cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     showWs: "show whitespace", scratch: "paste text",
+    patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
+    exporting: "Exporting patch…", exported: "Patch exported",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -242,27 +246,8 @@ function setStatus(msg, cls) {
 }
 
 async function compare() {
-  const scratch = $("scratch").checked;
-  const body = {
-    inline: scratch,
-    old: $("old").value.trim(),
-    new: $("new").value.trim(),
-    oldText: $("oldText").value,
-    newText: $("newText").value,
-    mode: $("mode").value,
-    encoding: $("encoding").value,
-    window: Number($("window").value) || 128,
-    maxHunks: Number($("maxHunks").value) || 200,
-    maxLines: Number($("maxLines").value) || 200,
-    numeric: $("numeric").checked,
-    reverse: $("reverse").checked,
-    ignoreCase: $("ignoreCase").checked,
-    whitespace: $("whitespace").value,
-  };
-  if (!scratch && (!body.old || !body.new)) {
-    setStatus(t("enterPaths"), "error");
-    return;
-  }
+  const body = requestBody();
+  if (!validateInputs(body)) return;
   const ac = new AbortController();
   currentAbort = ac;
   $("compare").disabled = true;
@@ -296,10 +281,76 @@ async function compare() {
   }
 }
 
+function requestBody() {
+  const scratch = $("scratch").checked;
+  return {
+    inline: scratch,
+    old: $("old").value.trim(),
+    new: $("new").value.trim(),
+    oldText: $("oldText").value,
+    newText: $("newText").value,
+    mode: $("mode").value,
+    encoding: $("encoding").value,
+    window: Number($("window").value) || 128,
+    maxHunks: Number($("maxHunks").value) || 200,
+    maxLines: Number($("maxLines").value) || 200,
+    numeric: $("numeric").checked,
+    reverse: $("reverse").checked,
+    ignoreCase: $("ignoreCase").checked,
+    whitespace: $("whitespace").value,
+  };
+}
+
+function validateInputs(body) {
+  if (!body.inline && (!body.old || !body.new)) {
+    setStatus(t("enterPaths"), "error");
+    return false;
+  }
+  return true;
+}
+
+async function exportPatch() {
+  const body = requestBody();
+  if (!validateInputs(body)) return;
+  body.patchFormat = $("patchFormat").value;
+  body.context = Math.max(0, Number($("patchContext").value) || 0);
+  $("exportPatch").disabled = true;
+  setStatus(t("exporting"), "busy");
+  try {
+    const resp = await fetch("/api/patch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ayame.patch";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus(t("exported"), "");
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+  } finally {
+    $("exportPatch").disabled = false;
+  }
+}
+
 function syncModeOpts() {
   const sorted = $("mode").value === "sorted";
   $("numericWrap").hidden = !sorted;
   $("reverseWrap").hidden = !sorted;
+  $("exportPatch").disabled = sorted;
+}
+function syncPatchOpts() {
+  $("patchContextWrap").hidden = $("patchFormat").value === "normal";
 }
 
 // Display preferences (color scheme + line wrap), persisted across visits.
@@ -315,8 +366,10 @@ function applyWrap(on) {
 }
 
 $("compare").addEventListener("click", compare);
+$("exportPatch").addEventListener("click", exportPatch);
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("patchFormat").addEventListener("change", syncPatchOpts);
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
@@ -335,6 +388,7 @@ applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
+syncPatchOpts();
 applyLang(lang);
 
 fetch("/api/health")

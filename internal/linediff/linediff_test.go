@@ -40,6 +40,19 @@ func TestSplitLines(t *testing.T) {
 	}
 }
 
+func TestSplitTextLinesPreservesTerminators(t *testing.T) {
+	t.Parallel()
+	lines := SplitTextLines("lf\ncrlf\r\nfinal")
+	if lines.Count() != 3 {
+		t.Fatalf("count = %d", lines.Count())
+	}
+	for i, want := range []string{"\n", "\r\n", ""} {
+		if got := lines.LineEnding(uint64(i)); got != want {
+			t.Errorf("ending %d = %q, want %q", i, got, want)
+		}
+	}
+}
+
 func TestEqualDocumentsProduceNoHunks(t *testing.T) {
 	t.Parallel()
 	res := diffStrings(t, "a\nb\nc\n", "a\nb\nc\n", 200, 128)

@@ -118,6 +118,9 @@ ayame-diff text old.txt new.txt                 # unified (default)
 ayame-diff text --side-by-side old.txt new.txt  # two-column (old | new)
 ayame-diff text --json old.txt new.txt          # machine-readable JSON
 ayame-diff text --summary old.txt new.txt       # one-line summary only
+ayame-diff text --format unified -U 3 old.txt new.txt > change.patch
+ayame-diff text --format context -C 3 old.txt new.txt > change.patch
+ayame-diff text --format normal old.txt new.txt > change.patch
 ```
 
 ### Output formats
@@ -128,6 +131,9 @@ ayame-diff text --summary old.txt new.txt       # one-line summary only
 | `--side-by-side` (alias `--side`) | Two-column old / new layout; set the total column width with `--width`. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
+| `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
+| `--format context` / `-C N` | Applyable context patch with N context lines (default 3). |
+| `--format normal` / `--normal` | Classic `NcN`, `NaN`, `NdN` normal patch. |
 
 ### `text` flags
 
@@ -135,6 +141,11 @@ ayame-diff text --summary old.txt new.txt       # one-line summary only
 --json                       emit the diff as JSON
 --side-by-side, --side       two-column (old | new) output
 --summary                    print only the one-line summary
+--format FORMAT              patch format: normal, context, or unified
+--normal                     alias for --format normal
+-U N                         unified patch with N context lines
+-C N                         context patch with N context lines
+--context-lines N            context for --format context/unified (default 3)
 --word                       highlight changed words in replace hunks (unified)
 --encoding VALUE             auto (default), utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp
 --ignore-case                ignore case when comparing lines
@@ -144,6 +155,11 @@ ayame-diff text --summary old.txt new.txt       # one-line summary only
 --window N                   resync look-ahead window when lines differ (default 128)
 --width N                    total width for --side-by-side (default 160)
 ```
+
+Patch output is never truncated by `--max-hunks` or `--max-lines`. It preserves
+LF/CRLF and missing-final-newline markers, rejects decoded binary/NUL input, and
+uses locale-independent file-header timestamps. CI applies all three formats
+with GNU `patch` and additionally verifies unified output with `git apply`.
 
 See [Encoding](encoding.md) for `--encoding` and
 [Comparison options](comparison-options.md) for `--ignore-case`,
@@ -155,7 +171,8 @@ See [Encoding](encoding.md) for `--encoding` and
 
 For files that hold the same rows in a different order, `sorted` sorts both
 inputs line-wise and then runs the same line diff as `text`. It accepts every
-`text` flag plus sort controls.
+display flag from `text` plus sort controls. Patch formats are rejected because
+a patch of the sorted view cannot be applied safely to the original file.
 
 ```bash
 ayame-diff sorted old.txt new.txt
