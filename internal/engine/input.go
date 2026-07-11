@@ -32,6 +32,9 @@ type inspectedInput struct {
 	ColumnCount int
 	DataOffset  int64
 }
+
+const utf8BOM = "\xef\xbb\xbf"
+
 type schema struct {
 	Header                        []string
 	ColumnCount                   int
@@ -182,7 +185,9 @@ func inspectSimple(spec inputSpec, hasHeader bool) (inspectedInput, error) {
 		}
 	} else {
 		result.Header = syntheticHeader(len(fields))
-		result.DataOffset = 0
+		if strings.HasPrefix(string(line), utf8BOM) {
+			result.DataOffset = int64(len(utf8BOM))
+		}
 	}
 	return result, nil
 }
@@ -213,6 +218,9 @@ func inspectRFC4180(spec inputSpec, hasHeader, lazyQuotes, trimLeadingSpace bool
 		stripBOM(result.Header)
 	} else {
 		result.Header = syntheticHeader(len(record))
+		if len(record) > 0 && strings.HasPrefix(record[0], "\uFEFF") {
+			result.DataOffset = int64(len(utf8BOM))
+		}
 	}
 	return result, nil
 }

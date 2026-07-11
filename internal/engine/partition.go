@@ -99,6 +99,12 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 	}
 	defer r.Close()
 	reader := csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+	if !cfg.HasHeader && info.DataOffset > 0 {
+		if _, err := io.CopyN(io.Discard, r, info.DataOffset); err != nil {
+			return 0, fmt.Errorf("skip %s BOM: %w", spec.Label, err)
+		}
+		reader = csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+	}
 	reader.Comma = rune(spec.Delimiter)
 	reader.FieldsPerRecord = -1
 	reader.ReuseRecord = true
@@ -152,8 +158,13 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 	defer r.Close()
 	reader := bufio.NewReaderSize(r, 4*1024*1024)
 	if cfg.HasHeader {
-		if _, _, _, err := readPhysicalLine(reader, nil); err != nil {
+		_, raw, _, err := readPhysicalLine(reader, nil)
+		if err != nil && !(errors.Is(err, io.EOF) && raw > 0) {
 			return 0, err
+		}
+	} else if info.DataOffset > 0 {
+		if _, err := reader.Discard(int(info.DataOffset)); err != nil {
+			return 0, fmt.Errorf("skip %s BOM: %w", spec.Label, err)
 		}
 	}
 	var rows uint64

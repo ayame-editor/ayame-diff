@@ -183,6 +183,119 @@ func TestRunHeaderlessIndexes(t *testing.T) {
 	}
 }
 
+func TestRunHeaderOnlyWithoutTrailingNewline(t *testing.T) {
+	t.Parallel()
+	for _, parser := range []string{"simple", "rfc4180"} {
+		parser := parser
+		t.Run(parser, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			leftPath := filepath.Join(dir, "left.csv")
+			rightPath := filepath.Join(dir, "right.csv")
+			outPath := filepath.Join(dir, "diff.tsv")
+			mustWriteFile(t, leftPath, "id,value")
+			mustWriteFile(t, rightPath, "id,value")
+
+			cfg := testConfig(leftPath, rightPath, outPath)
+			cfg.LeftParser = parser
+			cfg.RightParser = parser
+			cfg.ParseWorkers = 1
+			summary, err := Run(context.Background(), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.LeftRows != 0 || summary.RightRows != 0 || summary.DiffRows != 0 {
+				t.Fatalf("unexpected summary: %#v", summary)
+			}
+		})
+	}
+}
+
+func TestRunHeaderlessUTF8BOM(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		parser     string
+		compressed bool
+	}{
+		{name: "simple sequential", parser: "simple"},
+		{name: "simple parallel", parser: "simple"},
+		{name: "simple gzip", parser: "simple", compressed: true},
+		{name: "rfc4180", parser: "rfc4180"},
+		{name: "rfc4180 gzip", parser: "rfc4180", compressed: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			ext := ".csv"
+			if tt.compressed {
+				ext += ".gz"
+			}
+			leftPath := filepath.Join(dir, "left"+ext)
+			rightPath := filepath.Join(dir, "right"+ext)
+			outPath := filepath.Join(dir, "diff.tsv")
+			left := utf8BOM + "1,alpha\n2,beta\n"
+			right := "1,alpha\n2,beta\n"
+			if tt.compressed {
+				mustWriteGzipFile(t, leftPath, left)
+				mustWriteGzipFile(t, rightPath, right)
+			} else {
+				mustWriteFile(t, leftPath, left)
+				mustWriteFile(t, rightPath, right)
+			}
+
+			cfg := testConfig(leftPath, rightPath, outPath)
+			cfg.HasHeader = false
+			cfg.AlignColumnsByName = false
+			cfg.LeftParser = tt.parser
+			cfg.RightParser = tt.parser
+			if tt.name == "simple sequential" {
+				cfg.ParseWorkers = 1
+			}
+			summary, err := Run(context.Background(), cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.EqualRows != 2 || summary.DiffRows != 0 {
+				t.Fatalf("BOM created a false difference: %#v", summary)
+			}
+		})
+	}
+}
+
+func TestRunPreservesExplicitWorkDirectory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath := filepath.Join(dir, "left.tsv")
+	rightPath := filepath.Join(dir, "right.tsv")
+	outPath := filepath.Join(dir, "diff.tsv")
+	workPath := filepath.Join(dir, "user-work")
+	mustWriteFile(t, leftPath, "id\n1\n")
+	mustWriteFile(t, rightPath, "id\n1\n")
+
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.WorkDir = workPath
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(workPath)
+	if err != nil {
+		t.Fatalf("explicit work directory was removed: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("explicit work path is not a directory: %s", workPath)
+	}
+	entries, err := os.ReadDir(workPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("explicit work directory still has generated contents: %v", entries)
+	}
+}
+
 func TestRunDefaultsToAllColumnsAsKey(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

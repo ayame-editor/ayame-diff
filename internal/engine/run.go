@@ -19,6 +19,9 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	if err := cfg.Validate(); err != nil {
 		return summary, err
 	}
+	if err := ensureFileDescriptorBudget(cfg); err != nil {
+		return summary, err
+	}
 	if err := validateDistinctOutput(cfg.LeftPath, cfg.RightPath, cfg.OutputPath); err != nil {
 		return summary, err
 	}
@@ -49,9 +52,9 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		return summary, err
 	}
 	if !cfg.KeepTemp {
-		defer os.RemoveAll(workRoot)
+		defer cleanupWorkRoot(workRoot, createdByUs)
 	} else {
-		fmt.Fprintln(os.Stderr, "work directory:", workRoot)
+		defer fmt.Fprintln(os.Stderr, "temporary data kept at:", workRoot)
 	}
 
 	leftParts, leftRows, err := partitionInput(ctx, leftSpec, leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, cfg, filepath.Join(workRoot, "partitions-left"))
@@ -82,9 +85,6 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		DiffRows:     stats.DiffRows,
 		Partitions:   cfg.Partitions,
 		Workers:      minInt(cfg.Workers, cfg.Partitions),
-	}
-	if createdByUs && cfg.KeepTemp {
-		fmt.Fprintln(os.Stderr, "temporary data kept at:", workRoot)
 	}
 	return summary, nil
 }
@@ -315,6 +315,23 @@ func createWorkRoot(cfg Config) (string, bool, error) {
 		return "", false, fmt.Errorf("--work-dir must be empty: %s", path)
 	}
 	return path, false, nil
+}
+
+// cleanupWorkRoot removes the temporary root only when Run created it. For an
+// explicit --work-dir, it removes generated contents but preserves the
+// user-owned directory itself.
+func cleanupWorkRoot(path string, createdByUs bool) {
+	if createdByUs {
+		_ = os.RemoveAll(path)
+		return
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		_ = os.RemoveAll(filepath.Join(path, entry.Name()))
+	}
 }
 
 func validateDistinctOutput(leftPath, rightPath, outputPath string) error {
