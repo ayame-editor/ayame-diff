@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0 - 2026-07-11
+
+- Added a `dir` subcommand: recursively compare two directory trees **by file
+  content** and report added (`+`), removed (`-`), and changed (`~`) files
+  (WinMerge-style folder comparison). `--all` also lists unchanged files,
+  `--json` emits structured output, and `--exclude <glob>` skips paths. (#52)
+
 ## v0.6.4 - 2026-07-11
 
 - `text` and `sorted` now accept `-` as OLD or NEW to read from standard input,

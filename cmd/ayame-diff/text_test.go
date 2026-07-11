@@ -16,6 +16,7 @@ func TestSubcommandDispatch(t *testing.T) {
 		{[]string{}, ""},
 		{[]string{"text", "a", "b"}, "text"},
 		{[]string{"sorted", "a", "b"}, "sorted"},
+		{[]string{"dir", "a", "b"}, "dir"},
 		{[]string{"serve"}, "serve"},
 		{[]string{"gui"}, "gui"},
 		{[]string{"update", "--check"}, "update"},
