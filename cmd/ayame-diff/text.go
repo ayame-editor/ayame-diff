@@ -45,6 +45,30 @@ type diffFlags struct {
 	detectMoves                    bool
 	moveMinLines                   uint64
 	moveMaxCandidates              int
+	syncPoints                     syncFlag
+}
+
+type syncFlag []linediff.SyncPoint
+
+func (s *syncFlag) String() string {
+	parts := make([]string, len(*s))
+	for i, point := range *s {
+		parts[i] = fmt.Sprintf("%d:%d", point.Old+1, point.New+1)
+	}
+	return strings.Join(parts, ",")
+}
+func (s *syncFlag) Set(text string) error {
+	parts := strings.Split(text, ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("sync point must be OLD:NEW (1-based line numbers)")
+	}
+	oldLine, oldErr := strconv.ParseUint(parts[0], 10, 64)
+	newLine, newErr := strconv.ParseUint(parts[1], 10, 64)
+	if oldErr != nil || newErr != nil || oldLine == 0 || newLine == 0 {
+		return fmt.Errorf("sync point must contain positive 1-based line numbers")
+	}
+	*s = append(*s, linediff.SyncPoint{Old: oldLine - 1, New: newLine - 1})
+	return nil
 }
 
 type optionalInt struct {
@@ -86,6 +110,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.detectMoves, "detect-moves", false, "detect exact delete/insert blocks as moves")
 	fs.Uint64Var(&d.moveMinLines, "move-min-lines", 2, "minimum lines in a moved block")
 	fs.IntVar(&d.moveMaxCandidates, "move-max-candidates", 10000, "maximum delete and insert candidates examined")
+	fs.Var(&d.syncPoints, "sync", "force corresponding lines OLD:NEW (1-based, repeatable)")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -176,11 +201,15 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 	if patch {
 		maxHunks = math.MaxInt
 	}
+	if err := linediff.ValidateSyncPoints(d.syncPoints, old.Count(), new.Count()); err != nil {
+		return err
+	}
 	res := linediff.DiffWith(old, new, linediff.Options{
 		MaxHunks:   maxHunks,
 		Window:     d.window,
 		IgnoreCase: d.ignoreCase,
 		Whitespace: whitespaceMode(d.whitespace),
+		SyncPoints: d.syncPoints,
 	})
 	if d.detectMoves {
 		linediff.DetectMoves(old, new, &res, linediff.MoveOptions{

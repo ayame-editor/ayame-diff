@@ -140,3 +140,19 @@ func TestPatchFormatFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncFlagUsesOneBasedLines(t *testing.T) {
+	t.Parallel()
+	var points syncFlag
+	if err := points.Set("100:120"); err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 1 || points[0].Old != 99 || points[0].New != 119 || points.String() != "100:120" {
+		t.Fatalf("points = %+v (%s)", points, points.String())
+	}
+	for _, invalid := range []string{"0:1", "1:0", "a:2", "1", "1:2:3"} {
+		if err := points.Set(invalid); err == nil {
+			t.Fatalf("accepted invalid sync %q", invalid)
+		}
+	}
+}

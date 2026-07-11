@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hjosugi/ayame-diff/internal/linediff"
 )
 
 func newTestServer(t *testing.T) http.Handler {
@@ -103,6 +105,42 @@ func TestDiffAPIDetectsMovedBlocks(t *testing.T) {
 	}
 	if response.MovedBlocks != 1 || response.MovedLines != 2 {
 		t.Fatalf("moved = %d/%d hunks=%+v", response.MovedBlocks, response.MovedLines, response.Hunks)
+	}
+}
+
+func TestDiffAPISyncPointsAndIgnoredPatchAudit(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	syncBody, _ := json.Marshal(diffRequest{
+		Inline: true, Window: 2,
+		OldText:    "start\na\nb\nc\nANCHOR\ntail\n",
+		NewText:    "start\nx1\nx2\nx3\nx4\nx5\na\nb\nc\nANCHOR\ntail\n",
+		SyncPoints: []linediff.SyncPoint{{Old: 1, New: 6}},
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(syncBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response diffResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Added != 5 || response.Modified != 0 {
+		t.Fatalf("sync response = %+v", response)
+	}
+
+	ignoredBody, _ := json.Marshal(diffRequest{
+		Inline: true, OldText: "a\nold\n", NewText: "a\nnew\n",
+		PatchFormat: "unified", IgnoredHunks: []int{0},
+	})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/patch", bytes.NewReader(ignoredBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("X-Ayame-Ignored-Hunks") != "1" || rec.Body.Len() != 0 {
+		t.Fatalf("ignored audit=%q patch=%q", rec.Header().Get("X-Ayame-Ignored-Hunks"), rec.Body.String())
 	}
 }
 

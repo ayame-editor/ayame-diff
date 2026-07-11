@@ -122,6 +122,7 @@ ayame-diff text --format unified -U 3 old.txt new.txt > change.patch
 ayame-diff text --format context -C 3 old.txt new.txt > change.patch
 ayame-diff text --format normal old.txt new.txt > change.patch
 ayame-diff text --detect-moves --move-min-lines 2 old.txt new.txt
+ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 ```
 
 ### Output formats
@@ -154,6 +155,7 @@ ayame-diff text --detect-moves --move-min-lines 2 old.txt new.txt
 --detect-moves               pair exact delete/insert blocks as moves (default off)
 --move-min-lines N           minimum moved-block length (default 2)
 --move-max-candidates N      per-side detection guard (default 10000)
+--sync OLD:NEW               force corresponding 1-based lines (repeatable)
 --max-hunks N                maximum hunks to print; the rest are still counted (default 200)
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)

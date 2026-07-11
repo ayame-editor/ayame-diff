@@ -154,6 +154,7 @@ type jsonResult struct {
 	Modified     uint64     `json:"modified"`
 	MovedBlocks  uint64     `json:"moved_blocks,omitempty"`
 	MovedLines   uint64     `json:"moved_lines,omitempty"`
+	IgnoredHunks uint64     `json:"ignored_hunks,omitempty"`
 }
 
 func writeJSON(w io.Writer, res linediff.Result) error {
@@ -184,6 +185,7 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 		Modified:     res.Modified,
 		MovedBlocks:  res.MovedBlocks,
 		MovedLines:   res.MovedLines,
+		IgnoredHunks: res.IgnoredHunks,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -387,6 +389,9 @@ func summaryLine(res linediff.Result) string {
 		group(res.HunkCount), group(res.Added), group(res.Deleted), group(res.Modified))
 	if res.MovedBlocks > 0 {
 		s += fmt.Sprintf(", %s moved block(s) / %s line(s)", group(res.MovedBlocks), group(res.MovedLines))
+	}
+	if res.IgnoredHunks > 0 {
+		s += fmt.Sprintf(", %s ignored hunk(s)", group(res.IgnoredHunks))
 	}
 	if res.OmittedHunks > 0 {
 		s += " (output truncated; raise --max-hunks)"

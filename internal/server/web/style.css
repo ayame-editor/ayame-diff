@@ -134,6 +134,15 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: var(--fg); border: 1px solid var(--border); font-weight: 600;
 }
 .diff-nav .nav-help { margin-left: 0.35rem; color: var(--muted); }
+.sync-panel {
+  margin-top: 0.45rem; display: flex; align-items: center; gap: 0.5rem;
+  color: var(--muted); font-size: 0.78rem;
+}
+.sync-chip {
+  display: inline-flex; margin: 0 0.25rem 0.2rem 0; padding: 0.12rem 0.45rem;
+  border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); background: var(--bg);
+  cursor: pointer;
+}
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18px; gap: 0.55rem; align-items: start; }
 .result { margin-top: 1rem; display: grid; gap: 0.8rem; min-width: 0; }
@@ -163,6 +172,14 @@ button:disabled { opacity: 0.5; cursor: default; }
   float: right; margin: -0.15rem 0 0 0.6rem; padding: 0.08rem 0.45rem;
   background: var(--move-fg); border: 0; font-size: 0.72rem;
 }
+.hunk-ignore {
+  float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
+  background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: 0.72rem;
+}
+.hunk.ignored .rows { display: none; }
+.hunk.ignored { opacity: 0.68; border-style: dashed; }
+.hunk.ignored .hunk-head::before { content: "⊘ "; color: var(--muted); }
+.minimap-marker.ignored { opacity: 0.18; }
 .hunk-head {
   font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem;
   padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
@@ -180,6 +197,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .result.nowrap .cell { white-space: pre; }
 .ws { color: var(--muted); opacity: 0.55; }
 .cell .ln { color: var(--muted); text-align: right; user-select: none; }
+.cell.selectable-line { cursor: crosshair; }
+.cell.sync-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cell.add { background: var(--add-bg); }
 .cell.del { background: var(--del-bg); }
 .cell.chg { background: var(--chg-bg); }

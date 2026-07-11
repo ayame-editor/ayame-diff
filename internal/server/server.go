@@ -53,21 +53,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old          string `json:"old"`
-	New          string `json:"new"`
-	Mode         string `json:"mode"` // "text" (default) or "sorted"
-	Encoding     string `json:"encoding"`
-	Window       uint64 `json:"window"`
-	MaxHunks     int    `json:"maxHunks"`
-	MaxLines     uint64 `json:"maxLines"`
-	Numeric      bool   `json:"numeric"`
-	Reverse      bool   `json:"reverse"`
-	IgnoreCase   bool   `json:"ignoreCase"`
-	Whitespace   string `json:"whitespace"` // none | change | all
-	PatchFormat  string `json:"patchFormat,omitempty"`
-	Context      *int   `json:"context,omitempty"`
-	DetectMoves  bool   `json:"detectMoves,omitempty"`
-	MoveMinLines uint64 `json:"moveMinLines,omitempty"`
+	Old          string               `json:"old"`
+	New          string               `json:"new"`
+	Mode         string               `json:"mode"` // "text" (default) or "sorted"
+	Encoding     string               `json:"encoding"`
+	Window       uint64               `json:"window"`
+	MaxHunks     int                  `json:"maxHunks"`
+	MaxLines     uint64               `json:"maxLines"`
+	Numeric      bool                 `json:"numeric"`
+	Reverse      bool                 `json:"reverse"`
+	IgnoreCase   bool                 `json:"ignoreCase"`
+	Whitespace   string               `json:"whitespace"` // none | change | all
+	PatchFormat  string               `json:"patchFormat,omitempty"`
+	Context      *int                 `json:"context,omitempty"`
+	DetectMoves  bool                 `json:"detectMoves,omitempty"`
+	MoveMinLines uint64               `json:"moveMinLines,omitempty"`
+	SyncPoints   []linediff.SyncPoint `json:"syncPoints,omitempty"`
+	IgnoredHunks []int                `json:"ignoredHunks,omitempty"`
 	// Inline compares OldText/NewText directly instead of the Old/New paths —
 	// "scratch" comparison of pasted text (#55).
 	Inline  bool   `json:"inline"`
@@ -99,6 +101,7 @@ type diffResponse struct {
 	Modified     uint64    `json:"modified"`
 	MovedBlocks  uint64    `json:"moved_blocks,omitempty"`
 	MovedLines   uint64    `json:"moved_lines,omitempty"`
+	IgnoredHunks uint64    `json:"ignored_hunks,omitempty"`
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -134,18 +137,24 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer closeLines()
+	if err := linediff.ValidateSyncPoints(req.SyncPoints, oldLines.Count(), newLines.Count()); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
 		MaxHunks:   maxHunks,
 		Window:     window,
 		IgnoreCase: req.IgnoreCase,
 		Whitespace: whitespaceMode(req.Whitespace),
+		SyncPoints: req.SyncPoints,
 	})
 	if req.DetectMoves {
 		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
 		})
 	}
+	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
 }
 
@@ -192,6 +201,10 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer closeLines()
+	if err := linediff.ValidateSyncPoints(req.SyncPoints, oldLines.Count(), newLines.Count()); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := diffout.ValidatePatchable(oldLines, newLines); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -203,13 +216,21 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 	res := linediff.DiffWith(oldLines, newLines, linediff.Options{
 		MaxHunks: math.MaxInt, Window: window, IgnoreCase: req.IgnoreCase,
 		Whitespace: whitespaceMode(req.Whitespace),
+		SyncPoints: req.SyncPoints,
 	})
+	if req.DetectMoves {
+		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
+		})
+	}
+	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	oldLabel, newLabel := req.Old, req.New
 	if req.Inline {
 		oldLabel, newLabel = "old.txt", "new.txt"
 	}
 	w.Header().Set("Content-Type", "text/x-diff; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="ayame.patch"`)
+	w.Header().Set("X-Ayame-Ignored-Hunks", fmt.Sprint(res.IgnoredHunks))
 	_ = diffout.Write(w, io.Discard, oldLines, newLines, res, diffout.Options{
 		Format: format, Context: contextLines, ContextSet: true,
 		OldLabel: oldLabel, NewLabel: newLabel,
@@ -316,6 +337,7 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		Modified:     res.Modified,
 		MovedBlocks:  res.MovedBlocks,
 		MovedLines:   res.MovedLines,
+		IgnoredHunks: res.IgnoredHunks,
 	}
 }
 

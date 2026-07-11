@@ -71,4 +71,5 @@ type Result struct {
 	Modified     uint64
 	MovedBlocks  uint64
 	MovedLines   uint64
+	IgnoredHunks uint64
 }

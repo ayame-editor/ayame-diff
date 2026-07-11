@@ -101,8 +101,14 @@
         <span id="diffCounter" aria-live="polite"></span>
         <button id="nextDiff" type="button" title="Next difference">↓</button>
         <button id="lastDiff" type="button" title="Last difference">⇥</button>
+        <button id="addSync" type="button" data-i18n="addSync" disabled>Add sync</button>
+        <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
         <button id="navHelp" type="button" class="nav-help" title="Keyboard shortcuts">?</button>
       </nav>
+      <section class="sync-panel" id="syncPanel" hidden>
+        <strong data-i18n="syncPoints">Sync points</strong>
+        <span id="syncList"></span>
+      </section>
       <div class="diff-layout">
         <section class="result" id="result"></section>
         <aside class="minimap" id="minimap" aria-label="Difference map" hidden>

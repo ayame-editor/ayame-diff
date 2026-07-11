@@ -112,6 +112,7 @@ type Options struct {
 	Window     uint64
 	IgnoreCase bool
 	Whitespace Whitespace
+	SyncPoints []SyncPoint
 }
 
 // Diff computes the line diff of old vs new. At most maxHunks hunks are stored
@@ -126,6 +127,9 @@ func Diff(old, new Lines, maxHunks int, window uint64) Result {
 // comparison runs over a normalized view of each line while positions (and thus
 // the output, rendered from the caller's originals) are unchanged.
 func DiffWith(old, new Lines, opts Options) Result {
+	if len(opts.SyncPoints) > 0 && ValidateSyncPoints(opts.SyncPoints, old.Count(), new.Count()) == nil {
+		return diffWithSyncPoints(old, new, opts)
+	}
 	window := opts.Window
 	if window < 1 {
 		window = 1

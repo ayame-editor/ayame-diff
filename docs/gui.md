@@ -78,6 +78,21 @@ dedicated purple color and an `↔` button jumps to the paired location. Detecti
 is off by default; **move min lines** and the engine candidate cap prevent the
 optional post-processing pass from dominating huge comparisons.
 
+### Manual alignment and ignored differences
+
+When automatic resynchronization picks the wrong lines, click one line on each
+side and choose **Add sync**. Sync points split the diff into independent
+intervals, are listed as removable `OLD:NEW` chips, and trigger an immediate
+recalculation. Points must increase on both sides; the API and CLI validate
+bounds and ordering. The CLI equivalent is repeatable `--sync 100:120` using
+1-based line numbers.
+
+Each hunk also has **Ignore this difference**. Ignored hunks remain visible as
+collapsed dashed headers, are excluded from next/previous navigation and unread
+counts, and can be restored. Patch export omits them and records the count in
+the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
+auditable; use declarative line filters (#28) for a permanent rule.
+
 ## HTTP API
 
 The GUI is a thin client over a small JSON API. You can call it directly.
@@ -123,6 +138,8 @@ Request body:
 | `numeric`, `reverse` | bool | Sort controls, used when `mode` is `sorted`. |
 | `ignoreCase` | bool | Ignore case when comparing. |
 | `whitespace` | string | `none`, `change` or `all`. |
+| `syncPoints` | array | 0-based `{ "old": N, "new": N }` forced correspondences. |
+| `ignoredHunks` | array | Stored hunk indexes omitted from patch/report output. |
 
 Success response:
 

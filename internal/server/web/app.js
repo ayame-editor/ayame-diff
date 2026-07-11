@@ -16,6 +16,10 @@ const I18N = {
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
     navHelpText: "差分移動: Alt+↓ 次 / Alt+↑ 前 / Alt+End 最後 / Alt+Home 最初",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
+    addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
+    ignoreHunk: "この差分を無視", restoreHunk: "無視を解除", ignored: "無視",
+    syncSelect: "左右から対応させる行を1行ずつ選択してください。",
+    syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -34,6 +38,10 @@ const I18N = {
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
     navHelpText: "Navigate: Alt+↓ next / Alt+↑ previous / Alt+End last / Alt+Home first",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
+    addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
+    ignoreHunk: "Ignore this difference", restoreHunk: "Restore difference", ignored: "ignored",
+    syncSelect: "Select one corresponding line on each side.",
+    syncOrderError: "Sync points must increase on both sides.",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
@@ -114,6 +122,9 @@ let lastData = null; // last diff response, for re-render on a display-option ch
 let currentHunk = -1;
 let readHunks = new Set();
 let navObserver = null;
+let syncSelection = { old: null, new: null };
+let syncPoints = [];
+let ignoredHunks = new Set();
 
 // ---- rendering ----
 // appendText adds text to el, optionally rendering whitespace as dimmed marks
@@ -151,13 +162,19 @@ function plainSpan(text) {
   appendText(tx, text);
   return tx;
 }
-function cell(cls, lineNo, node) {
+function cell(cls, lineNo, node, side) {
   const c = document.createElement("div");
   c.className = "cell " + cls;
   const ln = document.createElement("span");
   ln.className = "ln";
   ln.textContent = lineNo == null ? "" : String(lineNo);
   c.append(ln, node);
+  if (lineNo != null && side) {
+    c.classList.add("selectable-line");
+    c.dataset.side = side;
+    c.dataset.line = String(lineNo - 1);
+    c.addEventListener("click", () => selectSyncLine(c));
+  }
   return c;
 }
 function row(left, right) {
@@ -197,6 +214,19 @@ function renderHunk(h, useWord, index) {
     });
     head.append(jump);
   }
+  const ignore = document.createElement("button");
+  ignore.type = "button";
+  ignore.className = "hunk-ignore";
+  ignore.textContent = t("ignoreHunk");
+  ignore.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleIgnoredHunk(index);
+  });
+  if (ignoredHunks.has(index)) {
+    box.classList.add("ignored");
+    ignore.textContent = t("restoreHunk");
+  }
+  head.append(ignore);
   box.append(head);
 
   const rows = document.createElement("div");
@@ -205,22 +235,22 @@ function renderHunk(h, useWord, index) {
 
   if (h.kind === "insert") {
     for (let k = 0; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]))));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]), "new")));
   } else if (h.kind === "delete") {
     for (let k = 0; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k])), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k]), "old"), cell("empty", null, plainSpan(""))));
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
       const wd = useWord ? inlineWordDiff(old[k], neu[k]) : null;
-      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del") : plainSpan(old[k]));
-      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add") : plainSpan(neu[k]));
+      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del") : plainSpan(old[k]), "old");
+      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add") : plainSpan(neu[k]), "new");
       rows.append(row(left, right));
     }
     for (let k = pairs; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k])), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k]), "old"), cell("empty", null, plainSpan(""))));
     for (let k = pairs; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]))));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]), "new")));
   }
   box.append(rows);
   return box;
@@ -242,6 +272,7 @@ function renderSummary(res) {
     stat("chg", t("modified"), res.modified),
   );
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
+  if (ignoredHunks.size) el.append(stat("", t("ignored"), ignoredHunks.size));
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
@@ -275,18 +306,32 @@ function renderResult(data) {
 }
 
 function updateCounter() {
-  const total = lastData?.hunks?.length || 0;
-  const unread = Math.max(0, total - readHunks.size);
+  const active = activeHunkIndexes();
+  const total = active.length;
+  const unread = active.filter((index) => !readHunks.has(index)).length;
+  const position = active.indexOf(currentHunk);
   $("diffCounter").textContent = t("diffCounter", {
-    current: currentHunk >= 0 ? currentHunk + 1 : "–", total, unread,
+    current: position >= 0 ? position + 1 : "–", total, unread,
   });
   for (const button of [$("firstDiff"), $("prevDiff"), $("nextDiff"), $("lastDiff")])
     button.disabled = total === 0;
 }
 
+function activeHunkIndexes() {
+  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index));
+}
+
+function stepHunk(delta) {
+  const active = activeHunkIndexes();
+  if (!active.length) return;
+  const position = active.indexOf(currentHunk);
+  const next = position < 0 ? (delta < 0 ? active.length - 1 : 0) : Math.max(0, Math.min(active.length - 1, position + delta));
+  jumpToHunk(active[next]);
+}
+
 function jumpToHunk(index) {
   const total = lastData?.hunks?.length || 0;
-  if (!total) return;
+  if (!total || ignoredHunks.has(index)) return;
   index = Math.max(0, Math.min(total - 1, index));
   document.querySelector(".hunk.current")?.classList.remove("current");
   document.querySelector(".minimap-marker.current")?.classList.remove("current");
@@ -300,6 +345,25 @@ function jumpToHunk(index) {
   updateCounter();
 }
 
+function toggleIgnoredHunk(index) {
+  const hunk = lastData?.hunks?.[index];
+  if (!hunk) return;
+  const indexes = hunk.move_id
+    ? lastData.hunks.map((item, i) => item.move_id === hunk.move_id ? i : -1).filter((i) => i >= 0)
+    : [index];
+  const restore = indexes.every((i) => ignoredHunks.has(i));
+  for (const i of indexes) {
+    if (restore) ignoredHunks.delete(i); else ignoredHunks.add(i);
+    const box = $(`hunk-${i}`);
+    box.classList.toggle("ignored", !restore);
+    box.querySelector(".hunk-ignore").textContent = t(restore ? "ignoreHunk" : "restoreHunk");
+    document.querySelector(`.minimap-marker[data-hunk="${i}"]`)?.classList.toggle("ignored", !restore);
+  }
+  if (ignoredHunks.has(currentHunk)) currentHunk = -1;
+  renderSummary(lastData);
+  updateCounter();
+}
+
 function buildMinimap(data) {
   const map = $("minimap");
   map.querySelectorAll(".minimap-marker").forEach((el) => el.remove());
@@ -307,7 +371,7 @@ function buildMinimap(data) {
   data.hunks.forEach((h, index) => {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `minimap-marker ${h.kind}${h.move_id ? " moved" : ""}`;
+    marker.className = `minimap-marker ${h.kind}${h.move_id ? " moved" : ""}${ignoredHunks.has(index) ? " ignored" : ""}`;
     marker.dataset.hunk = String(index);
     marker.title = `${index + 1}: ${h.kind}`;
     marker.style.top = `${Math.min(99, (Math.max(h.old_start, h.new_start) / totalLines) * 100)}%`;
@@ -349,6 +413,7 @@ function observeHunks() {
     for (const entry of entries) {
       if (!entry.isIntersecting || entry.intersectionRatio < 0.55) continue;
       const index = Number(entry.target.dataset.hunk);
+      if (ignoredHunks.has(index)) continue;
       if (!readHunks.has(index)) {
         readHunks.add(index);
         entry.target.classList.add("read");
@@ -359,6 +424,65 @@ function observeHunks() {
     if (changed) updateCounter();
   }, { threshold: [0.55] });
   document.querySelectorAll(".hunk").forEach((hunk) => navObserver.observe(hunk));
+}
+
+function selectSyncLine(cell) {
+  const side = cell.dataset.side;
+  document.querySelector(`.cell.sync-selected[data-side="${side}"]`)?.classList.remove("sync-selected");
+  syncSelection[side] = Number(cell.dataset.line);
+  cell.classList.add("sync-selected");
+  $("addSync").disabled = syncSelection.old == null || syncSelection.new == null;
+  if ($("addSync").disabled) setStatus(t("syncSelect"), "");
+}
+
+function resetSyncSelection() {
+  syncSelection = { old: null, new: null };
+  document.querySelectorAll(".cell.sync-selected").forEach((cell) => cell.classList.remove("sync-selected"));
+  $("addSync").disabled = true;
+}
+
+function renderSyncPoints() {
+  const panel = $("syncPanel");
+  const list = $("syncList");
+  list.innerHTML = "";
+  syncPoints.forEach((point, index) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "sync-chip";
+    chip.textContent = `${point.old + 1}:${point.new + 1} ×`;
+    chip.addEventListener("click", () => {
+      syncPoints.splice(index, 1);
+      renderSyncPoints();
+      compare();
+    });
+    list.append(chip);
+  });
+  panel.hidden = syncPoints.length === 0;
+  $("clearSync").hidden = syncPoints.length === 0;
+}
+
+function addSyncPoint() {
+  if (syncSelection.old == null || syncSelection.new == null) {
+    setStatus(t("syncSelect"), "error");
+    return;
+  }
+  const candidate = [...syncPoints, { old: syncSelection.old, new: syncSelection.new }]
+    .sort((a, b) => a.old - b.old);
+  if (candidate.some((point, i) => i > 0 && (point.old <= candidate[i - 1].old || point.new <= candidate[i - 1].new))) {
+    setStatus(t("syncOrderError"), "error");
+    return;
+  }
+  syncPoints = candidate;
+  resetSyncSelection();
+  renderSyncPoints();
+  compare();
+}
+
+function clearSyncPoints() {
+  syncPoints = [];
+  resetSyncSelection();
+  renderSyncPoints();
+  if (lastData) compare();
 }
 
 function setStatus(msg, cls) {
@@ -372,6 +496,8 @@ function setStatus(msg, cls) {
 async function compare() {
   const body = requestBody();
   if (!validateInputs(body)) return;
+  ignoredHunks = new Set();
+  resetSyncSelection();
   const ac = new AbortController();
   currentAbort = ac;
   $("compare").disabled = true;
@@ -424,6 +550,7 @@ function requestBody() {
     whitespace: $("whitespace").value,
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
+    syncPoints: syncPoints.map((point) => ({ ...point })),
   };
 }
 
@@ -440,6 +567,7 @@ async function exportPatch() {
   if (!validateInputs(body)) return;
   body.patchFormat = $("patchFormat").value;
   body.context = Math.max(0, Number($("patchContext").value) || 0);
+  body.ignoredHunks = [...ignoredHunks].sort((a, b) => a - b);
   $("exportPatch").disabled = true;
   setStatus(t("exporting"), "busy");
   try {
@@ -496,18 +624,21 @@ $("exportPatch").addEventListener("click", exportPatch);
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
 $("patchFormat").addEventListener("change", syncPatchOpts);
-$("firstDiff").addEventListener("click", () => jumpToHunk(0));
-$("prevDiff").addEventListener("click", () => jumpToHunk(currentHunk <= 0 ? 0 : currentHunk - 1));
-$("nextDiff").addEventListener("click", () => jumpToHunk(currentHunk + 1));
-$("lastDiff").addEventListener("click", () => jumpToHunk((lastData?.hunks?.length || 1) - 1));
+$("firstDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]); });
+$("prevDiff").addEventListener("click", () => stepHunk(-1));
+$("nextDiff").addEventListener("click", () => stepHunk(1));
+$("lastDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]); });
+$("addSync").addEventListener("click", addSyncPoint);
+$("clearSync").addEventListener("click", clearSyncPoints);
 $("navHelp").addEventListener("click", () => alert(t("navHelpText")));
 document.addEventListener("keydown", (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
   let target = null;
-  if (event.key === "ArrowDown") target = currentHunk + 1;
-  else if (event.key === "ArrowUp") target = currentHunk <= 0 ? 0 : currentHunk - 1;
-  else if (event.key === "Home") target = 0;
-  else if (event.key === "End") target = lastData.hunks.length - 1;
+  const active = activeHunkIndexes();
+  if (event.key === "ArrowDown") { event.preventDefault(); stepHunk(1); return; }
+  else if (event.key === "ArrowUp") { event.preventDefault(); stepHunk(-1); return; }
+  else if (event.key === "Home") target = active[0];
+  else if (event.key === "End") target = active[active.length - 1];
   if (target != null) {
     event.preventDefault();
     jumpToHunk(target);
