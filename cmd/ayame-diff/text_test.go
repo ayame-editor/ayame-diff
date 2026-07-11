@@ -18,6 +18,8 @@ func TestSubcommandDispatch(t *testing.T) {
 		{[]string{"sorted", "a", "b"}, "sorted"},
 		{[]string{"serve"}, "serve"},
 		{[]string{"gui"}, "gui"},
+		{[]string{"update", "--check"}, "update"},
+		{[]string{"remove"}, "remove"},
 		{[]string{"csv", "--left", "a"}, "csv"},
 		{[]string{"--left", "a.csv"}, ""}, // bare flags => CSV back-compat
 		{[]string{"--version"}, ""},       // handled before dispatch

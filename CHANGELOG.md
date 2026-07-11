@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.3 - 2026-07-11
+
+- Added self-update: `ayame-diff update` downloads the latest GitHub release,
+  verifies its SHA-256 against `SHA256SUMS`, and replaces the running binary in
+  place (`--check` only reports). `ayame-diff remove` uninstalls a standalone
+  binary and leaves Homebrew/Scoop/Nix installs to their package manager. (#20)
+
 ## v0.6.2 - 2026-07-11
 
 - Added "open the GUI without a terminal" launchers: `start-gui.cmd` (bundled in

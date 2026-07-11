@@ -76,6 +76,10 @@ func main() {
 		runServe(args[1:])
 	case "gui":
 		runGUI(args[1:])
+	case "update":
+		runUpdate(args[1:])
+	case "remove":
+		runRemove(args[1:])
 	case "csv":
 		runCSV(args[1:])
 	default:
@@ -89,7 +93,7 @@ func subcommand(args []string) string {
 		return ""
 	}
 	switch args[0] {
-	case "csv", "text", "sorted", "serve", "gui":
+	case "csv", "text", "sorted", "serve", "gui", "update", "remove":
 		return args[0]
 	}
 	return ""
