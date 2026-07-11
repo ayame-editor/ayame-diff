@@ -167,7 +167,15 @@ func parseFlags(args []string) (engine.Config, bool, error) {
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff compares huge CSV/TSV files whose row order differs.
 
-Required:
+Subcommands:
+  csv     CSV/TSV key comparison (this default; a bare invocation is csv)
+  text    line diff of two text files
+  sorted  sort both files, then line-diff
+  serve   local web GUI    gui   web GUI + open browser
+  update  self-update      remove  uninstall
+Run 'ayame-diff <subcommand> --help' for a subcommand's options.
+
+This (csv) mode requires:
   --left PATH                 Left/old input file
   --right PATH                Right/new input file
   --out PATH                  Diff output TSV (use .gz for gzip)
