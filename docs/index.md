@@ -33,6 +33,7 @@ from the [latest release](https://github.com/hjosugi/ayame-diff/releases/latest)
 - Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
 - macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
+- macOS double-click app: `ayame-diff-<version>-darwin-<arch>-app.zip`
 
 Each release ships a `SHA256SUMS` file so you can verify the download.
 

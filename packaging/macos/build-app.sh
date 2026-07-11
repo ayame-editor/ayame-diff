@@ -8,6 +8,7 @@ set -euo pipefail
 
 binary=${1:?usage: build-app.sh <binary> <version> <output-dir> [icon.icns]}
 version=${2:?missing version}
+plist_version=${version#v}
 outdir=${3:?missing output dir}
 icon=${4:-}
 
@@ -39,8 +40,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Ayame Diff</string>
   <key>CFBundleDisplayName</key><string>Ayame Diff</string>
   <key>CFBundleIdentifier</key><string>com.hjosugi.ayame-diff</string>
-  <key>CFBundleVersion</key><string>${version}</string>
-  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${plist_version}</string>
+  <key>CFBundleShortVersionString</key><string>${plist_version}</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   ${iconkey}

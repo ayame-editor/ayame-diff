@@ -3,6 +3,14 @@ Type=Application
 Name=ayame-diff
 Comment=Compare files in a local web GUI
 Exec=ayame-diff gui
+Icon=ayame-diff
 Terminal=false
 Categories=Utility;Development;
 Keywords=diff;compare;csv;tsv;
+MimeType=text/plain;text/csv;application/json;
+Actions=OpenGUI;
+
+[Desktop Action OpenGUI]
+Name=Open Ayame Diff
+Name[ja]=Ayame Diff を開く
+Exec=ayame-diff gui
