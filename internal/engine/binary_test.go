@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -19,6 +20,28 @@ func TestXXHash64Vectors(t *testing.T) {
 		if got := xxhash64([]byte(tc.input)); got != tc.want {
 			t.Fatalf("xxhash64(%q) = 0x%x, want 0x%x", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestStringAndByteFieldEncodingAreIdentical(t *testing.T) {
+	t.Parallel()
+	stringsInput := []string{"1", "日本語", "comma,value", "", "line\nbreak"}
+	bytesInput := make([][]byte, len(stringsInput))
+	for i := range stringsInput {
+		bytesInput[i] = []byte(stringsInput[i])
+	}
+	mapping := []int{4, 2, 0, 3, 1}
+	keyIndexes := []int{0, 2}
+	stringKey, stringRow, err := encodeStringFields(stringsInput, mapping, keyIndexes, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byteKey, byteRow, err := encodeByteFields(bytesInput, mapping, keyIndexes, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stringKey, byteKey) || !bytes.Equal(stringRow, byteRow) {
+		t.Fatalf("string and byte encoders differ:\nkey %x / %x\nrow %x / %x", stringKey, byteKey, stringRow, byteRow)
 	}
 }
 

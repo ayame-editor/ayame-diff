@@ -82,10 +82,8 @@ func (c Config) resolve() (resolvedConfig, error) {
 	if c.LeftPath == "" || c.RightPath == "" || c.OutputPath == "" {
 		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
 	}
-	includeCount := len(c.KeyNames) + len(c.KeyIndexes)
-	excludeCount := len(c.ExcludeKeyNames) + len(c.ExcludeKeyIndexes)
-	if includeCount > 0 && excludeCount > 0 {
-		return resolvedConfig{}, fmt.Errorf("include options (--key/--key-index) cannot be combined with exclude options (--exclude-key/--exclude-key-index)")
+	if err := validateKeySelection(c); err != nil {
+		return resolvedConfig{}, err
 	}
 	if !c.HasHeader && (len(c.KeyNames) > 0 || len(c.ExcludeKeyNames) > 0) {
 		return resolvedConfig{}, fmt.Errorf("--key and --exclude-key require --header=true; use index options without a header")
@@ -153,6 +151,15 @@ func (c Config) resolve() (resolvedConfig, error) {
 		}
 	}
 	return r, nil
+}
+
+func validateKeySelection(c Config) error {
+	includeCount := len(c.KeyNames) + len(c.KeyIndexes)
+	excludeCount := len(c.ExcludeKeyNames) + len(c.ExcludeKeyIndexes)
+	if includeCount > 0 && excludeCount > 0 {
+		return fmt.Errorf("include and exclude key options cannot be combined")
+	}
+	return nil
 }
 
 // ValidatePartitions validates the hash partition count shared by all clients.

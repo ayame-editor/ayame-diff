@@ -22,6 +22,50 @@ type partitionSet struct {
 	sinks []partitionSink
 }
 
+// rowEmitter owns the reusable encoding buffers and the common tail of every
+// parser pipeline: encode, frame, partition, write, progress and cancellation.
+type rowEmitter struct {
+	ctx                 context.Context
+	set                 *partitionSet
+	progress            *progressCounter
+	mapping, keyIndexes []int
+	keyIsFullRow        bool
+	partitionMask       uint64
+	maxRecordBytes      int64
+	key, row, stored    []byte
+	rows                uint64
+}
+
+func newRowEmitter(ctx context.Context, set *partitionSet, progress *progressCounter, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig) *rowEmitter {
+	return &rowEmitter{
+		ctx: ctx, set: set, progress: progress,
+		mapping: mapping, keyIndexes: keyIndexes, keyIsFullRow: keyIsFullRow,
+		partitionMask: uint64(cfg.Partitions - 1), maxRecordBytes: cfg.MaxRecordBytes,
+	}
+}
+
+func emitRow[T fieldBytes](e *rowEmitter, fields []T, rawBytes uint64) error {
+	var err error
+	e.key, e.row, err = encodeFields(fields, e.mapping, e.keyIndexes, e.keyIsFullRow, e.key, e.row)
+	if err != nil {
+		return err
+	}
+	e.stored, err = makeStoredRecord(e.stored, e.key, e.row, e.maxRecordBytes)
+	if err != nil {
+		return err
+	}
+	partition := int(xxhash64(e.key) & e.partitionMask)
+	if err := e.set.write(partition, e.stored); err != nil {
+		return err
+	}
+	e.rows++
+	e.progress.add(1, rawBytes)
+	if e.rows&cancellationCheckMask == 0 {
+		return e.ctx.Err()
+	}
+	return nil
+}
+
 func newPartitionSet(dir string, count, buf int) (*partitionSet, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -116,43 +160,26 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 		}
 	}
 	previousOffset := reader.InputOffset()
-	var rows uint64
-	var key, row, stored []byte
+	emitter := newRowEmitter(ctx, set, p, mapping, keyIndexes, keyIsFullRow, cfg)
 	for {
 		record, e := reader.Read()
 		if errors.Is(e, io.EOF) {
 			break
 		}
 		if e != nil {
-			return rows, fmt.Errorf("read %s record %d: %w", spec.Label, rows+1, e)
+			return emitter.rows, fmt.Errorf("read %s record %d: %w", spec.Label, emitter.rows+1, e)
 		}
 		currentOffset := reader.InputOffset()
 		rawBytes := currentOffset - previousOffset
 		previousOffset = currentOffset
 		if len(record) != info.ColumnCount {
-			return rows, fmt.Errorf("%s record %d has %d columns; expected %d", spec.Label, rows+1, len(record), info.ColumnCount)
+			return emitter.rows, fmt.Errorf("%s record %d has %d columns; expected %d", spec.Label, emitter.rows+1, len(record), info.ColumnCount)
 		}
-		key, row, err = encodeStringFields(record, mapping, keyIndexes, keyIsFullRow, key, row)
-		if err != nil {
-			return rows, err
-		}
-		stored, err = makeStoredRecord(stored, key, row, cfg.MaxRecordBytes)
-		if err != nil {
-			return rows, err
-		}
-		part := int(xxhash64(key) & uint64(cfg.Partitions-1))
-		if err := set.write(part, stored); err != nil {
-			return rows, err
-		}
-		rows++
-		p.add(1, uint64(rawBytes))
-		if rows&cancellationCheckMask == 0 {
-			if err := ctx.Err(); err != nil {
-				return rows, err
-			}
+		if err := emitRow(emitter, record, uint64(rawBytes)); err != nil {
+			return emitter.rows, err
 		}
 	}
-	return rows, nil
+	return emitter.rows, nil
 }
 func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter) (uint64, error) {
 	r, err := openInput(spec.Path)
@@ -161,28 +188,45 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 	}
 	defer r.Close()
 	reader := bufio.NewReaderSize(r, ioBufferBytes)
+	var pos int64
+	var lineNumber uint64
 	if cfg.HasHeader {
 		_, raw, _, err := readPhysicalLine(reader, nil)
 		if err != nil && !(errors.Is(err, io.EOF) && raw > 0) {
 			return 0, err
 		}
+		pos = int64(raw)
+		lineNumber = 1
 	} else if info.DataOffset > 0 {
-		if _, err := reader.Discard(int(info.DataOffset)); err != nil {
+		n, err := reader.Discard(int(info.DataOffset))
+		if err != nil {
 			return 0, fmt.Errorf("skip %s BOM: %w", spec.Label, err)
 		}
+		pos = int64(n)
 	}
-	var rows uint64
+	emitter := newRowEmitter(ctx, set, p, mapping, keyIndexes, keyIsFullRow, cfg)
+	return partitionSimpleRecords(ctx, reader, spec, info, emitter, pos, lineNumber, func(int64) bool { return true })
+}
+
+// partitionSimpleRecords is the one simple-parser loop used by sequential and
+// range readers. The stop predicate is evaluated at each physical-line start.
+func partitionSimpleRecords(ctx context.Context, reader *bufio.Reader, spec inputSpec, info inspectedInput, emitter *rowEmitter, pos int64, lineNumber uint64, keepReading func(int64) bool) (uint64, error) {
 	var scratch []byte
 	var fields [][]byte
-	var key, row, stored []byte
-	for {
+	for keepReading(pos) {
+		if err := ctx.Err(); err != nil {
+			return emitter.rows, err
+		}
 		line, raw, owned, e := readPhysicalLine(reader, scratch)
 		if errors.Is(e, io.EOF) && raw == 0 {
 			break
 		}
 		if e != nil && !errors.Is(e, io.EOF) {
-			return rows, e
+			return emitter.rows, e
 		}
+		offset := pos
+		pos += int64(raw)
+		lineNumber++
 		if owned {
 			scratch = line[:0]
 		}
@@ -195,32 +239,16 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 		}
 		fields = splitSimpleLine(line, spec.Delimiter, fields)
 		if len(fields) != info.ColumnCount {
-			return rows, fmt.Errorf("%s record %d has %d columns; expected %d", spec.Label, rows+1, len(fields), info.ColumnCount)
+			return emitter.rows, fmt.Errorf("%s record %d near byte %d has %d columns; expected %d", spec.Label, lineNumber, offset, len(fields), info.ColumnCount)
 		}
-		key, row, err = encodeByteFields(fields, mapping, keyIndexes, keyIsFullRow, key, row)
-		if err != nil {
-			return rows, err
-		}
-		stored, err = makeStoredRecord(stored, key, row, cfg.MaxRecordBytes)
-		if err != nil {
-			return rows, err
-		}
-		part := int(xxhash64(key) & uint64(cfg.Partitions-1))
-		if err := set.write(part, stored); err != nil {
-			return rows, err
-		}
-		rows++
-		p.add(1, uint64(raw))
-		if rows&cancellationCheckMask == 0 {
-			if err := ctx.Err(); err != nil {
-				return rows, err
-			}
+		if err := emitRow(emitter, fields, uint64(raw)); err != nil {
+			return emitter.rows, err
 		}
 		if errors.Is(e, io.EOF) {
 			break
 		}
 	}
-	return rows, nil
+	return emitter.rows, nil
 }
 func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, fileSize int64) (uint64, error) {
 	return partitionSimpleParallelWithChunk(ctx, spec, info, mapping, keyIndexes, keyIsFullRow, cfg, set, p, fileSize, minParallelSpanBytes)
@@ -295,57 +323,10 @@ func partitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInp
 		return 0, err
 	}
 	reader := bufio.NewReaderSize(f, ioBufferBytes)
-	pos := start
-	var rows uint64
-	var scratch []byte
-	var fields [][]byte
-	var key, row, stored []byte
-	for last || pos < nominalEnd {
-		if err := ctx.Err(); err != nil {
-			return rows, err
-		}
-		line, raw, owned, e := readPhysicalLine(reader, scratch)
-		if errors.Is(e, io.EOF) && raw == 0 {
-			break
-		}
-		if e != nil && !errors.Is(e, io.EOF) {
-			return rows, e
-		}
-		offset := pos
-		pos += int64(raw)
-		if owned {
-			scratch = line[:0]
-		}
-		line = trimLineEnding(line)
-		if len(line) == 0 {
-			if errors.Is(e, io.EOF) {
-				break
-			}
-			continue
-		}
-		fields = splitSimpleLine(line, spec.Delimiter, fields)
-		if len(fields) != info.ColumnCount {
-			return rows, fmt.Errorf("%s record near byte %d has %d columns; expected %d", spec.Label, offset, len(fields), info.ColumnCount)
-		}
-		key, row, err = encodeByteFields(fields, mapping, keyIndexes, keyIsFullRow, key, row)
-		if err != nil {
-			return rows, err
-		}
-		stored, err = makeStoredRecord(stored, key, row, cfg.MaxRecordBytes)
-		if err != nil {
-			return rows, err
-		}
-		part := int(xxhash64(key) & uint64(cfg.Partitions-1))
-		if err := set.write(part, stored); err != nil {
-			return rows, err
-		}
-		rows++
-		p.add(1, uint64(raw))
-		if errors.Is(e, io.EOF) {
-			break
-		}
-	}
-	return rows, nil
+	emitter := newRowEmitter(ctx, set, p, mapping, keyIndexes, keyIsFullRow, cfg)
+	return partitionSimpleRecords(ctx, reader, spec, info, emitter, start, 0, func(pos int64) bool {
+		return last || pos < nominalEnd
+	})
 }
 func alignSimpleRangeStart(f *os.File, start, dataStart int64) (int64, error) {
 	if start <= dataStart {

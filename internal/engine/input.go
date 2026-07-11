@@ -225,8 +225,8 @@ func inspectRFC4180(spec inputSpec, hasHeader, lazyQuotes, trimLeadingSpace bool
 	return result, nil
 }
 func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
-	if len(cfg.KeyNames)+len(cfg.KeyIndexes) > 0 && len(cfg.ExcludeKeyNames)+len(cfg.ExcludeKeyIndexes) > 0 {
-		return schema{}, fmt.Errorf("include and exclude key options cannot be combined")
+	if err := validateKeySelection(cfg); err != nil {
+		return schema{}, err
 	}
 	if left.ColumnCount != right.ColumnCount {
 		return schema{}, fmt.Errorf("column count differs: left=%d right=%d", left.ColumnCount, right.ColumnCount)

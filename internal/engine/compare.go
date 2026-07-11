@@ -19,6 +19,17 @@ type partitionStats struct {
 	DiffRows     uint64
 }
 
+type diffKind string
+type diffSide string
+
+const (
+	diffLeftOnly  diffKind = "LEFT_ONLY"
+	diffRightOnly diffKind = "RIGHT_ONLY"
+	diffChanged   diffKind = "CHANGED"
+	diffLeft      diffSide = "left"
+	diffRight     diffSide = "right"
+)
+
 func (s *partitionStats) add(other partitionStats) {
 	s.EqualRows += other.EqualRows
 	s.LeftOnly += other.LeftOnly
@@ -110,7 +121,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 
 	var rowFields []string
 	var operations uint64
-	writeDiff := func(kind, side string, record binRecord) error {
+	writeDiff := func(kind diffKind, side diffSide, record binRecord) error {
 		encoded := record.Row
 		if keyIsFullRow {
 			encoded = record.Key
@@ -121,8 +132,8 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			return err
 		}
 		output := make([]string, 2+len(rowFields))
-		output[0] = kind
-		output[1] = side
+		output[0] = string(kind)
+		output[1] = string(side)
 		copy(output[2:], rowFields)
 		if err := writer.Write(output); err != nil {
 			return err
@@ -131,33 +142,22 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		return nil
 	}
 
-	flushLeftKey := func(kind string, key []byte) error {
-		for !left.eof && bytes.Equal(left.record.Key, key) {
-			if err := writeDiff(kind, "left", left.record); err != nil {
+	flushKey := func(cursor *sortedCursor, kind diffKind, side diffSide, key []byte) error {
+		for !cursor.eof && bytes.Equal(cursor.record.Key, key) {
+			if err := writeDiff(kind, side, cursor.record); err != nil {
 				return err
 			}
-			if kind == "LEFT_ONLY" {
+			switch {
+			case kind == diffLeftOnly:
 				stats.LeftOnly++
-			} else {
-				stats.ChangedLeft++
-			}
-			if err := left.advance(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	flushRightKey := func(kind string, key []byte) error {
-		for !right.eof && bytes.Equal(right.record.Key, key) {
-			if err := writeDiff(kind, "right", right.record); err != nil {
-				return err
-			}
-			if kind == "RIGHT_ONLY" {
+			case kind == diffRightOnly:
 				stats.RightOnly++
-			} else {
+			case side == diffLeft:
+				stats.ChangedLeft++
+			case side == diffRight:
 				stats.ChangedRight++
 			}
-			if err := right.advance(); err != nil {
+			if err := cursor.advance(); err != nil {
 				return err
 			}
 		}
@@ -174,14 +174,14 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 
 		if left.eof {
 			key := append([]byte(nil), right.record.Key...)
-			if err := flushRightKey("RIGHT_ONLY", key); err != nil {
+			if err := flushKey(right, diffRightOnly, diffRight, key); err != nil {
 				return stats, err
 			}
 			continue
 		}
 		if right.eof {
 			key := append([]byte(nil), left.record.Key...)
-			if err := flushLeftKey("LEFT_ONLY", key); err != nil {
+			if err := flushKey(left, diffLeftOnly, diffLeft, key); err != nil {
 				return stats, err
 			}
 			continue
@@ -190,12 +190,12 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		switch keyCompare := bytes.Compare(left.record.Key, right.record.Key); {
 		case keyCompare < 0:
 			key := append([]byte(nil), left.record.Key...)
-			if err := flushLeftKey("LEFT_ONLY", key); err != nil {
+			if err := flushKey(left, diffLeftOnly, diffLeft, key); err != nil {
 				return stats, err
 			}
 		case keyCompare > 0:
 			key := append([]byte(nil), right.record.Key...)
-			if err := flushRightKey("RIGHT_ONLY", key); err != nil {
+			if err := flushKey(right, diffRightOnly, diffRight, key); err != nil {
 				return stats, err
 			}
 		default:
@@ -203,7 +203,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			for !left.eof && !right.eof && bytes.Equal(left.record.Key, key) && bytes.Equal(right.record.Key, key) {
 				switch rowCompare := bytes.Compare(left.record.Row, right.record.Row); {
 				case rowCompare < 0:
-					if err := writeDiff("CHANGED", "left", left.record); err != nil {
+					if err := writeDiff(diffChanged, diffLeft, left.record); err != nil {
 						return stats, err
 					}
 					stats.ChangedLeft++
@@ -211,7 +211,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 						return stats, err
 					}
 				case rowCompare > 0:
-					if err := writeDiff("CHANGED", "right", right.record); err != nil {
+					if err := writeDiff(diffChanged, diffRight, right.record); err != nil {
 						return stats, err
 					}
 					stats.ChangedRight++
@@ -228,10 +228,10 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 					}
 				}
 			}
-			if err := flushLeftKey("CHANGED", key); err != nil {
+			if err := flushKey(left, diffChanged, diffLeft, key); err != nil {
 				return stats, err
 			}
-			if err := flushRightKey("CHANGED", key); err != nil {
+			if err := flushKey(right, diffChanged, diffRight, key); err != nil {
 				return stats, err
 			}
 		}

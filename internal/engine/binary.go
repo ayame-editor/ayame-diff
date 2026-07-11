@@ -12,43 +12,21 @@ import (
 
 type binRecord struct{ Key, Row []byte }
 
+type fieldBytes interface {
+	string | []byte
+}
+
 func encodeStringFields(input []string, mapping, keyIndexes []int, keyIsFullRow bool, keyDst, rowDst []byte) ([]byte, []byte, error) {
-	keyDst = keyDst[:0]
-	rowDst = rowDst[:0]
-	if keyIsFullRow {
-		for _, j := range mapping {
-			if j < 0 || j >= len(input) {
-				return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
-			}
-			var err error
-			keyDst, err = appendLengthPrefixedString(keyDst, input[j])
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		return keyDst, rowDst, nil
-	}
-	for _, j := range mapping {
-		if j < 0 || j >= len(input) {
-			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
-		}
-		var err error
-		rowDst, err = appendLengthPrefixedString(rowDst, input[j])
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	for _, i := range keyIndexes {
-		j := mapping[i]
-		var err error
-		keyDst, err = appendLengthPrefixedString(keyDst, input[j])
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return keyDst, rowDst, nil
+	return encodeFields(input, mapping, keyIndexes, keyIsFullRow, keyDst, rowDst)
 }
+
 func encodeByteFields(input [][]byte, mapping, keyIndexes []int, keyIsFullRow bool, keyDst, rowDst []byte) ([]byte, []byte, error) {
+	return encodeFields(input, mapping, keyIndexes, keyIsFullRow, keyDst, rowDst)
+}
+
+// encodeFields is shared by the RFC string path and the zero-copy simple byte
+// path. Both therefore produce byte-identical keys and rows by construction.
+func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullRow bool, keyDst, rowDst []byte) ([]byte, []byte, error) {
 	keyDst = keyDst[:0]
 	rowDst = rowDst[:0]
 	if keyIsFullRow {
@@ -57,7 +35,7 @@ func encodeByteFields(input [][]byte, mapping, keyIndexes []int, keyIsFullRow bo
 				return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
 			}
 			var err error
-			keyDst, err = appendLengthPrefixedBytes(keyDst, input[j])
+			keyDst, err = appendLengthPrefixed(keyDst, input[j])
 			if err != nil {
 				return nil, nil, err
 			}
@@ -69,7 +47,7 @@ func encodeByteFields(input [][]byte, mapping, keyIndexes []int, keyIsFullRow bo
 			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
 		}
 		var err error
-		rowDst, err = appendLengthPrefixedBytes(rowDst, input[j])
+		rowDst, err = appendLengthPrefixed(rowDst, input[j])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -77,14 +55,14 @@ func encodeByteFields(input [][]byte, mapping, keyIndexes []int, keyIsFullRow bo
 	for _, i := range keyIndexes {
 		j := mapping[i]
 		var err error
-		keyDst, err = appendLengthPrefixedBytes(keyDst, input[j])
+		keyDst, err = appendLengthPrefixed(keyDst, input[j])
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 	return keyDst, rowDst, nil
 }
-func appendLengthPrefixedString(dst []byte, v string) ([]byte, error) {
+func appendLengthPrefixed[T fieldBytes](dst []byte, v T) ([]byte, error) {
 	if len(v) > math.MaxUint32 {
 		return nil, fmt.Errorf("field is larger than 4GiB")
 	}
@@ -94,16 +72,17 @@ func appendLengthPrefixedString(dst []byte, v string) ([]byte, error) {
 	dst = append(dst, v...)
 	return dst, nil
 }
-func appendLengthPrefixedBytes(dst, v []byte) ([]byte, error) {
-	if len(v) > math.MaxUint32 {
-		return nil, fmt.Errorf("field is larger than 4GiB")
-	}
-	start := len(dst)
-	dst = append(dst, 0, 0, 0, 0)
-	binary.BigEndian.PutUint32(dst[start:start+4], uint32(len(v)))
-	dst = append(dst, v...)
-	return dst, nil
+
+// Stored binary records use one stable wire layout:
+//
+//	[key length u32][row length u32][key bytes][row bytes]
+const binHeaderSize = 8
+
+func putBinHeader(dst []byte, keyLen, rowLen uint32) {
+	binary.BigEndian.PutUint32(dst[:4], keyLen)
+	binary.BigEndian.PutUint32(dst[4:binHeaderSize], rowLen)
 }
+
 func makeStoredRecord(dst, key, row []byte, max int64) ([]byte, error) {
 	if len(key) > math.MaxUint32 || len(row) > math.MaxUint32 {
 		return nil, fmt.Errorf("encoded key or row exceeds 4GiB")
@@ -113,17 +92,15 @@ func makeStoredRecord(dst, key, row []byte, max int64) ([]byte, error) {
 		return nil, fmt.Errorf("encoded record is %d bytes, larger than configured maximum %d", total, max)
 	}
 	dst = dst[:0]
-	dst = append(dst, 0, 0, 0, 0, 0, 0, 0, 0)
-	binary.BigEndian.PutUint32(dst[:4], uint32(len(key)))
-	binary.BigEndian.PutUint32(dst[4:8], uint32(len(row)))
+	dst = append(dst, make([]byte, binHeaderSize)...)
+	putBinHeader(dst, uint32(len(key)), uint32(len(row)))
 	dst = append(dst, key...)
 	dst = append(dst, row...)
 	return dst, nil
 }
 func writeBinRecord(w io.Writer, r binRecord) error {
-	var h [8]byte
-	binary.BigEndian.PutUint32(h[:4], uint32(len(r.Key)))
-	binary.BigEndian.PutUint32(h[4:], uint32(len(r.Row)))
+	var h [binHeaderSize]byte
+	putBinHeader(h[:], uint32(len(r.Key)), uint32(len(r.Row)))
 	if _, err := w.Write(h[:]); err != nil {
 		return err
 	}
@@ -146,7 +123,7 @@ func newBinRecordReader(r io.Reader, buf int, max int64) *binRecordReader {
 	return &binRecordReader{bufio.NewReaderSize(r, buf), max}
 }
 func (r *binRecordReader) Next() (binRecord, error) {
-	var h [8]byte
+	var h [binHeaderSize]byte
 	n, err := io.ReadFull(r.r, h[:])
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
@@ -155,7 +132,7 @@ func (r *binRecordReader) Next() (binRecord, error) {
 		return binRecord{}, fmt.Errorf("read record header: %w", err)
 	}
 	kl := int64(binary.BigEndian.Uint32(h[:4]))
-	rl := int64(binary.BigEndian.Uint32(h[4:]))
+	rl := int64(binary.BigEndian.Uint32(h[4:binHeaderSize]))
 	if kl+rl > r.max {
 		return binRecord{}, fmt.Errorf("stored record is %d bytes, larger than maximum %d", kl+rl, r.max)
 	}
