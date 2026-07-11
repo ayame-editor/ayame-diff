@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ayame-diff
+Comment=Compare files in a local web GUI
+Exec=ayame-diff gui
+Terminal=false
+Categories=Utility;Development;
+Keywords=diff;compare;csv;tsv;

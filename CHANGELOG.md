@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.2 - 2026-07-11
+
+- Added "open the GUI without a terminal" launchers: `start-gui.cmd` (bundled in
+  the Windows zip), a Linux `.desktop` file, and a macOS `.app` builder
+  (`packaging/macos/build-app.sh`). All run `ayame-diff gui`. (#23, partial —
+  app icon and the release.yml `.app` step are follow-ups.)
+
 ## v0.6.1 - 2026-07-11
 
 - Web UI: elapsed-time display and a Cancel button that aborts an in-flight

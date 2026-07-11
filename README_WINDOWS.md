@@ -9,6 +9,12 @@
 - TSV / TSV.GZ 差分出力
 - 日本語のファイルパスとヘッダーに対応
 
+## 0. GUI で使う（ターミナル不要）
+
+ZIP 内の `start-gui.cmd` をダブルクリックすると、ローカル Web GUI が起動し既定のブラウザで開きます。パスや比較オプションを入力して差分を表示できます。コマンドラインからは `ayame-diff.exe gui` でも同じです。
+
+詳しい使い方はドキュメント（<https://hjosugi.github.io/ayame-diff/>）も参照してください。
+
 ## 1. 起動確認
 
 ```powershell
