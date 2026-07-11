@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,6 +60,9 @@ func TestPatchMarksMissingFinalNewlineAndRejectsBinary(t *testing.T) {
 }
 
 func TestPatchFormatsApplyWithGNUAndGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("external compatibility runs on Ubuntu; Windows patch.exe and Git rewrite line endings")
+	}
 	patchCommand, err := exec.LookPath("patch")
 	if err != nil {
 		t.Skip("GNU patch is not installed")
