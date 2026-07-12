@@ -78,11 +78,16 @@ input[type="text"] {
 }
 .opt.check { display: flex; align-items: center; gap: 0.35rem; }
 button {
-  margin-left: auto; padding: 0.5rem 1.1rem; border: 0; border-radius: var(--radius-control);
-  background: var(--accent); color: var(--on-accent); font-weight: 600; cursor: pointer;
+  margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
-.cancel { background: transparent; color: var(--del-fg); border: 1px solid var(--del-fg); }
+.cancel { margin-left: auto; background: transparent; color: var(--del-fg); border-color: var(--del-fg); }
+#compare {
+  margin-left: 0; padding-inline: 1.35rem; background: var(--accent);
+  color: var(--on-accent); border-color: var(--accent); font-weight: 700;
+}
+#cancel[hidden] + #compare { margin-left: auto; }
 
 .status { margin-top: 0.9rem; padding: 0.6rem 0.8rem; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--border); }
 .status.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }
@@ -215,6 +220,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .syn-link { text-decoration: underline; }
 .syn-level-error { color: var(--danger); font-weight: 600; }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
+.initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
+.initial-empty strong { color: var(--fg); font-size: 1.05rem; }
+.initial-empty p { margin: 0.35rem 0 0; }
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
 .csv-table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
