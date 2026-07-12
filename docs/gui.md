@@ -59,7 +59,11 @@ and options (encoding, resync window, ignore-case, whitespace handling, EOL
 controls, repeatable regex filters entered one per line, and for
 `sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
 side-by-side grid with per-hunk headers, line numbers and word-level
-highlighting. Choose **patch format** (`normal`, `context`, or `unified`) and a
+highlighting. **Syntax highlight** adds line-local coloring for common source,
+data, markup, and log formats; the file extension selects the language and the
+toggle is remembered in the browser. It operates only on rendered diff rows, so
+it does not scan or retain the complete input file. Choose **patch format**
+(`normal`, `context`, or `unified`) and a
 context-line count, then use **Export patch** to download an applyable
 `ayame.patch`. Patch export preserves CRLF and missing-final-newline markers and
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a

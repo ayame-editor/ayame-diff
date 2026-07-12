@@ -12,7 +12,7 @@ const I18N = {
 	ignoreTrailingEOL: "末尾改行無視", lineFilters: "行フィルタ", activeFilters: "適用中",
 	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
-    showWs: "空白表示", scratch: "テキスト貼り付け",
+    syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
@@ -56,7 +56,7 @@ const I18N = {
 	ignoreTrailingEOL: "ignore trailing EOL", lineFilters: "line filters", activeFilters: "active",
 	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
-    showWs: "show whitespace", scratch: "paste text",
+    syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
@@ -165,6 +165,7 @@ function inlineWordDiff(oldText, newText) {
 let currentAbort = null;
 // Display prefs read at render time.
 let showWS = false;
+let showSyntax = true;
 let lastData = null; // last diff response, for re-render on a display-option change
 let currentHunk = -1;
 let readHunks = new Set();
@@ -199,22 +200,37 @@ function appendText(el, text) {
     }
   }
 }
-function textSpan(parts, changedClass) {
+function syntaxPath(side) {
+  if ($("scratch").checked) return "";
+  return side === "old" ? $("old").value : $("new").value;
+}
+function appendSyntax(el, text, path) {
+  const spans = showSyntax ? globalThis.AyameSyntax?.highlightSpans(text, path) : null;
+  if (!spans) { appendText(el, text); return; }
+  for (const part of spans) {
+    if (part.kind === "plain") { appendText(el, part.text); continue; }
+    const token = document.createElement("span");
+    token.className = `syn syn-${part.kind}`;
+    appendText(token, part.text);
+    el.append(token);
+  }
+}
+function textSpan(parts, changedClass, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
   if (!parts) return tx;
   for (const p of parts) {
     const s = document.createElement("span");
     if (p.changed) s.className = changedClass;
-    appendText(s, p.text);
+    appendSyntax(s, p.text, path);
     tx.append(s);
   }
   return tx;
 }
-function plainSpan(text) {
+function plainSpan(text, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
-  appendText(tx, text);
+  appendSyntax(tx, text, path);
   return tx;
 }
 function cell(cls, lineNo, node, side) {
@@ -295,25 +311,26 @@ function renderHunk(h, useWord, index) {
   const rows = document.createElement("div");
   rows.className = "rows";
   const old = h.old || [], neu = h.new || [];
+  const oldPath = syntaxPath("old"), newPath = syntaxPath("new");
 
   if (h.kind === "insert") {
     for (let k = 0; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]), "new")));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath), "new")));
   } else if (h.kind === "delete") {
     for (let k = 0; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k]), "old"), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath), "old"), cell("empty", null, plainSpan(""))));
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
       const wd = useWord ? inlineWordDiff(old[k], neu[k]) : null;
-      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del") : plainSpan(old[k]), "old");
-      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add") : plainSpan(neu[k]), "new");
+      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath) : plainSpan(old[k], oldPath), "old");
+      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath) : plainSpan(neu[k], newPath), "new");
       rows.append(row(left, right));
     }
     for (let k = pairs; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k]), "old"), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath), "old"), cell("empty", null, plainSpan(""))));
     for (let k = pairs; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k]), "new")));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath), "new")));
   }
   box.append(rows);
   return box;
@@ -353,9 +370,10 @@ function renderSummary(res) {
 }
 
 // renderResult draws a diff response into the summary + result areas, honoring
-// the current display options (word highlight, show-whitespace).
+// the current display options (word highlight, syntax, show-whitespace).
 function renderResult(data) {
   showWS = $("showWs").checked;
+  showSyntax = $("syntax").checked;
   renderSummary(data);
   const result = $("result");
   result.innerHTML = "";
@@ -1124,7 +1142,7 @@ function syncModeOpts() {
 	$("dirOptions").hidden = !directory;
 	$("scratch").closest("label").hidden = structured;
 	if (structured && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
-	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "exportPatch", "wrap", "showWs"]) {
+	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "exportPatch", "wrap", "syntax", "showWs"]) {
 		const node = $(id), holder = node?.closest("label") || node;
 		if (holder) holder.hidden = structured;
 	}
@@ -1331,6 +1349,10 @@ $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   if (lastData) renderResult(lastData); // re-render so the change is immediate
 });
+$("syntax").addEventListener("change", () => {
+  localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
+  if (lastData) renderResult(lastData);
+});
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
@@ -1345,6 +1367,7 @@ applyScratch();
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
+$("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
 syncPatchOpts();

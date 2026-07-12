@@ -52,6 +52,29 @@ func TestWebStylesUseAyameTokens(t *testing.T) {
 	}
 }
 
+func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{`id="syntax"`, `src="syntax.js"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{"AyameSyntax", `localStorage.setItem("ayame-syntax"`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	for _, want := range []string{".syn-comment", ".syn-keyword", ".syn-string", ".syn-level-error"} {
+		if !strings.Contains(style, want) {
+			t.Errorf("style.css missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")
