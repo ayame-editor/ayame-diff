@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.13 - 2026-07-12
+
+- Completed the bilingual user and contributor documentation, including GUI
+  workflows, comparison options, packaging guidance, and current screenshots.
+  (#62)
+- Streamlined the initial GUI workflow with OLD-field autofocus, Enter and
+  Ctrl/Cmd+Enter comparison, a single primary Compare action, visible setup and
+  drag-and-drop guidance, and patch export tied to the currently displayed
+  result. (#87, #88, #89)
+- Made navigation and language controls fully accessible and locale-aware:
+  symbolic controls now have translated names and tooltips, language switching
+  shows both the current and target language, and static title, aria-label, and
+  natural-language placeholder attributes update with the locale. (#101, #131,
+  #142)
+- Added direct CSV page-number navigation with bounded input, localized
+  previous/next controls, Enter activation, and keyboard focus preservation.
+  (#136)
+
 ## v0.7.12 - 2026-07-12
 
 - Centralized text, CSV, project, and engine output writes behind a shared
