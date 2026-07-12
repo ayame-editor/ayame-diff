@@ -259,6 +259,10 @@ ayame-diff sorted --reverse a.txt b.txt
 equal-size candidates are streamed in parallel and compared byte-for-byte.
 `--quick` may trust equal size and mtime. Plain `.gz` files compare their
 decompressed content, while zip/tar/tar.gz archives compare as folder sources.
+Archive expansion is bounded to 64 MiB per selected entry and 256 MiB total per
+archive by default. Adjust these safeguards with `--max-archive-entry-bytes` and
+`--max-archive-bytes`; oversized or decompression-bomb inputs fail explicitly
+instead of exhausting process memory.
 
 ```bash
 ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/

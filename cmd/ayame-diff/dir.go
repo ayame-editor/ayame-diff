@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/dircompare"
+	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
 // runDir implements: ayame-diff dir [flags] OLD_DIR NEW_DIR
@@ -20,6 +22,7 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	var all, jsonOut, tsvOut, includeHidden, quick, diffExit bool
 	excludes, includes := stringFlags(), stringFlags()
 	workers := min(runtime.NumCPU(), 8)
+	maxArchiveEntryBytes, maxArchiveBytes := "64MiB", "256MiB"
 	fs.BoolVar(&all, "all", false, "include unchanged (same) files in the output")
 	fs.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
 	fs.BoolVar(&tsvOut, "tsv", false, "emit status/path/size/mtime as TSV")
@@ -28,6 +31,8 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&includeHidden, "hidden", false, "include dotfiles and hidden dot-directories (symlinks are always skipped)")
 	fs.BoolVar(&quick, "quick", false, "trust equal size+mtime without reading content")
 	fs.IntVar(&workers, "workers", workers, "parallel content comparison workers (1..64)")
+	fs.StringVar(&maxArchiveEntryBytes, "max-archive-entry-bytes", maxArchiveEntryBytes, "maximum uncompressed size of one archive entry")
+	fs.StringVar(&maxArchiveBytes, "max-archive-bytes", maxArchiveBytes, "maximum total uncompressed size of one archive")
 	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
@@ -58,7 +63,24 @@ Unchanged files are hidden unless --all is given.`)
 		fmt.Fprintln(stderr, "error: --workers must be from 1 to 64")
 		return 2
 	}
-	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden, Quick: quick, Workers: workers})
+	entryLimit, err := parsePositiveByteSize("--max-archive-entry-bytes", maxArchiveEntryBytes)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	totalLimit, err := parsePositiveByteSize("--max-archive-bytes", maxArchiveBytes)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	if entryLimit > totalLimit {
+		fmt.Fprintln(stderr, "error: --max-archive-entry-bytes cannot exceed --max-archive-bytes")
+		return 2
+	}
+	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{
+		Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden,
+		Quick: quick, Workers: workers, MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
@@ -85,6 +107,17 @@ Unchanged files are hidden unless --all is given.`)
 		return 1
 	}
 	return 0
+}
+
+func parsePositiveByteSize(flagName, value string) (int64, error) {
+	size, err := engine.ParseByteSize(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", flagName, err)
+	}
+	if size < 1 {
+		return 0, fmt.Errorf("%s must be at least 1 byte", flagName)
+	}
+	return size, nil
 }
 
 func writeDirTSV(stdout io.Writer, res *dircompare.Result, all bool) error {

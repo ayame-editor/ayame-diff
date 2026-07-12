@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.11 - 2026-07-12
+
+- Kept binary/hex comparison memory-bounded even for dense differences by
+  capping the retained bytes per region; `--max-bytes` now controls both
+  retention and display, and scanning still reports exact sizes and differing
+  byte totals after output truncation. (#68)
+- Added true recursive `**` glob matching for folder and archive include/exclude
+  filters, including zero-directory and deeply nested matches. (#69)
+- Protected archive comparison from oversized entries and decompression bombs
+  with configurable per-entry and per-archive expansion limits in both the CLI
+  and directory-diff API. (#70)
+
 ## v0.7.10 - 2026-07-12
 
 - Made a no-argument invocation print help and exit successfully so WinGet and

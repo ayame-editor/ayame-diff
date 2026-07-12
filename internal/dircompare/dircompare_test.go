@@ -140,3 +140,58 @@ func TestCompare(t *testing.T) {
 		t.Fatal("skip.tmp should be excluded")
 	}
 }
+
+func TestRecursiveGlobMatching(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		pattern string
+		name    string
+		want    bool
+	}{
+		{"build/**", "build", true},
+		{"build/**", "build/a.o", true},
+		{"build/**", "build/sub/deep/a.o", true},
+		{"src/**/*.go", "src/a.go", true},
+		{"src/**/*.go", "src/pkg/deep/a.go", true},
+		{"src/**/*.go", "src/pkg/a.rs", false},
+		{"**/*.txt", "a.txt", true},
+		{"**/*.txt", "one/two/a.txt", true},
+		{"build/**", "builder/a.o", false},
+		{"[", "anything", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern+"/"+tt.name, func(t *testing.T) {
+			if got := globMatch(tt.pattern, tt.name); got != tt.want {
+				t.Fatalf("globMatch(%q, %q) = %v, want %v", tt.pattern, tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRecursiveIncludeAndExcludeWalk(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	for _, root := range []string{oldDir, newDir} {
+		write(t, root, "src/root.go", "same")
+		write(t, root, "src/pkg/deep/keep.go", "same")
+		write(t, root, "src/pkg/deep/skip.txt", "same")
+		write(t, root, "build/top.o", "same")
+		write(t, root, "build/sub/deep/skip.o", "same")
+	}
+
+	res, err := Compare(oldDir, newDir, Options{
+		Includes: []string{"src/**/*.go"},
+		Excludes: []string{"build/**"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Entries) != 2 || statusOf(res, "src/root.go") != Same || statusOf(res, "src/pkg/deep/keep.go") != Same {
+		t.Fatalf("entries = %+v", res.Entries)
+	}
+	for _, unwanted := range []string{"src/pkg/deep/skip.txt", "build/top.o", "build/sub/deep/skip.o"} {
+		if statusOf(res, unwanted) != 255 {
+			t.Fatalf("%s was not filtered: %+v", unwanted, res.Entries)
+		}
+	}
+}
