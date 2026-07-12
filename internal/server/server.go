@@ -747,9 +747,9 @@ type diffRequest struct {
 	New               string               `json:"new"`
 	Mode              string               `json:"mode"` // "text" (default) or "sorted"
 	Encoding          string               `json:"encoding"`
-	Window            uint64               `json:"window"`
-	MaxHunks          int                  `json:"maxHunks"`
-	MaxLines          uint64               `json:"maxLines"`
+	Window            uint64               `json:"window,omitempty"`
+	MaxHunks          int                  `json:"maxHunks,omitempty"`
+	MaxLines          uint64               `json:"maxLines,omitempty"`
 	Numeric           bool                 `json:"numeric"`
 	Reverse           bool                 `json:"reverse"`
 	IgnoreCase        bool                 `json:"ignoreCase"`
@@ -768,6 +768,63 @@ type diffRequest struct {
 	Inline  bool   `json:"inline"`
 	OldText string `json:"oldText"`
 	NewText string `json:"newText"`
+}
+
+var positiveDiffNumberFields = []struct {
+	name string
+	max  uint64
+}{
+	{name: "window", max: ^uint64(0)},
+	{name: "maxHunks", max: uint64(math.MaxInt)},
+	{name: "maxLines", max: ^uint64(0)},
+	{name: "moveMinLines", max: ^uint64(0)},
+}
+
+// decodeDiffJSON validates the positive integer controls before decoding any
+// request that contains diffRequest. This keeps encoding/json's Go struct and
+// type names out of user-facing validation errors.
+func decodeDiffJSON(body io.Reader, destination any) error {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return fmt.Errorf("read request body: %w", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("malformed JSON")
+	}
+	for _, field := range positiveDiffNumberFields {
+		raw, present := fields[field.name]
+		if !present {
+			continue
+		}
+		text := string(raw)
+		if text == "" {
+			return fmt.Errorf("%s must be an integer greater than or equal to 1", field.name)
+		}
+		for _, character := range text {
+			if character < '0' || character > '9' {
+				return fmt.Errorf("%s must be an integer greater than or equal to 1", field.name)
+			}
+		}
+		value, err := strconv.ParseUint(text, 10, 64)
+		if err != nil || value == 0 || value > field.max {
+			return fmt.Errorf("%s must be an integer within the supported range (minimum 1)", field.name)
+		}
+	}
+	if err := json.Unmarshal(data, destination); err != nil {
+		var typeError *json.UnmarshalTypeError
+		if errors.As(err, &typeError) {
+			name := typeError.Field
+			if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+				name = name[dot+1:]
+			}
+			if name != "" {
+				return fmt.Errorf("%s has an invalid value", name)
+			}
+		}
+		return fmt.Errorf("malformed JSON")
+	}
+	return nil
 }
 
 // hunkOut is a hunk with its (capped) line text, ready for the frontend.
@@ -803,7 +860,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req diffRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
@@ -860,7 +917,7 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req diffRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
@@ -955,7 +1012,7 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req textMergeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
@@ -1078,7 +1135,7 @@ func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req threeWayTextRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
@@ -1112,7 +1169,7 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req threeWayTextRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
