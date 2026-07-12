@@ -24,7 +24,7 @@ func TestWebStylesUseAyameTokens(t *testing.T) {
 	for _, token := range []string{
 		"--fs-ui: 13px", "--fs-data: 13px", "--fs-label: 12px", "--fs-caption: 11px",
 		"--radius-control: 6px", "--on-accent: #fff", "--modal-backdrop:",
-		"--bg-elevated:", "--fg-dim:",
+		"--bg-elevated:", "--fg-dim:", "--focus-ring:", "--focus-ring-offset:",
 	} {
 		if !strings.Contains(tokens, token) {
 			t.Errorf("tokens.css missing %q", token)
@@ -217,6 +217,41 @@ func TestClientValidationMessagesAreFullyLocalized(t *testing.T) {
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
+func TestKeyboardFocusSyncSelectionAndStatusAnnouncements(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{
+		`:focus-visible`,
+		`outline: var(--focus-ring)`,
+		`.minimap-marker:focus-visible`,
+		`outline-offset: -2px`,
+		`.cell.selectable-line:focus-visible`,
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("style.css missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`c.tabIndex = 0`,
+		`c.setAttribute("role", "button")`,
+		`event.key !== "Enter" && event.key !== " "`,
+		`cell.setAttribute("aria-pressed", "true")`,
+		`error ? "assertive" : "polite"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	for _, want := range []string{`role="status"`, `aria-live="polite"`, `aria-atomic="true"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
 		}
 	}
 }
