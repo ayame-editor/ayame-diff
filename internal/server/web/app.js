@@ -47,7 +47,8 @@ const I18N = {
 	inspectionDone: (v) => `${v.column_count} 列 — 左 ${v.left_format}/${v.left_parser}、右 ${v.right_format}/${v.right_parser}`,
 	csvNoDiff: "CSV 差分はありません。", csvTruncated: "表示上限に達しました。全件は書き出しを使用してください。",
 	selectKey: "キー列を1つ以上選択してください。",
-	page: (v) => `${v.current} / ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
+	previousPage: "前のページ", nextPage: "次のページ", pageInput: (v) => `ページ番号（全 ${v.total} ページ）`,
+	pageTotal: (v) => `/ ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
 	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
 	threeWay: "3-way 比較", conflicts: "競合",
@@ -100,7 +101,8 @@ const I18N = {
 	inspectionDone: (v) => `${v.column_count} columns — left ${v.left_format}/${v.left_parser}, right ${v.right_format}/${v.right_parser}`,
 	csvNoDiff: "No CSV differences.", csvTruncated: "Display limit reached. Use export for the complete result.",
 	selectKey: "Select at least one key column.",
-	page: (v) => `Page ${v.current} / ${v.total}`, exportedCSV: (v) => `Exported to ${v}`,
+	previousPage: "Previous page", nextPage: "Next page", pageInput: (v) => `Page number (${v.total} pages total)`,
+	pageTotal: (v) => `of ${v.total} pages`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
 	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
 	threeWay: "3-way comparison", conflicts: "conflicts",
@@ -872,9 +874,22 @@ function renderCSV(data) {
   const pageCount = Math.max(1, Math.ceil(data.differences.length / CSV_PAGE_SIZE));
   csvPage = Math.max(0, Math.min(csvPage, pageCount - 1));
   const controls = document.createElement("div"); controls.className = "csv-pages";
-  const prev = document.createElement("button"); prev.type = "button"; prev.textContent = "←"; prev.disabled = csvPage === 0; prev.onclick = () => { csvPage--; renderCSV(data); };
-  const next = document.createElement("button"); next.type = "button"; next.textContent = "→"; next.disabled = csvPage + 1 >= pageCount; next.onclick = () => { csvPage++; renderCSV(data); };
-  const counter = document.createElement("span"); counter.textContent = t("page", { current: csvPage + 1, total: pageCount }); controls.append(prev, counter, next); result.append(controls);
+  const rerenderAndFocus = (selector) => { renderCSV(data); document.querySelector(selector)?.focus(); };
+  const prev = document.createElement("button"); prev.type = "button"; prev.className = "csv-page-prev"; prev.textContent = "←"; prev.setAttribute("aria-label", t("previousPage")); prev.title = t("previousPage"); prev.disabled = csvPage === 0; prev.onclick = () => { csvPage--; rerenderAndFocus(".csv-page-prev"); };
+  const pageInput = document.createElement("input"); pageInput.type = "number"; pageInput.className = "csv-page-input"; pageInput.min = "1"; pageInput.max = String(pageCount); pageInput.step = "1"; pageInput.value = String(csvPage + 1); pageInput.setAttribute("aria-label", t("pageInput", { total: pageCount }));
+  const jumpToPage = (refocus) => {
+    const requested = Number(pageInput.value);
+    if (!Number.isInteger(requested) || requested < 1 || requested > pageCount) { pageInput.value = String(csvPage + 1); return; }
+    if (requested - 1 === csvPage) return;
+    csvPage = requested - 1;
+    renderCSV(data);
+    if (refocus) { const input = document.querySelector(".csv-page-input"); input?.focus(); input?.select(); }
+  };
+  pageInput.onchange = () => jumpToPage(false);
+  pageInput.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); jumpToPage(true); } };
+  const total = document.createElement("span"); total.textContent = t("pageTotal", { total: pageCount });
+  const next = document.createElement("button"); next.type = "button"; next.className = "csv-page-next"; next.textContent = "→"; next.setAttribute("aria-label", t("nextPage")); next.title = t("nextPage"); next.disabled = csvPage + 1 >= pageCount; next.onclick = () => { csvPage++; rerenderAndFocus(".csv-page-next"); };
+  controls.append(prev, pageInput, total, next); result.append(controls);
   const wrap = document.createElement("div"); wrap.className = "csv-table-wrap";
   const table = document.createElement("table"); table.className = "csv-table";
   const head = document.createElement("thead"), headerRow = document.createElement("tr"), sideHead = document.createElement("th"); sideHead.textContent = "_side"; headerRow.append(sideHead);
