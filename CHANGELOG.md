@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.12 - 2026-07-12
+
+- Centralized text, CSV, project, and engine output writes behind a shared
+  atomic-write helper that stages a sibling file, syncs it, preserves requested
+  permissions, and cleans up safely on failure. (#71)
+- Added `clip:` / `clipboard:` pseudo paths to compare a file directly with the
+  desktop clipboard on macOS, Windows, Wayland, and X11, including `--pre`
+  preprocessing and deterministic backend fallback. (#76)
+- Added dependency-free, line-local syntax highlighting to the side-by-side GUI
+  for common source, data, markup, and log formats, with a persistent Japanese /
+  English display toggle and semantic theme colors. (#78)
+
 ## v0.7.11 - 2026-07-12
 
 - Kept binary/hex comparison memory-bounded even for dense differences by
