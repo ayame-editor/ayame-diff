@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.15 - 2026-07-13
+
+- Fixed appending to a file without a final newline so the unchanged former
+  last line is no longer reported as a false replacement; LF, CRLF, and CR
+  inputs now produce only the actual insertion. (#162)
+- Made truncated move detection explicit in CLI summaries, JSON/API responses,
+  and the localized GUI instead of leaving an ambiguous zero-move result.
+  (#164)
+- Unified current/selected outlines behind a shared 2px token, added an active
+  busy spinner with reduced-motion handling, and standardized empty-result
+  cards across text, CSV, and three-way views. (#151)
+- Added positive complete-match cards with the compared row/line/column scope,
+  distinguished matches under comparison rules, and prevented truncated CSV
+  results from claiming complete verification. (#122)
+
 ## v0.7.14 - 2026-07-13
 
 - Added complete top-level CLI help covering every subcommand and GUI entry
