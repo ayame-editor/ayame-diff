@@ -117,7 +117,11 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		fmt.Fprintln(stderr, "error: --ignore-whitespace must be none, change, or all")
 		return 2
 	}
-	result := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: whitespaceMode(whitespace), LineFilters: compiled})
+	result, err := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: whitespaceMode(whitespace), LineFilters: compiled})
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")

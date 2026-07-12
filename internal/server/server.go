@@ -840,7 +840,11 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWith(oldLines, newLines, options)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if req.DetectMoves {
 		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
@@ -910,7 +914,11 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWith(oldLines, newLines, options)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if req.DetectMoves {
 		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
@@ -974,7 +982,11 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result := linediff.DiffWith(oldLines, newLines, options)
+	result, err := linediff.DiffWith(oldLines, newLines, options)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	choices := make(map[int]merge.Side, len(req.Choices))
 	for key, value := range req.Choices {
 		index, parseErr := strconv.Atoi(key)
@@ -1052,7 +1064,12 @@ func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Resul
 		closeLines()
 		return nil, threeway.Result{}, func() {}, err
 	}
-	return base, threeway.Compare(base, left, right, options), closeLines, nil
+	result, err := threeway.Compare(base, left, right, options)
+	if err != nil {
+		closeLines()
+		return nil, threeway.Result{}, func() {}, err
+	}
+	return base, result, closeLines, nil
 }
 
 func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {

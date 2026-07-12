@@ -52,19 +52,19 @@ func diffWithSyncPoints(old, new Lines, opts Options) Result {
 	opts.SyncPoints = nil
 	oldStart, newStart := uint64(0), uint64(0)
 	for _, point := range points {
-		mergeSyncSegment(&result, DiffWith(
+		mergeSyncSegment(&result, diffWithOptions(
 			rangeLines{Lines: old, start: oldStart, end: point.Old},
 			rangeLines{Lines: new, start: newStart, end: point.New}, opts,
 		), oldStart, newStart, opts.MaxHunks)
 		// Diff the forced pair alone: differing anchor text remains a Replace,
 		// but the resync search cannot cross this user-specified boundary.
-		mergeSyncSegment(&result, DiffWith(
+		mergeSyncSegment(&result, diffWithOptions(
 			rangeLines{Lines: old, start: point.Old, end: point.Old + 1},
 			rangeLines{Lines: new, start: point.New, end: point.New + 1}, opts,
 		), point.Old, point.New, opts.MaxHunks)
 		oldStart, newStart = point.Old+1, point.New+1
 	}
-	mergeSyncSegment(&result, DiffWith(
+	mergeSyncSegment(&result, diffWithOptions(
 		rangeLines{Lines: old, start: oldStart, end: old.Count()},
 		rangeLines{Lines: new, start: newStart, end: new.Count()}, opts,
 	), oldStart, newStart, opts.MaxHunks)

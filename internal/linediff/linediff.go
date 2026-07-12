@@ -125,16 +125,24 @@ type Options struct {
 // stats). window bounds how far the resync scan looks ahead when it hits a
 // difference. It is Diff­With with no ignore options.
 func Diff(old, new Lines, maxHunks int, window uint64) Result {
-	return DiffWith(old, new, Options{MaxHunks: maxHunks, Window: window})
+	return diffWithOptions(old, new, Options{MaxHunks: maxHunks, Window: window})
 }
 
 // DiffWith is Diff with comparison options. When any ignore option is set, the
 // comparison runs over a normalized view of each line while positions (and thus
-// the output, rendered from the caller's originals) are unchanged.
-func DiffWith(old, new Lines, opts Options) Result {
-	if len(opts.SyncPoints) > 0 && ValidateSyncPoints(opts.SyncPoints, old.Count(), new.Count()) == nil {
-		return diffWithSyncPoints(old, new, opts)
+// the output, rendered from the caller's originals) are unchanged. Invalid sync
+// points are returned to the caller instead of being silently ignored.
+func DiffWith(old, new Lines, opts Options) (Result, error) {
+	if err := ValidateSyncPoints(opts.SyncPoints, old.Count(), new.Count()); err != nil {
+		return Result{}, err
 	}
+	if len(opts.SyncPoints) > 0 {
+		return diffWithSyncPoints(old, new, opts), nil
+	}
+	return diffWithOptions(old, new, opts), nil
+}
+
+func diffWithOptions(old, new Lines, opts Options) Result {
 	window := opts.Window
 	if window < 1 {
 		window = 1

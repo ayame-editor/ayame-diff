@@ -49,10 +49,18 @@ type edit struct {
 
 // Compare performs a three-way text comparison using the bounded-window
 // two-way engine. Memory is proportional to changed regions, not file size.
-func Compare(base, left, right linediff.Lines, options linediff.Options) Result {
+func Compare(base, left, right linediff.Lines, options linediff.Options) (Result, error) {
 	options.MaxHunks = int(^uint(0) >> 1)
-	leftEdits := edits(base, left, linediff.DiffWith(base, left, options), 'L')
-	rightEdits := edits(base, right, linediff.DiffWith(base, right, options), 'R')
+	leftDiff, err := linediff.DiffWith(base, left, options)
+	if err != nil {
+		return Result{}, err
+	}
+	rightDiff, err := linediff.DiffWith(base, right, options)
+	if err != nil {
+		return Result{}, err
+	}
+	leftEdits := edits(base, left, leftDiff, 'L')
+	rightEdits := edits(base, right, rightDiff, 'R')
 	all := append(leftEdits, rightEdits...)
 	sort.SliceStable(all, func(i, j int) bool {
 		if all[i].start != all[j].start {
@@ -111,7 +119,7 @@ func Compare(base, left, right linediff.Lines, options linediff.Options) Result 
 			result.Same++
 		}
 	}
-	return result
+	return result, nil
 }
 
 func edits(base, target linediff.Lines, result linediff.Result, side byte) []edit {

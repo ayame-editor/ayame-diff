@@ -245,7 +245,10 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 		return err
 	}
 	comparison.MaxHunks, comparison.Window, comparison.SyncPoints = maxHunks, d.window, d.syncPoints
-	res := linediff.DiffWith(old, new, comparison)
+	res, err := linediff.DiffWith(old, new, comparison)
+	if err != nil {
+		return err
+	}
 	if d.detectMoves {
 		linediff.DetectMoves(old, new, &res, linediff.MoveOptions{
 			MinLines: d.moveMinLines, MaxCandidates: d.moveMaxCandidates,
