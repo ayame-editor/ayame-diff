@@ -233,6 +233,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .syn-level-error { color: var(--danger); font-weight: 600; }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .result-empty { border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
+.result-empty strong { display: block; color: var(--fg); font-size: 1.1rem; }
+.result-empty p { margin: 0.35rem 0 0; }
+.result-match { border-color: var(--add-fg); background: var(--add-bg); }
+.result-match strong { color: var(--add-fg); }
+.result-partial { border-color: var(--gold); background: var(--chg-bg); }
+.result-partial strong { color: var(--chg-fg); }
 .initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .initial-empty strong { color: var(--fg); font-size: 1.05rem; }
 .initial-empty p { margin: 0.35rem 0 0; }

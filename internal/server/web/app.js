@@ -33,6 +33,12 @@ const I18N = {
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     comparing: "比較中…", noDiff: "差分はありません。",
+    completeMatch: "✔ 完全一致", filteredMatch: "✔ 比較条件適用後に一致",
+    textMatchScope: (v) => `OLD ${v.old} 行 / NEW ${v.new} 行を比較、差分 0`,
+    csvMatchScope: (v) => `${v.rows} 行 / ${v.columns} 列を比較、差分 0`,
+    threeWayTextMatchScope: (v) => `3入力・${v.lines} 行を比較、差分 0`,
+    threeWayCSVMatchScope: (v) => `3入力・${v.columns} 列を比較、差分 0`,
+    matchNotVerified: "⚠ 完全一致を確認できません",
     requiredField: (v) => `${v.field}を指定してください。`,
     requiredFields: (v) => `${v.fields.join("、")}を指定してください。`,
     invalidIndex: (v) => `${v.field}のインデックスが不正です。`,
@@ -95,6 +101,12 @@ const I18N = {
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     comparing: "Comparing…", noDiff: "No differences.",
+    completeMatch: "✔ Complete match", filteredMatch: "✔ Match under comparison rules",
+    textMatchScope: (v) => `Compared ${v.old} OLD / ${v.new} NEW lines; 0 differences`,
+    csvMatchScope: (v) => `Compared ${v.rows} rows / ${v.columns} columns; 0 differences`,
+    threeWayTextMatchScope: (v) => `Compared 3 inputs / ${v.lines} lines; 0 differences`,
+    threeWayCSVMatchScope: (v) => `Compared 3 inputs / ${v.columns} columns; 0 differences`,
+    matchNotVerified: "⚠ Complete match not verified",
     requiredField: (v) => `${v.field} is required.`,
     requiredFields: (v) => `${v.fields.join(" and ")} ${v.fields.length === 1 ? "is" : "are"} required.`,
     invalidIndex: (v) => `${v.field} contains an invalid index.`,
@@ -422,6 +434,21 @@ function renderSummary(res) {
   el.hidden = false;
 }
 
+function resultStateCard(title, scope, kind = "match") {
+  const card = document.createElement("div");
+  card.className = `empty-state result-empty result-${kind}`;
+  const heading = document.createElement("strong"); heading.textContent = title;
+  const detail = document.createElement("p"); detail.textContent = scope;
+  card.append(heading, detail);
+  return card;
+}
+
+function comparisonUsesRules(csvMode = false) {
+  return activeFilters().length > 0 || (csvMode && (
+    $("tolerance").value !== "" || $("ignoreColumns").value.trim() !== "" || $("columnTolerances").value.trim() !== ""
+  ));
+}
+
 // renderResult draws a diff response into the summary + result areas, honoring
 // the current display options (word highlight, syntax, show-whitespace).
 function renderResult(data) {
@@ -433,10 +460,8 @@ function renderResult(data) {
   setupNavigation(data);
   syncExportPatchVisibility();
   if (!data.hunks.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state result-empty";
-    empty.textContent = t("noDiff");
-    result.append(empty);
+    const scope = t("textMatchScope", { old: data.old_lines.toLocaleString(), new: data.new_lines.toLocaleString() });
+    result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
   const useWord = $("word").checked;
@@ -553,7 +578,12 @@ function renderThreeWay(data, csvMode) {
     for (const [name, values] of [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]]) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
     box.append(head, grid); result.append(box);
   }
-  if (!data.events.length) { const empty = document.createElement("div"); empty.className = "empty-state result-empty"; empty.textContent = t("noDiff"); result.append(empty); }
+  if (!data.events.length) {
+    const scope = csvMode
+      ? t("threeWayCSVMatchScope", { columns: (data.header || []).length.toLocaleString() })
+      : t("threeWayTextMatchScope", { lines: Number(data.base_lines || 0).toLocaleString() });
+    result.append(resultStateCard(t(comparisonUsesRules(csvMode) ? "filteredMatch" : "completeMatch"), scope));
+  }
   observeHunks(); updateThreeWayMergeUI(); updateMinimapViewport();
 }
 function updateThreeWayMergeUI() {
@@ -908,7 +938,14 @@ function renderCSV(data) {
   updateCSVMergeUI();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
-  if (!data.differences.length) { const empty = document.createElement("div"); empty.className = "empty-state result-empty"; empty.textContent = t("csvNoDiff"); result.append(empty); return; }
+  if (!data.differences.length) {
+    if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
+    else {
+      const scope = t("csvMatchScope", { rows: Number(data.summary.equal_rows || 0).toLocaleString(), columns: data.header.length.toLocaleString() });
+      result.append(resultStateCard(t(comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"), scope));
+    }
+    return;
+  }
   const changedSet = new Set((data.summary.column_changes || []).map((column) => column.index));
   const columns = data.header.map((_, index) => index).filter((index) => !$("changedColumnsOnly").checked || changedSet.has(index));
   const pageCount = Math.max(1, Math.ceil(data.differences.length / CSV_PAGE_SIZE));
