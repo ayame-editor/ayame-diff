@@ -32,6 +32,43 @@ func TestDiffWithEOLControls(t *testing.T) {
 	}
 }
 
+func TestAppendingAfterMissingFinalNewlineIsOnlyAnInsert(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		oldText string
+		newText string
+	}{
+		{name: "LF", oldText: "a\nb", newText: "a\nb\nc"},
+		{name: "CRLF", oldText: "a\r\nb", newText: "a\r\nb\r\nc"},
+		{name: "CR", oldText: "a\rb", newText: "a\rb\rc"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			oldLines := SplitTextLines(test.oldText)
+			newLines := SplitTextLines(test.newText)
+			result := mustDiffWith(t, oldLines, newLines, Options{MaxHunks: 10, Window: 8})
+			if result.HunkCount != 1 || result.Added != 1 || result.Modified != 0 || len(result.Hunks) != 1 {
+				t.Fatalf("append diff = %+v", result)
+			}
+			hunk := result.Hunks[0]
+			if hunk.Kind != Insert || hunk.OldStart != 2 || hunk.NewStart != 2 || hunk.NewLen != 1 {
+				t.Fatalf("append hunk = %+v", hunk)
+			}
+
+			inverse := mustDiffWith(t, newLines, oldLines, Options{MaxHunks: 10, Window: 8})
+			if inverse.HunkCount != 1 || inverse.Deleted != 1 || inverse.Modified != 0 || inverse.Hunks[0].Kind != Delete {
+				t.Fatalf("delete diff = %+v", inverse)
+			}
+		})
+	}
+
+	// A pure final-newline change remains visible unless explicitly ignored.
+	pure := mustDiffWith(t, SplitTextLines("a\nb"), SplitTextLines("a\nb\n"), Options{MaxHunks: 10, Window: 8})
+	if pure.HunkCount != 1 || pure.Modified != 1 {
+		t.Fatalf("pure final-newline change disappeared: %+v", pure)
+	}
+}
+
 func TestDiffWithLineFiltersKeepsOriginalPositions(t *testing.T) {
 	filters, err := CompileLineFilters([]string{`timestamp=\S+`, `request_id=\d+`})
 	if err != nil {
