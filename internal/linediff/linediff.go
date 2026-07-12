@@ -254,6 +254,15 @@ func (c lineComparator) equal(oldIndex, newIndex uint64) bool {
 	if oldEOL == newEOL {
 		return true
 	}
+	// When lines are appended to a file without a final terminator, its former
+	// last line necessarily gains one. The unchanged text is still the same
+	// line; only the following lines are new. Handle the inverse deletion too.
+	if oldEOL == "" && oldIndex+1 == c.old.Count() && newIndex+1 < c.new.Count() {
+		return true
+	}
+	if newEOL == "" && newIndex+1 == c.new.Count() && oldIndex+1 < c.old.Count() {
+		return true
+	}
 	return c.opts.IgnoreTrailingEOL && oldIndex+1 == c.old.Count() && newIndex+1 == c.new.Count() &&
 		(oldEOL == "" || newEOL == "")
 }
