@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/encoding"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
@@ -329,126 +330,109 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 		return unresolved, err
 	}
 	defer closeInput()
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
-		return unresolved, err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(output), ".ayame-three-way-csv-*")
-	if err != nil {
-		return unresolved, err
-	}
-	tempPath := temp.Name()
-	defer func() {
-		_ = temp.Close()
-		if resultErr != nil {
-			_ = os.Remove(tempPath)
-		}
-	}()
-	var destination io.Writer = temp
-	var gz *gzip.Writer
-	if strings.HasSuffix(strings.ToLower(output), ".gz") {
-		gz = gzip.NewWriter(temp)
-		destination = gz
-	}
-	buffer := bufio.NewWriterSize(destination, 256*1024)
-	writer := csv.NewWriter(buffer)
-	outputLower := strings.TrimSuffix(strings.ToLower(output), ".gz")
-	writer.Comma = ','
-	if strings.HasSuffix(outputLower, ".tsv") {
-		writer.Comma = '\t'
-	}
-	reader := csv.NewReader(input)
-	reader.Comma = inputComma
-	reader.FieldsPerRecord = -1
-	reader.ReuseRecord = true
-	reader.LazyQuotes = result.LazyQuotes
-	reader.TrimLeadingSpace = result.TrimLeadingSpace
-	if result.HasHeader {
-		if _, err := reader.Read(); err != nil {
-			return unresolved, err
-		}
-		if err := writer.Write(result.Header); err != nil {
-			return unresolved, err
-		}
-	}
-	written := make(map[string]bool)
-	for {
-		row, err := reader.Read()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return unresolved, err
-		}
-		keyValues, encoded, err := csvKey(row, result.KeyIndexes)
-		_ = keyValues
-		if err != nil {
-			return unresolved, err
-		}
-		if _, changed := events[encoded]; changed {
-			if !written[encoded] {
-				for _, replacement := range selected[encoded] {
-					if err := writer.Write(replacement); err != nil {
-						return unresolved, err
-					}
+	writeErr := atomicfile.Write(output, atomicfile.Options{Pattern: ".ayame-three-way-csv-*"}, func(temp io.Writer) (writeResultErr error) {
+		var destination io.Writer = temp
+		var gz *gzip.Writer
+		gzOpen := false
+		defer func() {
+			if gzOpen {
+				if err := gz.Close(); writeResultErr == nil && err != nil {
+					writeResultErr = err
 				}
-				written[encoded] = true
 			}
-			rowKey := rowString(row)
-			if removals[encoded][rowKey] > 0 {
-				removals[encoded][rowKey]--
+		}()
+		if strings.HasSuffix(strings.ToLower(output), ".gz") {
+			gz = gzip.NewWriter(temp)
+			gzOpen = true
+			destination = gz
+		}
+		buffer := bufio.NewWriterSize(destination, 256*1024)
+		writer := csv.NewWriter(buffer)
+		outputLower := strings.TrimSuffix(strings.ToLower(output), ".gz")
+		writer.Comma = ','
+		if strings.HasSuffix(outputLower, ".tsv") {
+			writer.Comma = '\t'
+		}
+		reader := csv.NewReader(input)
+		reader.Comma = inputComma
+		reader.FieldsPerRecord = -1
+		reader.ReuseRecord = true
+		reader.LazyQuotes = result.LazyQuotes
+		reader.TrimLeadingSpace = result.TrimLeadingSpace
+		if result.HasHeader {
+			if _, err := reader.Read(); err != nil {
+				return err
+			}
+			if err := writer.Write(result.Header); err != nil {
+				return err
+			}
+		}
+		written := make(map[string]bool)
+		for {
+			row, err := reader.Read()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			_, encoded, err := csvKey(row, result.KeyIndexes)
+			if err != nil {
+				return err
+			}
+			if _, changed := events[encoded]; changed {
+				if !written[encoded] {
+					for _, replacement := range selected[encoded] {
+						if err := writer.Write(replacement); err != nil {
+							return err
+						}
+					}
+					written[encoded] = true
+				}
+				rowKey := rowString(row)
+				if removals[encoded][rowKey] > 0 {
+					removals[encoded][rowKey]--
+					continue
+				}
+			}
+			if err := writer.Write(row); err != nil {
+				return err
+			}
+		}
+		remaining := make([]string, 0, len(events))
+		for key := range events {
+			if !written[key] {
+				remaining = append(remaining, key)
+			}
+		}
+		sort.Strings(remaining)
+		for _, key := range remaining {
+			if written[key] {
 				continue
 			}
-		}
-		if err := writer.Write(row); err != nil {
-			return unresolved, err
-		}
-	}
-	remaining := make([]string, 0, len(events))
-	for key := range events {
-		if !written[key] {
-			remaining = append(remaining, key)
-		}
-	}
-	sort.Strings(remaining)
-	for _, key := range remaining {
-		if written[key] {
-			continue
-		}
-		for _, row := range selected[key] {
-			if err := writer.Write(row); err != nil {
-				return unresolved, err
+			for _, row := range selected[key] {
+				if err := writer.Write(row); err != nil {
+					return err
+				}
 			}
+			written[key] = true
 		}
-		written[key] = true
-	}
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		return unresolved, err
-	}
-	if err := buffer.Flush(); err != nil {
-		return unresolved, err
-	}
-	if gz != nil {
-		if err := gz.Close(); err != nil {
-			return unresolved, err
+		writer.Flush()
+		if err := writer.Error(); err != nil {
+			return err
 		}
-	}
-	if err := temp.Sync(); err != nil {
-		return unresolved, err
-	}
-	if err := temp.Close(); err != nil {
-		return unresolved, err
-	}
-	if err := os.Chmod(tempPath, 0o644); err != nil {
-		return unresolved, err
-	}
-	if err := os.Rename(tempPath, output); err == nil {
-		return unresolved, nil
-	}
-	if err := os.Remove(output); err != nil && !os.IsNotExist(err) {
-		return unresolved, err
-	}
-	return unresolved, os.Rename(tempPath, output)
+		if err := buffer.Flush(); err != nil {
+			return err
+		}
+		if gz != nil {
+			if err := gz.Close(); err != nil {
+				return err
+			}
+			gzOpen = false
+		}
+		return nil
+	})
+	return unresolved, writeErr
 }
 
 func inputDelimiter(path, format, explicit string) rune {
