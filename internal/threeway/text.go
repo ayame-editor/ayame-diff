@@ -5,11 +5,11 @@ package threeway
 import (
 	"bufio"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"slices"
 	"sort"
 
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 )
 
@@ -200,47 +200,14 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 }
 
 // WriteMerged atomically writes UTF-8/LF output to a new path.
-func WriteMerged(path string, lines []string) (resultErr error) {
-	if path == "" {
-		return fmt.Errorf("output path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".ayame-three-way-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer func() {
-		_ = temp.Close()
-		if resultErr != nil {
-			_ = os.Remove(tempPath)
+func WriteMerged(path string, lines []string) error {
+	return atomicfile.Write(path, atomicfile.Options{Pattern: ".ayame-three-way-*.tmp"}, func(destination io.Writer) error {
+		writer := bufio.NewWriterSize(destination, 256*1024)
+		for _, line := range lines {
+			if _, err := fmt.Fprintln(writer, line); err != nil {
+				return err
+			}
 		}
-	}()
-	w := bufio.NewWriterSize(temp, 256*1024)
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(w, line); err != nil {
-			return err
-		}
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err == nil {
-		return nil
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Rename(tempPath, path)
+		return writer.Flush()
+	})
 }

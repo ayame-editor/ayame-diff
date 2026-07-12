@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
@@ -51,36 +52,10 @@ func Save(path string, p Project) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	return atomicfile.Write(path, atomicfile.Options{Pattern: ".ayamediff-*.tmp"}, func(writer io.Writer) error {
+		_, err := writer.Write(append(data, '\n'))
 		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".ayamediff-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if _, err := temp.Write(append(data, '\n')); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err == nil {
-		return nil
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Rename(tempPath, path)
+	})
 }
 
 func Load(path string) (Project, error) {
