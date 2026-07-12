@@ -1,0 +1,94 @@
+package server
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+)
+
+func readWebAsset(t *testing.T, name string) string {
+	t.Helper()
+	b, err := webFS.ReadFile("web/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestWebStylesUseAyameTokens(t *testing.T) {
+	t.Parallel()
+	tokens := readWebAsset(t, "tokens.css")
+	style := readWebAsset(t, "style.css")
+	index := readWebAsset(t, "index.html")
+
+	for _, token := range []string{
+		"--fs-ui: 13px", "--fs-data: 13px", "--fs-label: 12px", "--fs-caption: 11px",
+		"--radius-control: 6px", "--on-accent: #fff", "--modal-backdrop:",
+		"--bg-elevated:", "--fg-dim:",
+	} {
+		if !strings.Contains(tokens, token) {
+			t.Errorf("tokens.css missing %q", token)
+		}
+	}
+	if !strings.Contains(tokens, `"DejaVu Sans Mono", "Noto Sans Mono CJK JP", "MS Gothic"`) {
+		t.Error("canonical CJK mono fallback stack is missing")
+	}
+	if strings.Index(index, `href="tokens.css"`) > strings.Index(index, `href="style.css"`) {
+		t.Error("tokens.css must load before the rules that consume it")
+	}
+
+	legacyType := regexp.MustCompile(`font(?:-size|):\s*0\.(?:72|75|78|8|82)rem`)
+	legacyRadius := regexp.MustCompile(`border-radius:\s*(?:5|6|7|8|10)px`)
+	if legacyType.MatchString(style) {
+		t.Errorf("style.css bypasses the shared type scale: %q", legacyType.FindString(style))
+	}
+	if legacyRadius.MatchString(style) {
+		t.Errorf("style.css bypasses radius tokens: %q", legacyRadius.FindString(style))
+	}
+	for _, bypass := range []string{`font-family: ui-monospace`, `font: 0.`, `color: #fff`, `font-weight: 450`, `font-weight: 650`} {
+		if strings.Contains(style, bypass) {
+			t.Errorf("style.css contains token bypass %q", bypass)
+		}
+	}
+}
+
+func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{`id="syntax"`, `src="syntax.js"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{"AyameSyntax", `localStorage.setItem("ayame-syntax"`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	for _, want := range []string{".syn-comment", ".syn-keyword", ".syn-string", ".syn-level-error"} {
+		if !strings.Contains(style, want) {
+			t.Errorf("style.css missing %q", want)
+		}
+	}
+}
+
+func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
+	t.Parallel()
+	tokens := readWebAsset(t, "tokens.css")
+	start := strings.Index(tokens, `:root[data-scheme="colorblind"]`)
+	if start < 0 {
+		t.Fatal("colorblind scheme is missing")
+	}
+	block := tokens[start:]
+	for _, token := range []string{"--add-bg", "--add-fg", "--del-bg", "--del-fg", "--chg-bg", "--word-add", "--word-del"} {
+		if !strings.Contains(block, token+":") {
+			t.Errorf("colorblind scheme missing %s", token)
+		}
+	}
+	if !strings.Contains(block, "color-mix(") {
+		t.Error("colorblind scheme must retain Ayame translucent washes")
+	}
+}

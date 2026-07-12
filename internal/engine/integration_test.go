@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -245,6 +246,9 @@ func TestRunCSVCellDiffJSONLines(t *testing.T) {
 		if err := json.Unmarshal(line, &item); err != nil {
 			t.Fatal(err)
 		}
+		if item.ID == "" {
+			t.Fatalf("diff record has no stable merge ID: %s", line)
+		}
 		if item.Kind == diffChanged && len(item.Old) > 0 && len(item.New) > 0 {
 			changed = item
 		}
@@ -252,6 +256,78 @@ func TestRunCSVCellDiffJSONLines(t *testing.T) {
 	if len(changed.ChangedColumns) != 2 || changed.ChangedColumns[0].Name != "name" ||
 		changed.ChangedColumns[0].Old != "old" || changed.ChangedColumns[0].New != "new" {
 		t.Fatalf("changed=%+v", changed)
+	}
+}
+
+func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	leftText := "id,name\n1,same\n2,left\n3,left-only\n"
+	rightText := "id,name\n1,same\n2,right\n4,right-only\n"
+	mustWriteFile(t, leftPath, leftText)
+	mustWriteFile(t, rightPath, rightText)
+	diffPath := filepath.Join(dir, "diff.jsonl")
+	cfg := testConfig(leftPath, rightPath, diffPath)
+	cfg.KeyNames, cfg.CellDiff, cfg.OutputFormat = []string{"id"}, true, "jsonl"
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(diffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(file)
+	choices := make(map[string]string)
+	for {
+		var item jsonRecordDiff
+		if err := decoder.Decode(&item); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+		choices[item.ID] = "right"
+	}
+	_ = file.Close()
+	mergedPath := filepath.Join(dir, "merged.csv")
+	cfg = testConfig(leftPath, rightPath, mergedPath)
+	cfg.KeyNames, cfg.Reconcile, cfg.MergeChoices, cfg.OutputHeader = []string{"id"}, true, choices, true
+	cfg.OutputDelimiter = ','
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.UnresolvedRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	records := readDelimitedFile(t, mergedPath, ',')
+	sort.Slice(records[1:], func(i, j int) bool { return records[1:][i][0] < records[1:][j][0] })
+	want := [][]string{{"id", "name"}, {"1", "same"}, {"2", "right"}, {"4", "right-only"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%#v want=%#v", records, want)
+	}
+	for path, wantText := range map[string]string{leftPath: leftText, rightPath: rightText} {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil || string(got) != wantText {
+			t.Fatalf("input changed %s: %q err=%v", path, got, readErr)
+		}
+	}
+}
+
+func TestRunCSVReconcileRejectsUnresolvedWithoutCreatingOutput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right, output := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	mustWriteFile(t, left, "id,name\n1,left\n")
+	mustWriteFile(t, right, "id,name\n1,right\n")
+	cfg := testConfig(left, right, output)
+	cfg.KeyNames, cfg.Reconcile, cfg.OutputHeader, cfg.OutputDelimiter = []string{"id"}, true, true, ','
+	if _, err := Run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("output exists after rejection: %v", err)
 	}
 }
 

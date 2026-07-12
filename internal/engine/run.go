@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 )
 
 func Run(ctx context.Context, cfg Config) (Summary, error) {
@@ -85,23 +87,24 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	emitProgress(resolved, ProgressEvent{Phase: "compare", Done: true, Elapsed: time.Since(compareStarted)})
 	assembleStarted := time.Now()
 	emitProgress(resolved, ProgressEvent{Phase: "assemble"})
-	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader, resolved.CellDiff, resolved.OutputFormat); err != nil {
+	if err := assembleOutput(ctx, resolved.OutputPath, outputParts, resolvedSchema.Header, resolved.OutputHeader, resolved.CellDiff, resolved.OutputFormat, resolved.Reconcile, resolved.OutputDelimiter); err != nil {
 		return summary, err
 	}
 	emitProgress(resolved, ProgressEvent{Phase: "assemble", Done: true, Elapsed: time.Since(assembleStarted)})
 
 	summary = Summary{
-		LeftRows:     leftRows,
-		RightRows:    rightRows,
-		EqualRows:    stats.EqualRows,
-		LeftOnly:     stats.LeftOnly,
-		RightOnly:    stats.RightOnly,
-		ChangedLeft:  stats.ChangedLeft,
-		ChangedRight: stats.ChangedRight,
-		DiffRows:     stats.DiffRows,
-		Partitions:   resolved.Partitions,
-		Workers:      minInt(resolved.Workers, resolved.Partitions),
-		Elapsed:      time.Since(started).Round(time.Millisecond).String(),
+		LeftRows:       leftRows,
+		RightRows:      rightRows,
+		EqualRows:      stats.EqualRows,
+		LeftOnly:       stats.LeftOnly,
+		RightOnly:      stats.RightOnly,
+		ChangedLeft:    stats.ChangedLeft,
+		ChangedRight:   stats.ChangedRight,
+		DiffRows:       stats.DiffRows,
+		Partitions:     resolved.Partitions,
+		Workers:        minInt(resolved.Workers, resolved.Partitions),
+		Elapsed:        time.Since(started).Round(time.Millisecond).String(),
+		UnresolvedRows: stats.UnresolvedRows,
 	}
 	for index, count := range stats.ColumnChanges {
 		if count > 0 {
@@ -215,7 +218,9 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	if err != nil {
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
-	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat)
+	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat, reconcileConfig{
+		enabled: cfg.Reconcile, choices: cfg.MergeChoices, defaultTo: cfg.MergeDefault, delimiter: cfg.OutputDelimiter, allowUnresolved: cfg.AllowUnresolved,
+	})
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)
 	}
@@ -228,122 +233,96 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	return stats, outputPath, nil
 }
 
-func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader, cellDiff bool, outputFormat string) (resultErr error) {
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(dir, ".ayame-diff-output-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	tempOpen := true
-	var compressed *gzip.Writer
-	compressedOpen := false
-	defer func() {
-		if compressedOpen {
-			if err := compressed.Close(); resultErr == nil && err != nil {
-				resultErr = err
+func assembleOutput(ctx context.Context, outputPath string, parts []string, header []string, writeHeader, cellDiff bool, outputFormat string, reconcile bool, delimiter rune) error {
+	return atomicfile.Write(outputPath, atomicfile.Options{Pattern: ".ayame-diff-output-*.tmp"}, func(temp io.Writer) (writeErr error) {
+		var compressed *gzip.Writer
+		compressedOpen := false
+		defer func() {
+			if compressedOpen {
+				if err := compressed.Close(); writeErr == nil && err != nil {
+					writeErr = err
+				}
+			}
+		}()
+
+		var destination io.Writer = temp
+		if strings.HasSuffix(strings.ToLower(outputPath), ".gz") {
+			var err error
+			compressed, err = gzip.NewWriterLevel(temp, gzip.BestSpeed)
+			if err != nil {
+				return err
+			}
+			compressedOpen = true
+			destination = compressed
+		}
+		buffer := bufio.NewWriterSize(destination, ioBufferBytes)
+
+		if writeHeader && outputFormat == "tsv" {
+			writer := csv.NewWriter(buffer)
+			writer.Comma = '\t'
+			if reconcile {
+				writer.Comma = delimiter
+			}
+			if reconcile {
+				if err := writer.Write(header); err != nil {
+					return err
+				}
+				writer.Flush()
+				if err := writer.Error(); err != nil {
+					return err
+				}
+			} else {
+				extra := 0
+				if cellDiff {
+					extra = 1
+				}
+				outputHeader := make([]string, 2+extra+len(header))
+				outputHeader[0] = "_diff"
+				outputHeader[1] = "_side"
+				if cellDiff {
+					outputHeader[2] = "_changed_cols"
+				}
+				copy(outputHeader[2+extra:], header)
+				if err := writer.Write(outputHeader); err != nil {
+					return err
+				}
+				writer.Flush()
+				if err := writer.Error(); err != nil {
+					return err
+				}
 			}
 		}
-		if tempOpen {
-			if err := temp.Close(); resultErr == nil && err != nil {
-				resultErr = err
+
+		copyBuffer := make([]byte, ioBufferBytes)
+		for _, partPath := range parts {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			part, err := os.Open(partPath)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.CopyBuffer(buffer, part, copyBuffer)
+			closeErr := part.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
 			}
 		}
-		if resultErr != nil {
-			_ = os.Remove(tempPath)
-		}
-	}()
-
-	var destination io.Writer = temp
-	if strings.HasSuffix(strings.ToLower(outputPath), ".gz") {
-		compressed, err = gzip.NewWriterLevel(temp, gzip.BestSpeed)
-		if err != nil {
+		if err := buffer.Flush(); err != nil {
 			return err
 		}
-		compressedOpen = true
-		destination = compressed
-	}
-	buffer := bufio.NewWriterSize(destination, ioBufferBytes)
-
-	if writeHeader && outputFormat == "tsv" {
-		writer := csv.NewWriter(buffer)
-		writer.Comma = '\t'
-		extra := 0
-		if cellDiff {
-			extra = 1
+		if compressed != nil {
+			closeErr := compressed.Close()
+			compressedOpen = false
+			if closeErr != nil {
+				return closeErr
+			}
 		}
-		outputHeader := make([]string, 2+extra+len(header))
-		outputHeader[0] = "_diff"
-		outputHeader[1] = "_side"
-		if cellDiff {
-			outputHeader[2] = "_changed_cols"
-		}
-		copy(outputHeader[2+extra:], header)
-		if err := writer.Write(outputHeader); err != nil {
-			return err
-		}
-		writer.Flush()
-		if err := writer.Error(); err != nil {
-			return err
-		}
-	}
-
-	copyBuffer := make([]byte, ioBufferBytes)
-	for _, partPath := range parts {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		part, err := os.Open(partPath)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.CopyBuffer(buffer, part, copyBuffer)
-		closeErr := part.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-	}
-	if err := buffer.Flush(); err != nil {
-		return err
-	}
-	if compressed != nil {
-		closeErr := compressed.Close()
-		compressedOpen = false
-		if closeErr != nil {
-			return closeErr
-		}
-	}
-	if err := temp.Sync(); err != nil {
-		return err
-	}
-	closeErr := temp.Close()
-	tempOpen = false
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Chmod(tempPath, 0o644); err != nil {
-		return err
-	}
-	if err := replaceFile(tempPath, outputPath); err != nil {
-		return err
-	}
-	return nil
-}
-
-func replaceFile(source, destination string) error {
-	if err := os.Rename(source, destination); err == nil {
 		return nil
-	}
-	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.Rename(source, destination)
+	})
 }
 
 func createWorkRoot(cfg Config) (string, bool, error) {

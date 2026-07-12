@@ -8,6 +8,7 @@ set -euo pipefail
 
 binary=${1:?usage: build-app.sh <binary> <version> <output-dir> [icon.icns]}
 version=${2:?missing version}
+plist_version=${version#v}
 outdir=${3:?missing output dir}
 icon=${4:-}
 
@@ -21,7 +22,7 @@ chmod 0755 "$app/Contents/MacOS/ayame-diff"
 cat > "$app/Contents/MacOS/launcher" <<'LAUNCH'
 #!/bin/sh
 dir="$(cd "$(dirname "$0")" && pwd)"
-exec "$dir/ayame-diff" gui
+exec "$dir/ayame-diff" --gui "$@"
 LAUNCH
 chmod 0755 "$app/Contents/MacOS/launcher"
 
@@ -39,10 +40,16 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Ayame Diff</string>
   <key>CFBundleDisplayName</key><string>Ayame Diff</string>
   <key>CFBundleIdentifier</key><string>com.hjosugi.ayame-diff</string>
-  <key>CFBundleVersion</key><string>${version}</string>
-  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${plist_version}</string>
+  <key>CFBundleShortVersionString</key><string>${plist_version}</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleDocumentTypes</key>
+  <array><dict>
+    <key>CFBundleTypeName</key><string>Files and folders</string>
+    <key>CFBundleTypeRole</key><string>Viewer</string>
+    <key>LSItemContentTypes</key><array><string>public.item</string></array>
+  </dict></array>
   ${iconkey}
 </dict>
 </plist>

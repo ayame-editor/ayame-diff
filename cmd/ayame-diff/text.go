@@ -300,7 +300,7 @@ func runText(args []string, stdout, stderr io.Writer) int {
 
 Line-level diff of two text files (plain or .gz), comparing by row order.
 Uses a bounded resync window, so it stays linear and memory-bounded on huge
-inputs. OLD or NEW may be - to read standard input.`)
+inputs. OLD or NEW may be - for standard input, or clip: for the OS clipboard.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -421,6 +421,10 @@ func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, fu
 		lines, err := readStdin(encHint)
 		return lines, func() {}, err
 	}
+	if isClipboardPath(path) {
+		lines, err := readClipboard(encHint)
+		return lines, func() {}, err
+	}
 	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		return nil, func() {}, err
@@ -434,7 +438,13 @@ func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, fu
 // (e.g. --pre 'jq -S .' to canonicalize JSON).
 func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.Lines, error) {
 	var stdin io.Reader = os.Stdin
-	if path != "-" {
+	if isClipboardPath(path) {
+		data, err := loadClipboardBytes()
+		if err != nil {
+			return nil, err
+		}
+		stdin = bytes.NewReader(data)
+	} else if path != "-" {
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, err

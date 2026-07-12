@@ -30,6 +30,8 @@ done < "$TARGETS"
 
 rm -rf "$RELEASE"
 mkdir -p "$RELEASE"
+ICONS="$RELEASE/.icons"
+(cd "$ROOT" && go run ./cmd/ayame-icon -out "$ICONS")
 
 package_unix() {
   os=$1
@@ -41,8 +43,23 @@ package_unix() {
   cp "$DIST/ayame-diff-${os}-${arch}" "$stage/ayame-diff"
   chmod 0755 "$stage/ayame-diff"
   cp "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$stage/"
+  if [ "$os" = "linux" ]; then
+    mkdir -p "$stage/share/applications" "$stage/share/icons/hicolor/256x256/apps"
+    cp "$ROOT/packaging/linux/ayame-diff.desktop" "$stage/share/applications/"
+    cp "$ICONS/ayame-diff.png" "$stage/share/icons/hicolor/256x256/apps/ayame-diff.png"
+  fi
   tar -C "$RELEASE" -czf "$RELEASE/$name.tar.gz" "$name"
   rm -rf "$stage"
+
+  if [ "$os" = "darwin" ]; then
+    "$ROOT/packaging/macos/build-app.sh" \
+      "$DIST/ayame-diff-${os}-${arch}" "$VERSION" "$stage" "$ICONS/ayame-diff.icns"
+    (
+      cd "$stage"
+      zip -qr "$RELEASE/${name}-app.zip" "Ayame Diff.app"
+    )
+    rm -rf "$stage"
+  fi
 }
 
 while read -r os arch ext; do
@@ -66,14 +83,35 @@ while read -r os arch ext; do
   cp "$DIST/ayame-diff-${os}-${arch}${ext}" "$destination"
 done < "$TARGETS"
 cp "$ROOT/packaging/windows/start-gui.cmd" "$windows_stage/"
+cp "$ROOT/packaging/windows/install-shell.cmd" "$ROOT/packaging/windows/uninstall-shell.cmd" "$windows_stage/"
+cp "$ICONS/ayame-diff.ico" "$windows_stage/"
 cp "$ROOT/README_WINDOWS.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$windows_stage/"
 (
   cd "$RELEASE"
   zip -qr "$windows_name.zip" "$windows_name"
 )
 rm -rf "$windows_stage"
+rm -rf "$ICONS"
 
 (
   cd "$RELEASE"
   "$ROOT/scripts/checksum.sh" SHA256SUMS ./*.tar.gz ./*.zip
+)
+
+# Generate package-manager metadata from the exact archives above. The WinGet
+# tree is ready to copy into microsoft/winget-pkgs; compact artifacts are also
+# attached to the GitHub release for automated downstream updates.
+PACKAGE_META="$DIST/packaging"
+rm -rf "$PACKAGE_META"
+(cd "$ROOT" && go run ./cmd/packaging-gen -version "$VERSION" -checksums "$RELEASE/SHA256SUMS" -out "$PACKAGE_META")
+(
+  cd "$PACKAGE_META/winget"
+  zip -qr "$RELEASE/ayame-diff-${VERSION}-winget-manifests.zip" manifests
+)
+cp "$PACKAGE_META/scoop/ayame-diff.json" "$RELEASE/ayame-diff-${VERSION}-scoop.json"
+cp "$PACKAGE_META/homebrew/ayame-diff.rb" "$RELEASE/ayame-diff-${VERSION}-homebrew.rb"
+rm -rf "$PACKAGE_META"
+(
+  cd "$RELEASE"
+  "$ROOT/scripts/checksum.sh" SHA256SUMS ./*.tar.gz ./*.zip ./*.json ./*.rb
 )

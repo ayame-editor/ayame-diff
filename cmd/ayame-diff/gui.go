@@ -7,13 +7,15 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 
 	"github.com/hjosugi/ayame-diff/internal/server"
 )
 
-// runGUI implements: ayame-diff gui [--addr host:port] [--no-open]
+// runGUI implements: ayame-diff gui [--addr host:port] [--no-open] [OLD [NEW]]
 //
 // It starts the same local web UI as `serve` but, by default, binds an
 // ephemeral localhost port and opens the browser — the "double-click to a GUI"
@@ -27,10 +29,11 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&addr, "addr", "127.0.0.1:0", "listen address; port 0 picks a free port")
 	fs.BoolVar(&noOpen, "no-open", false, "start the server but do not open the browser")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--no-open]
+		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--no-open] [OLD [NEW]]
 
 Start the local web UI and open it in your browser. Same UI as `+"`serve`"+`, but
-picks a free localhost port and launches the browser for you.`)
+picks a free localhost port and launches the browser for you. With two paths,
+the GUI chooses text/folder mode and starts comparing immediately.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -39,6 +42,10 @@ picks a free localhost port and launches the browser for you.`)
 			return 0
 		}
 		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	if fs.NArg() > 2 {
+		fmt.Fprintln(stderr, "error: gui accepts at most two paths: OLD NEW")
 		return 2
 	}
 
@@ -52,11 +59,11 @@ picks a free localhost port and launches the browser for you.`)
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	url := "http://" + ln.Addr().String() + "/"
-	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", url)
+	guiURL := guiLaunchURL("http://"+ln.Addr().String()+"/", fs.Args())
+	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
 	if !noOpen {
-		if err := openBrowser(url); err != nil {
-			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, url)
+		if err := openBrowser(guiURL); err != nil {
+			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, guiURL)
 		}
 	}
 	if err := http.Serve(ln, srv.Handler()); err != nil {
@@ -64,6 +71,23 @@ picks a free localhost port and launches the browser for you.`)
 		return 1
 	}
 	return 0
+}
+
+func guiLaunchURL(base string, paths []string) string {
+	if len(paths) == 0 {
+		return base
+	}
+	query := url.Values{"old": {paths[0]}}
+	if len(paths) == 2 {
+		query.Set("new", paths[1])
+		query.Set("autorun", "1")
+		if oldInfo, oldErr := os.Stat(paths[0]); oldErr == nil && oldInfo.IsDir() {
+			if newInfo, newErr := os.Stat(paths[1]); newErr == nil && newInfo.IsDir() {
+				query.Set("mode", "dir")
+			}
+		}
+	}
+	return base + "?" + query.Encode()
 }
 
 // openBrowser opens url in the platform's default browser. The launcher is

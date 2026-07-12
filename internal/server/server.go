@@ -16,7 +16,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
@@ -25,7 +27,9 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/hjosugi/ayame-diff/internal/merge"
 	"github.com/hjosugi/ayame-diff/internal/project"
+	"github.com/hjosugi/ayame-diff/internal/threeway"
 )
 
 //go:embed web
@@ -35,6 +39,8 @@ var webFS embed.FS
 type Server struct {
 	version string
 	mux     *http.ServeMux
+	dropMu  sync.Mutex
+	drops   map[string]string
 }
 
 // New returns a Server. version is reported by /api/health.
@@ -43,29 +49,141 @@ func New(version string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{version: version, mux: http.NewServeMux()}
+	s := &Server{version: version, mux: http.NewServeMux(), drops: make(map[string]string)}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/diff", s.handleDiff)
 	s.mux.HandleFunc("/api/patch", s.handlePatch)
+	s.mux.HandleFunc("/api/merge/text", s.handleTextMerge)
+	s.mux.HandleFunc("/api/three-way/text", s.handleThreeWayText)
+	s.mux.HandleFunc("/api/merge/three-way/text", s.handleThreeWayTextMerge)
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
 	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
 	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
+	s.mux.HandleFunc("/api/merge/csv", s.handleCSVMerge)
+	s.mux.HandleFunc("/api/three-way/csv", s.handleThreeWayCSV)
+	s.mux.HandleFunc("/api/merge/three-way/csv", s.handleThreeWayCSVMerge)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
+	s.mux.HandleFunc("/api/drop", s.handleDrop)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
 	return s, nil
 }
 
+// handleDrop streams browser-dropped files to a private local cache. Browsers
+// intentionally hide native absolute paths, so the GUI cannot otherwise pass
+// a dropped File to the existing path-based comparison engines.
+func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	session := r.URL.Query().Get("session")
+	relative := filepath.Clean(filepath.FromSlash(r.URL.Query().Get("relative")))
+	if session == "" || strings.ContainsAny(session, `/\\`) || relative == "." || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusBadRequest, "safe session and relative path are required")
+		return
+	}
+	root, err := s.dropRoot(session)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	target := filepath.Join(root, relative)
+	if r.URL.Query().Get("directory") == "1" {
+		err = os.MkdirAll(target, 0o700)
+	} else {
+		if err = os.MkdirAll(filepath.Dir(target), 0o700); err == nil {
+			var file *os.File
+			file, err = os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+			if err == nil {
+				_, copyErr := io.Copy(file, r.Body)
+				closeErr := file.Close()
+				if copyErr != nil {
+					err = copyErr
+				} else if closeErr != nil {
+					err = closeErr
+				}
+			}
+		}
+	}
+	if err != nil {
+		_ = os.Remove(target)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Path string `json:"path"`
+	}{target})
+}
+
+func (s *Server) dropRoot(session string) (string, error) {
+	s.dropMu.Lock()
+	defer s.dropMu.Unlock()
+	if root := s.drops[session]; root != "" {
+		return root, nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+	base = filepath.Join(base, "ayame-diff", "drops")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", err
+	}
+	// Clear stale browser drop sessions opportunistically.
+	if entries, readErr := os.ReadDir(base); readErr == nil {
+		for _, entry := range entries {
+			if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > 24*time.Hour {
+				_ = os.RemoveAll(filepath.Join(base, entry.Name()))
+			}
+		}
+	}
+	root, err := os.MkdirTemp(base, "session-")
+	if err == nil {
+		s.drops[session] = root
+	}
+	return root, err
+}
+
+func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "use GET")
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Path      string `json:"path"`
+		Directory bool   `json:"directory"`
+	}{absolute, info.IsDir()})
+}
+
 type dirRequest struct {
-	Old      string   `json:"old"`
-	New      string   `json:"new"`
-	Includes []string `json:"includes"`
-	Excludes []string `json:"excludes"`
-	Hidden   bool     `json:"hidden"`
-	Quick    bool     `json:"quick"`
-	Workers  int      `json:"workers"`
+	Old                  string   `json:"old"`
+	New                  string   `json:"new"`
+	Includes             []string `json:"includes"`
+	Excludes             []string `json:"excludes"`
+	Hidden               bool     `json:"hidden"`
+	Quick                bool     `json:"quick"`
+	Workers              int      `json:"workers"`
+	MaxArchiveEntryBytes string   `json:"maxArchiveEntryBytes"`
+	MaxArchiveBytes      string   `json:"maxArchiveBytes"`
 }
 type dirEntryResponse struct {
 	Path     string `json:"path"`
@@ -86,7 +204,16 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
 		return
 	}
-	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden, Quick: req.Quick, Workers: req.Workers})
+	entryLimit, totalLimit, err := parseArchiveLimits(req.MaxArchiveEntryBytes, req.MaxArchiveBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{
+		Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden,
+		Quick: req.Quick, Workers: req.Workers,
+		MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -102,6 +229,35 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		Same    int                `json:"same"`
 		Entries []dirEntryResponse `json:"entries"`
 	}{result.Added, result.Removed, result.Changed, result.Same, entries})
+}
+
+func parseArchiveLimits(entryText, totalText string) (int64, int64, error) {
+	entryLimit := dircompare.DefaultMaxArchiveEntryBytes
+	totalLimit := dircompare.DefaultMaxArchiveBytes
+	for _, item := range []struct {
+		name string
+		text string
+		out  *int64
+	}{
+		{"maxArchiveEntryBytes", strings.TrimSpace(entryText), &entryLimit},
+		{"maxArchiveBytes", strings.TrimSpace(totalText), &totalLimit},
+	} {
+		if item.text == "" {
+			continue
+		}
+		value, err := engine.ParseByteSize(item.text)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s: %w", item.name, err)
+		}
+		if value < 1 {
+			return 0, 0, fmt.Errorf("%s must be at least 1 byte", item.name)
+		}
+		*item.out = value
+	}
+	if entryLimit > totalLimit {
+		return 0, 0, fmt.Errorf("maxArchiveEntryBytes cannot exceed maxArchiveBytes")
+	}
+	return entryLimit, totalLimit, nil
 }
 
 func formatTime(value time.Time) string {
@@ -186,17 +342,19 @@ type csvCellChange struct {
 	New   string `json:"new"`
 }
 type csvDifference struct {
+	ID             string          `json:"id"`
 	Kind           string          `json:"kind"`
 	Old            []string        `json:"old,omitempty"`
 	New            []string        `json:"new,omitempty"`
 	ChangedColumns []csvCellChange `json:"changed_columns,omitempty"`
 }
 type csvResponse struct {
-	Header      []string               `json:"header"`
-	Inspection  engine.InputInspection `json:"inspection"`
-	Summary     engine.Summary         `json:"summary"`
-	Differences []csvDifference        `json:"differences"`
-	Truncated   bool                   `json:"truncated"`
+	Header          []string               `json:"header"`
+	Inspection      engine.InputInspection `json:"inspection"`
+	Summary         engine.Summary         `json:"summary"`
+	Differences     []csvDifference        `json:"differences"`
+	Truncated       bool                   `json:"truncated"`
+	DifferenceCount int                    `json:"difference_count"`
 }
 
 func csvConfig(req csvRequest, output string) engine.Config {
@@ -337,6 +495,7 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 		maxRows = 5000
 	}
 	response := csvResponse{Header: inspection.Header, Inspection: inspection, Summary: summary}
+	mergeIDs := make(map[string]struct{})
 	decoder := json.NewDecoder(file)
 	for {
 		var difference csvDifference
@@ -348,9 +507,13 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if _, seen := mergeIDs[difference.ID]; !seen {
+			mergeIDs[difference.ID] = struct{}{}
+			response.DifferenceCount++
+		}
 		if len(response.Differences) >= maxRows {
 			response.Truncated = true
-			break
+			continue
 		}
 		response.Differences = append(response.Differences, difference)
 	}
@@ -383,6 +546,87 @@ func (s *Server) handleCSVExport(w http.ResponseWriter, r *http.Request) {
 		Output  string         `json:"output"`
 		Summary engine.Summary `json:"summary"`
 	}{Output: req.Output, Summary: summary})
+}
+
+type csvMergeRequest struct {
+	csvRequest
+	Choices          map[string]string `json:"choices"`
+	DefaultChoice    string            `json:"defaultChoice"`
+	AllowUnresolved  bool              `json:"allowUnresolved"`
+	Overwrite        bool              `json:"overwrite"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite"`
+}
+
+func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req csvMergeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Old == "" || req.New == "" || strings.TrimSpace(req.Output) == "" {
+		writeError(w, http.StatusBadRequest, "old, new, and output paths are required")
+		return
+	}
+	if !validateCSVKeys(w, req.csvRequest) {
+		return
+	}
+	overwriteInput := pathsEqual(req.Output, req.Old) || pathsEqual(req.Output, req.New)
+	if overwriteInput && (!req.Overwrite || !req.ConfirmOverwrite) {
+		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		return
+	}
+	target := req.Output
+	if overwriteInput {
+		temp, err := os.CreateTemp(filepath.Dir(req.Output), ".ayame-diff-csv-merge-*"+filepath.Ext(req.Output))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		target = temp.Name()
+		_ = temp.Close()
+		_ = os.Remove(target)
+		defer os.Remove(target)
+	}
+	cfg := csvConfig(req.csvRequest, target)
+	cfg.OutputFormat, cfg.OutputHeader = "tsv", req.HasHeader
+	cfg.Reconcile, cfg.MergeChoices, cfg.MergeDefault = true, req.Choices, req.DefaultChoice
+	cfg.AllowUnresolved = req.AllowUnresolved
+	if strings.HasSuffix(strings.TrimSuffix(strings.ToLower(req.Output), ".gz"), ".csv") {
+		cfg.OutputDelimiter = ','
+	} else {
+		cfg.OutputDelimiter = '\t'
+	}
+	summary, err := engine.Run(r.Context(), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if overwriteInput {
+		if runtime.GOOS == "windows" {
+			if err := os.Remove(req.Output); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if err := os.Rename(target, req.Output); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Output  string         `json:"output"`
+		Summary engine.Summary `json:"summary"`
+	}{req.Output, summary})
+}
+
+func pathsEqual(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	return errA == nil && errB == nil && filepath.Clean(aa) == filepath.Clean(bb)
 }
 
 func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {
@@ -676,6 +920,274 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		OldLabel: oldLabel, NewLabel: newLabel,
 		OldTime: pathModTime(req.Old), NewTime: pathModTime(req.New),
 	})
+}
+
+type textMergeRequest struct {
+	diffRequest
+	Output           string            `json:"output"`
+	Choices          map[string]string `json:"choices"`
+	DefaultChoice    string            `json:"defaultChoice"`
+	AllowUnresolved  bool              `json:"allowUnresolved"`
+	Overwrite        bool              `json:"overwrite"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite"`
+}
+
+func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req textMergeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Mode == "sorted" {
+		writeError(w, http.StatusBadRequest, "sorted comparisons cannot be merged back to the original order")
+		return
+	}
+	if !req.Inline && (req.Old == "" || req.New == "") {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
+		return
+	}
+	oldLines, newLines, closeLines, err := openRequestLines(req.diffRequest)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	window := req.Window
+	if window == 0 {
+		window = 128
+	}
+	options, err := requestDiffOptions(req.diffRequest, math.MaxInt, window)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result := linediff.DiffWith(oldLines, newLines, options)
+	choices := make(map[int]merge.Side, len(req.Choices))
+	for key, value := range req.Choices {
+		index, parseErr := strconv.Atoi(key)
+		if parseErr != nil || index < 0 || index >= len(result.Hunks) || (value != string(merge.Left) && value != string(merge.Right)) {
+			writeError(w, http.StatusBadRequest, "invalid merge choice "+key+"="+value)
+			return
+		}
+		choices[index] = merge.Side(value)
+	}
+	if req.DefaultChoice != "" {
+		if req.DefaultChoice != string(merge.Left) && req.DefaultChoice != string(merge.Right) {
+			writeError(w, http.StatusBadRequest, "defaultChoice must be left or right")
+			return
+		}
+		for index := range result.Hunks {
+			if _, set := choices[index]; !set {
+				choices[index] = merge.Side(req.DefaultChoice)
+			}
+		}
+	}
+	merged, err := merge.WriteText(oldLines, newLines, result, merge.TextOptions{
+		Output: req.Output, OldPath: req.Old, NewPath: req.New, Choices: choices,
+		AllowUnresolved: req.AllowUnresolved, Overwrite: req.Overwrite, ConfirmOverwrite: req.ConfirmOverwrite,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, merged)
+}
+
+type threeWayTextRequest struct {
+	diffRequest
+	Base             string            `json:"base"`
+	Output           string            `json:"output,omitempty"`
+	Choices          map[string]string `json:"choices,omitempty"`
+	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	Overwrite        bool              `json:"overwrite,omitempty"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
+}
+
+func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, linediff.Lines, func(), error) {
+	base, closeBase, err := openMode(req.Base, "text", req.Encoding, false, false)
+	if err != nil {
+		return nil, nil, nil, func() {}, fmt.Errorf("base: %w", err)
+	}
+	left, closeLeft, err := openMode(req.Old, "text", req.Encoding, false, false)
+	if err != nil {
+		closeBase()
+		return nil, nil, nil, func() {}, fmt.Errorf("left: %w", err)
+	}
+	right, closeRight, err := openMode(req.New, "text", req.Encoding, false, false)
+	if err != nil {
+		closeLeft()
+		closeBase()
+		return nil, nil, nil, func() {}, fmt.Errorf("right: %w", err)
+	}
+	return base, left, right, func() { closeRight(); closeLeft(); closeBase() }, nil
+}
+
+func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
+	if req.Base == "" || req.Old == "" || req.New == "" {
+		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, old/left, and new/right paths are required")
+	}
+	base, left, right, closeLines, err := openThreeWayText(req)
+	if err != nil {
+		return nil, threeway.Result{}, func() {}, err
+	}
+	window := req.Window
+	if window == 0 {
+		window = 128
+	}
+	options, err := requestDiffOptions(req.diffRequest, math.MaxInt, window)
+	if err != nil {
+		closeLines()
+		return nil, threeway.Result{}, func() {}, err
+	}
+	return base, threeway.Compare(base, left, right, options), closeLines, nil
+}
+
+func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	_, result, closeLines, err := threeWayTextResult(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	maxLines := req.MaxLines
+	if maxLines == 0 {
+		maxLines = 200
+	}
+	for i := range result.Events {
+		if uint64(len(result.Events[i].Base)) > maxLines {
+			result.Events[i].Base = result.Events[i].Base[:maxLines]
+		}
+		if uint64(len(result.Events[i].Left)) > maxLines {
+			result.Events[i].Left = result.Events[i].Left[:maxLines]
+		}
+		if uint64(len(result.Events[i].Right)) > maxLines {
+			result.Events[i].Right = result.Events[i].Right[:maxLines]
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if aliases := pathsEqual(req.Output, req.Base) || pathsEqual(req.Output, req.Old) || pathsEqual(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
+		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		return
+	}
+	base, result, closeLines, err := threeWayTextResult(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	choices := make(map[int]string, len(req.Choices))
+	for idText, side := range req.Choices {
+		id, parseErr := strconv.Atoi(idText)
+		if parseErr != nil || id < 0 || (side != "left" && side != "right" && side != "base") {
+			writeError(w, http.StatusBadRequest, "invalid conflict choice")
+			return
+		}
+		choices[id] = side
+	}
+	lines, unresolved, err := threeway.MergeLines(base, result, choices, req.AllowUnresolved)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := threeway.WriteMerged(req.Output, lines); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
+}
+
+type threeWayCSVRequest struct {
+	csvRequest
+	Base             string            `json:"base"`
+	Choices          map[string]string `json:"choices,omitempty"`
+	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	Overwrite        bool              `json:"overwrite,omitempty"`
+	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
+}
+
+func compareThreeWayCSV(r *http.Request, req threeWayCSVRequest) (threeway.CSVResult, error) {
+	if req.Base == "" || req.Old == "" || req.New == "" {
+		return threeway.CSVResult{}, fmt.Errorf("base, old/left, and new/right paths are required")
+	}
+	if req.KeyMode == "include" && len(req.KeyNames)+len(req.KeyIndexes) == 0 {
+		return threeway.CSVResult{}, fmt.Errorf("select at least one key column")
+	}
+	cfg := csvConfig(req.csvRequest, filepath.Join(os.TempDir(), "three-way-unused.tsv"))
+	return threeway.CompareCSV(r.Context(), req.Base, req.Old, req.New, cfg)
+}
+
+func (s *Server) handleThreeWayCSV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayCSVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	result, err := compareThreeWayCSV(r, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req threeWayCSVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Output) == "" {
+		writeError(w, http.StatusBadRequest, "output path is required")
+		return
+	}
+	if aliases := pathsEqual(req.Output, req.Base) || pathsEqual(req.Output, req.Old) || pathsEqual(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
+		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		return
+	}
+	result, err := compareThreeWayCSV(r, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	unresolved, err := threeway.WriteCSVMerge(req.Base, req.Output, result, req.Choices, req.AllowUnresolved)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
 }
 
 func pathModTime(path string) time.Time {

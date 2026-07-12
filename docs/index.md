@@ -24,6 +24,10 @@ dependency — no database, no CGO, no runtime to install.
   [Comparison options](comparison-options.md).
 - **Local web GUI** — `serve` and `gui` start an embedded single-page app so you
   can compare files in the browser. See [GUI](gui.md).
+- **Merge and reconcile** — choose either side per text hunk or keyed CSV row,
+  undo/redo decisions, and atomically save a new result. See [Merge](merge.md).
+- **Three-way comparison** — compare BASE / LEFT / RIGHT text or keyed CSV,
+  detect conflicts, resolve in three panes, and save. See [Three-way](three-way.md).
 - **Single binary** — cross-compiled for Linux, macOS and Windows.
 
 ## Install
@@ -36,6 +40,7 @@ from the [latest release](https://github.com/hjosugi/ayame-diff/releases/latest)
 - Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
 - macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
+- macOS double-click app: `ayame-diff-<version>-darwin-<arch>-app.zip`
 
 Each release ships a `SHA256SUMS` file so you can verify the download.
 
@@ -67,9 +72,14 @@ Open the browser GUI and pick a free local port automatically:
 ayame-diff gui
 ```
 
+For Explorer, Finder, Linux file managers, drag-and-drop, and bare `A B`
+invocations, see [File-manager and quick launch](shell-integration.md).
+
 !!! tip "Bare invocation defaults to `csv`"
     Running `ayame-diff --left A --right B --out D` with no subcommand behaves
-    exactly like `ayame-diff csv ...`, for backward compatibility.
+    exactly like `ayame-diff csv ...`, for backward compatibility. Running
+    `ayame-diff` with no arguments prints help and exits successfully, which
+    also lets portable package managers verify the installed command alias.
 
 ## Subcommands at a glance
 
@@ -90,6 +100,9 @@ ayame-diff text --help
 
 ## Links
 
+- [Ayame family design](design.md) and the sister
+  [ayame-editor](https://github.com/hjosugi/ayame-editor)
+- [Packaging, WinGet, signing, and release scanning](packaging.md)
 - [GitHub repository](https://github.com/hjosugi/ayame-diff)
 - [Latest release](https://github.com/hjosugi/ayame-diff/releases/latest)
 - [Changelog](https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md)

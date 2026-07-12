@@ -39,11 +39,14 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		{name: "sorted help", args: []string{"sorted", "--help"}, code: 0, stdout: "Sort both text files"},
 		{name: "dir help", args: []string{"dir", "--help"}, code: 0, stdout: "Recursively compare"},
 		{name: "bin help", args: []string{"bin", "--help"}, code: 0, stdout: "Byte-level"},
+		{name: "3way help", args: []string{"3way", "--help"}, code: 0, stdout: "common base"},
 		{name: "serve help", args: []string{"serve", "--help"}, code: 0, stdout: "local web UI"},
 		{name: "gui help", args: []string{"gui", "--help"}, code: 0, stdout: "open it in your browser"},
 		{name: "update help", args: []string{"update", "--help"}, code: 0, stdout: "latest release"},
 		{name: "remove help", args: []string{"remove", "--help"}, code: 0, stdout: "Uninstall"},
-		{name: "no arguments", code: 2, stderr: "no arguments given"},
+		{name: "shell install help", args: []string{"shell-install", "--help"}, code: 0, stdout: "file-manager"},
+		{name: "shell uninstall help", args: []string{"shell-uninstall", "--help"}, code: 0, stdout: "file-manager"},
+		{name: "no arguments", code: 0, stdout: "Subcommands:"},
 		{name: "parse error", args: []string{"--not-a-real-flag"}, code: 2, stderr: "flag provided but not defined"},
 		{name: "text missing paths", args: []string{"text", "only-one"}, code: 2, stderr: "needs exactly two paths"},
 		{name: "removed interactive mode", args: []string{"--interactive"}, code: 2, stderr: "interactive setup UI was removed"},
@@ -67,6 +70,36 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 				t.Errorf("stderr = %q, want empty", stderr.String())
 			}
 		})
+	}
+}
+
+func TestQuickLaunchArgs(t *testing.T) {
+	tests := []struct {
+		args  []string
+		paths []string
+		gui   bool
+		ok    bool
+	}{
+		{[]string{"old.txt", "new.txt"}, []string{"old.txt", "new.txt"}, false, true},
+		{[]string{"--gui", "old.txt", "new.txt"}, []string{"old.txt", "new.txt"}, true, true},
+		{[]string{"old.txt", "--gui"}, []string{"old.txt"}, true, true},
+		{[]string{"--gui", "--", "-old.txt", "-new.txt"}, []string{"-old.txt", "-new.txt"}, true, true},
+		{[]string{"text", "old.txt", "new.txt"}, nil, false, false},
+		{[]string{"--left", "old.csv"}, nil, false, false},
+	}
+	for _, tt := range tests {
+		paths, gui, ok := quickLaunchArgs(tt.args)
+		if !reflect.DeepEqual(paths, tt.paths) || gui != tt.gui || ok != tt.ok {
+			t.Errorf("quickLaunchArgs(%q) = %q, %v, %v", tt.args, paths, gui, ok)
+		}
+	}
+}
+
+func TestGUIQuickLaunchURL(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	got := guiLaunchURL("http://127.0.0.1:1/", []string{oldDir, newDir})
+	if !strings.Contains(got, "autorun=1") || !strings.Contains(got, "mode=dir") || !strings.Contains(got, "old=") || !strings.Contains(got, "new=") {
+		t.Fatalf("url=%s", got)
 	}
 }
 

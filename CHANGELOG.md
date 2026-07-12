@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.7.12 - 2026-07-12
+
+- Centralized text, CSV, project, and engine output writes behind a shared
+  atomic-write helper that stages a sibling file, syncs it, preserves requested
+  permissions, and cleans up safely on failure. (#71)
+- Added `clip:` / `clipboard:` pseudo paths to compare a file directly with the
+  desktop clipboard on macOS, Windows, Wayland, and X11, including `--pre`
+  preprocessing and deterministic backend fallback. (#76)
+- Added dependency-free, line-local syntax highlighting to the side-by-side GUI
+  for common source, data, markup, and log formats, with a persistent Japanese /
+  English display toggle and semantic theme colors. (#78)
+
+## v0.7.11 - 2026-07-12
+
+- Kept binary/hex comparison memory-bounded even for dense differences by
+  capping the retained bytes per region; `--max-bytes` now controls both
+  retention and display, and scanning still reports exact sizes and differing
+  byte totals after output truncation. (#68)
+- Added true recursive `**` glob matching for folder and archive include/exclude
+  filters, including zero-directory and deeply nested matches. (#69)
+- Protected archive comparison from oversized entries and decompression bombs
+  with configurable per-entry and per-archive expansion limits in both the CLI
+  and directory-diff API. (#70)
+
+## v0.7.10 - 2026-07-12
+
+- Made a no-argument invocation print help and exit successfully so WinGet and
+  other portable package managers can probe the installed command alias
+  without receiving a false application failure.
+- Added a pre-publication Windows package gate that extracts the exact release
+  ZIP, executes its x64 binary, verifies no-argument/help/version/text flows,
+  checks the ARM64 payload, and binds both WinGet manifest entries to the ZIP's
+  actual SHA-256. GitHub Releases are now created only after this gate passes.
+
+## v0.7.9 - 2026-07-12
+
+- Added two-way and three-way merge workflows for text and keyed CSV, including
+  per-hunk/per-row choices, undo/redo, conflict tracking, and safe result
+  writing.
+- Completed structured CSV comparison: cell-level results, full GUI setup,
+  pagination, tolerance and ignore controls, reusable project files, and
+  portable export settings.
+- Added applyable normal, context, and unified patch output with external
+  `patch`/`git apply` compatibility checks.
+- Expanded diff review in the GUI with first/previous/next/last navigation, a
+  location map, moved-block detection, sync points, and auditable ignored
+  hunks.
+- Completed scalable folder comparison and consolidated the record-processing
+  and CLI exit/stream pipelines; binary record buffers are now reused to reduce
+  allocation pressure.
+- Added native application icons and launchers, file-manager shell integration,
+  generated WinGet/Scoop/Homebrew metadata, and a VirusTotal release gate.
+- Unified GUI typography, the CJK-capable monospace stack, control radii, and
+  semantic color tokens with Ayame Editor. The colorblind scheme now keeps the
+  same translucent Ayame treatment instead of reverting to the legacy solid
+  palette. Added drift tests for the shared tokens. (#63, #64, #65, #66, #67)
+- Added a release gate requiring every pushed version tag to have an exact
+  CHANGELOG section, preventing the release notes drift found in #79.
+
 ## v0.7.8 - 2026-07-11
 
 - Web UI: **scratch / paste comparison** — toggle "paste text" to diff two

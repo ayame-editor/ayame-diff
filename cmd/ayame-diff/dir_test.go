@@ -23,3 +23,17 @@ func TestRunDirTSVAndDiffExitCode(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestRunDirValidatesArchiveLimits(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"--max-archive-entry-bytes", "0", "old", "new"},
+		{"--max-archive-entry-bytes", "2MiB", "--max-archive-bytes", "1MiB", "old", "new"},
+		{"--max-archive-bytes", "invalid", "old", "new"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := runDir(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "max-archive") {
+			t.Fatalf("args=%v code=%d stderr=%q", args, code, stderr.String())
+		}
+	}
+}

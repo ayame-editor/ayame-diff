@@ -69,7 +69,12 @@ nav:
   - Encoding: encoding.md
   - GUI: gui.md
   - GUI setup parity: gui-setup-parity.md
+  - File-manager integration: shell-integration.md
+  - Packaging and Windows trust: packaging.md
+  - Ayame family design: design.md
   - Comparison projects: projects.md
+  - Merge and reconcile: merge.md
+  - Three-way comparison: three-way.md
   - Comparison options: comparison-options.md
   - 日本語:
       - ホーム: ja/index.md

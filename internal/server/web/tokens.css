@@ -1,0 +1,44 @@
+/* Ayame family tokens. Source: ayame-editor/crates/ayame-cli/web/style.css.
+   Synced deliberately by review, not mechanically; layouts remain product-specific. */
+:root {
+  --ui: "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono CJK JP", "MS Gothic", monospace;
+  /* Shared Ayame type scale: editor chrome and diff data use the same 13px base. */
+  --fs-ui: 13px; --fs-data: 13px; --fs-label: 12px; --fs-caption: 11px;
+  /* Canonical family names; --panel/--muted remain compatibility aliases. */
+  --bg: #fbf8f1; --bg-elevated: #fdfcf8; --panel: var(--bg-elevated);
+  --fg: #2a2140; --fg-dim: #6e6383; --muted: var(--fg-dim);
+  --border: #e7e0d3; --accent: #7a5cc0; --accent-bright: #6a4cb0;
+  --danger: #c0506a; --gold: #c79a2e; --radius: 10px; --radius-control: 6px;
+  --on-accent: #fff; --modal-backdrop: rgb(0 0 0 / 0.45);
+  --shadow: 0 10px 30px rgb(42 33 64 / .10);
+  --add-bg: color-mix(in srgb, #39a66b 18%, transparent); --add-fg: #23794c;
+  --del-bg: color-mix(in srgb, var(--danger) 16%, transparent); --del-fg: #a33f58;
+  --chg-bg: color-mix(in srgb, var(--gold) 20%, transparent); --chg-fg: #76570e;
+  --word-add: color-mix(in srgb, #39a66b 35%, transparent); --word-del: color-mix(in srgb, var(--danger) 32%, transparent);
+  --move-bg: color-mix(in srgb, var(--accent) 16%, transparent); --move-fg: var(--accent-bright);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e; --bg-elevated: #252526; --fg: #d4d4d4; --fg-dim: #9a9a9a;
+    --border: #3c3c3c; --accent: #9b82d8; --accent-bright: #b49de6;
+    --danger: #f14c4c; --gold: #d9b45a; --shadow: 0 12px 34px rgb(0 0 0 / .35);
+    --add-fg: #66c991; --del-fg: #ff7b7b; --chg-fg: #e4c46d;
+  }
+}
+
+/* Colorblind-safe Ayame palette: the token structure and translucent washes
+   stay identical to the default scheme; only the red/green hues become
+   orange/blue. */
+:root[data-scheme="colorblind"] {
+  --add-bg: color-mix(in srgb, #2563eb 18%, transparent); --add-fg: #1d4ed8;
+  --del-bg: color-mix(in srgb, #ea580c 18%, transparent); --del-fg: #c2410c;
+  --chg-bg: color-mix(in srgb, var(--gold) 20%, transparent);
+  --word-add: color-mix(in srgb, #2563eb 35%, transparent);
+  --word-del: color-mix(in srgb, #ea580c 35%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="colorblind"] {
+    --add-fg: #93b4ff; --del-fg: #ff9b62;
+  }
+}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -136,6 +137,26 @@ func TestCSVInspectDiffAndFileBrowser(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "left.csv") {
 		t.Fatalf("files status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/path-info?path="+url.QueryEscape(dir), nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"directory":true`) {
+		t.Fatalf("path-info status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/drop?session=test&relative=dropped.txt", strings.NewReader("dropped content")))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("drop status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var dropped struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &dropped); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(dropped.Path)) })
+	if content, err := os.ReadFile(dropped.Path); err != nil || string(content) != "dropped content" {
+		t.Fatalf("drop content=%q err=%v", content, err)
+	}
 }
 
 func TestDirectoryDiffAPI(t *testing.T) {
@@ -155,6 +176,207 @@ func TestDirectoryDiffAPI(t *testing.T) {
 	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) || !strings.Contains(rec.Body.String(), `"added":1`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDirectoryDiffAPIRejectsOversizedArchiveEntry(t *testing.T) {
+	t.Parallel()
+	archivePath := filepath.Join(t.TempDir(), "large.zip")
+	archive, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(archive)
+	entry, err := zw.Create("large.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write(bytes.Repeat([]byte("x"), 2048)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := dirRequest{
+		Old: archivePath, New: t.TempDir(), Workers: 1,
+		MaxArchiveEntryBytes: "1KiB", MaxArchiveBytes: "4KiB",
+	}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "archive extraction limit exceeded") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTextMergeAPIIsAtomicAndPreservesInputs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath, newPath, output := filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt"), filepath.Join(dir, "merged.txt")
+	if err := os.WriteFile(oldPath, []byte("same\nold\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("same\nnew\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := textMergeRequest{diffRequest: diffRequest{Old: oldPath, New: newPath, Mode: "text", Window: 10}, Output: output, Choices: map[string]string{"0": "right"}}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unresolved":0`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	merged, err := os.ReadFile(output)
+	if err != nil || string(merged) != "same\nnew\n" {
+		t.Fatalf("merged=%q err=%v", merged, err)
+	}
+	old, _ := os.ReadFile(oldPath)
+	newer, _ := os.ReadFile(newPath)
+	if string(old) != "same\nold\n" || string(newer) != "same\nnew\n" {
+		t.Fatalf("inputs changed: old=%q new=%q", old, newer)
+	}
+
+	req.Choices = nil
+	req.Output = filepath.Join(dir, "rejected.txt")
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unresolved") {
+		t.Fatalf("unresolved status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(req.Output); !os.IsNotExist(err) {
+		t.Fatalf("rejected output exists: %v", err)
+	}
+}
+
+func TestCSVMergeAPIReconcilesRowsAndPreservesInputs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right, output := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	leftText, rightText := "id,name\n1,same\n2,left\n3,left-only\n", "id,name\n1,same\n2,right\n4,right-only\n"
+	if err := os.WriteFile(left, []byte(leftText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(right, []byte(rightText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestServer(t)
+	request := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}, MaxRows: 20}
+	body, _ := json.Marshal(request)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/csv/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var compared csvResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &compared); err != nil {
+		t.Fatal(err)
+	}
+	choices := make(map[string]string)
+	for _, difference := range compared.Differences {
+		if difference.ID == "" {
+			t.Fatal("CSV difference has no merge ID")
+		}
+		choices[difference.ID] = "right"
+	}
+	request.Output = output
+	mergeReq := csvMergeRequest{csvRequest: request, Choices: choices}
+	body, _ = json.Marshal(mergeReq)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []string{"1,same", "2,right", "4,right-only"} {
+		if !strings.Contains(string(data), row) {
+			t.Fatalf("merged missing %q: %s", row, data)
+		}
+	}
+	if strings.Contains(string(data), "left-only") {
+		t.Fatalf("merged retained rejected row: %s", data)
+	}
+	oldAfter, _ := os.ReadFile(left)
+	newAfter, _ := os.ReadFile(right)
+	if string(oldAfter) != leftText || string(newAfter) != rightText {
+		t.Fatalf("inputs changed: old=%q new=%q", oldAfter, newAfter)
+	}
+}
+
+func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt"), filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "base\ntail\n", left: "left\ntail\n", right: "right\ntail\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	req := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"conflicts":1`) {
+		t.Fatalf("compare status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	req.Output, req.Choices = output, map[string]string{"0": "right"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if string(data) != "right\ntail\n" {
+		t.Fatalf("merged=%q", data)
+	}
+}
+
+func TestThreeWayCSVCompareAndMergeAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	for path, value := range map[string]string{base: "id,v\n1,b\n", left: "id,v\n1,l\n", right: "id,v\n1,r\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	csvReq := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}}
+	req := threeWayCSVRequest{csvRequest: csvReq, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("compare status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var compared struct {
+		Events []struct {
+			ID string `json:"id"`
+		} `json:"events"`
+		Conflicts int `json:"conflicts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &compared); err != nil || compared.Conflicts != 1 || len(compared.Events) != 1 {
+		t.Fatalf("compared=%+v err=%v", compared, err)
+	}
+	req.Output, req.Choices = output, map[string]string{compared.Events[0].ID: "left"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if !strings.Contains(string(data), "1,l") {
+		t.Fatalf("merged=%s", data)
 	}
 }
 

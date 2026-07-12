@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,13 +15,14 @@ import (
 )
 
 type partitionStats struct {
-	EqualRows     uint64
-	LeftOnly      uint64
-	RightOnly     uint64
-	ChangedLeft   uint64
-	ChangedRight  uint64
-	DiffRows      uint64
-	ColumnChanges []uint64
+	EqualRows      uint64
+	LeftOnly       uint64
+	RightOnly      uint64
+	ChangedLeft    uint64
+	ChangedRight   uint64
+	DiffRows       uint64
+	UnresolvedRows uint64
+	ColumnChanges  []uint64
 }
 
 type diffKind string
@@ -33,10 +36,47 @@ type jsonCellChange struct {
 }
 
 type jsonRecordDiff struct {
+	ID             string           `json:"id"`
 	Kind           diffKind         `json:"kind"`
 	Old            []string         `json:"old,omitempty"`
 	New            []string         `json:"new,omitempty"`
 	ChangedColumns []jsonCellChange `json:"changed_columns,omitempty"`
+}
+
+type reconcileConfig struct {
+	enabled         bool
+	choices         map[string]string
+	defaultTo       string
+	delimiter       rune
+	allowUnresolved bool
+}
+
+func (r reconcileConfig) choice(id string) (string, bool) {
+	if side := r.choices[id]; side != "" {
+		return side, false
+	}
+	if r.defaultTo != "" {
+		return r.defaultTo, false
+	}
+	return "left", true
+}
+
+func recordDiffID(kind diffKind, oldRecord, newRecord *binRecord) string {
+	h := sha256.New()
+	h.Write([]byte(kind))
+	if oldRecord != nil {
+		h.Write([]byte{0})
+		h.Write(oldRecord.Key)
+		h.Write([]byte{0})
+		h.Write(oldRecord.Row)
+	}
+	if newRecord != nil {
+		h.Write([]byte{1})
+		h.Write(newRecord.Key)
+		h.Write([]byte{0})
+		h.Write(newRecord.Row)
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 const (
@@ -54,6 +94,7 @@ func (s *partitionStats) add(other partitionStats) {
 	s.ChangedLeft += other.ChangedLeft
 	s.ChangedRight += other.ChangedRight
 	s.DiffRows += other.DiffRows
+	s.UnresolvedRows += other.UnresolvedRows
 	if len(s.ColumnChanges) < len(other.ColumnChanges) {
 		s.ColumnChanges = append(s.ColumnChanges, make([]uint64, len(other.ColumnChanges)-len(s.ColumnChanges))...)
 	}
@@ -108,7 +149,7 @@ func (c *sortedCursor) captureKey() []byte {
 
 func (c *sortedCursor) close() error { return c.file.Close() }
 
-func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, header []string, keyIsFullRow bool, maxRecordBytes int64, comparison comparisonConfig, cellDiff bool, outputFormat string) (stats partitionStats, resultErr error) {
+func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath string, header []string, keyIsFullRow bool, maxRecordBytes int64, comparison comparisonConfig, cellDiff bool, outputFormat string, reconcile reconcileConfig) (stats partitionStats, resultErr error) {
 	columnCount := len(header)
 	left, err := openSortedCursor(leftPath, maxRecordBytes)
 	if err != nil {
@@ -136,6 +177,9 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 	buffer := bufio.NewWriterSize(out, ioBufferBytes)
 	writer := csv.NewWriter(buffer)
 	writer.Comma = '\t'
+	if reconcile.enabled {
+		writer.Comma = reconcile.delimiter
+	}
 	jsonWriter := json.NewEncoder(buffer)
 	defer func() {
 		if outputFormat == "tsv" {
@@ -164,6 +208,16 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		}
 		return decodeRow(encoded, columnCount, nil)
 	}
+	writeEqual := func(record binRecord) error {
+		if !reconcile.enabled {
+			return nil
+		}
+		fields, err := decodeRecord(record)
+		if err != nil {
+			return err
+		}
+		return writer.Write(fields)
+	}
 	changedNames := func(indexes []int) string {
 		names := make([]string, len(indexes))
 		for i, index := range indexes {
@@ -177,8 +231,27 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		if err != nil {
 			return err
 		}
-		if outputFormat == "jsonl" {
-			item := jsonRecordDiff{Kind: kind}
+		var id string
+		if side == diffLeft {
+			id = recordDiffID(kind, &record, nil)
+		} else {
+			id = recordDiffID(kind, nil, &record)
+		}
+		if reconcile.enabled {
+			choice, unresolved := reconcile.choice(id)
+			if unresolved {
+				if !reconcile.allowUnresolved {
+					return errors.New("CSV merge has unresolved rows")
+				}
+				stats.UnresolvedRows++
+			}
+			if (side == diffLeft && choice == "left") || (side == diffRight && choice == "right") {
+				if err := writer.Write(rowFields); err != nil {
+					return err
+				}
+			}
+		} else if outputFormat == "jsonl" {
+			item := jsonRecordDiff{ID: id, Kind: kind}
 			if side == diffLeft {
 				item.Old = rowFields
 			} else {
@@ -210,6 +283,29 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		return nil
 	}
 	writePair := func(leftRecord, rightRecord binRecord, changed []int) error {
+		if reconcile.enabled {
+			id := recordDiffID(diffChanged, &leftRecord, &rightRecord)
+			choice, unresolved := reconcile.choice(id)
+			if unresolved {
+				if !reconcile.allowUnresolved {
+					return errors.New("CSV merge has unresolved rows")
+				}
+				stats.UnresolvedRows++
+			}
+			record := leftRecord
+			if choice == "right" {
+				record = rightRecord
+			}
+			fields, err := decodeRecord(record)
+			if err != nil {
+				return err
+			}
+			if err := writer.Write(fields); err != nil {
+				return err
+			}
+			stats.DiffRows += 2
+			return nil
+		}
 		if outputFormat == "tsv" {
 			if err := writeDiff(diffChanged, diffLeft, leftRecord, changed); err != nil {
 				return err
@@ -224,7 +320,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		if err != nil {
 			return err
 		}
-		item := jsonRecordDiff{Kind: diffChanged, Old: oldFields, New: newFields}
+		item := jsonRecordDiff{ID: recordDiffID(diffChanged, &leftRecord, &rightRecord), Kind: diffChanged, Old: oldFields, New: newFields}
 		for _, index := range changed {
 			item.ChangedColumns = append(item.ChangedColumns, jsonCellChange{Index: index, Name: header[index], Old: oldFields[index], New: newFields[index]})
 		}
@@ -372,7 +468,11 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		}
 		unmatchedLeft, unmatchedRight := make([]int, 0), make([]int, 0)
 		for i := range leftGroup {
-			if matchLeft[i] < 0 {
+			if matchLeft[i] >= 0 {
+				if err := writeEqual(leftGroup[i].record); err != nil {
+					return err
+				}
+			} else {
 				unmatchedLeft = append(unmatchedLeft, i)
 			}
 		}
@@ -480,6 +580,9 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 					}
 				default:
 					stats.EqualRows++
+					if err := writeEqual(left.record); err != nil {
+						return stats, err
+					}
 					if err := left.advance(); err != nil {
 						return stats, err
 					}

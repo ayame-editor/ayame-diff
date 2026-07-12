@@ -3,19 +3,28 @@
 
 # Usage
 
-`ayame-diff` has three comparison subcommands plus two that launch the web GUI.
+`ayame-diff` provides comparison, web GUI, packaging, and maintenance commands.
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
 ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
 ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
+ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
+ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
 ayame-diff serve  [--addr host:port]                   # local web GUI
-ayame-diff gui    [--addr host:port] [--no-open]       # serve on a free port and open the browser
+ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
+ayame-diff shell-install                               # file-manager integration
+ayame-diff shell-uninstall                             # remove integration
 ```
 
 Invoking `ayame-diff` with `--left ... --right ...` and no subcommand runs as
 `csv` for backward compatibility. The `serve` and `gui` subcommands are covered
 in [GUI](gui.md).
+
+Two bare paths are a quick-launch form: files use `text`, directories use
+`dir`, and adding `--gui` opens and immediately runs the browser GUI. See
+[File-manager and quick launch](shell-integration.md).
 
 ---
 
@@ -158,6 +167,7 @@ reported as **Insert**, **Delete** and **Replace** hunks.
 
 ```bash
 ayame-diff text old.txt new.txt                 # unified (default)
+ayame-diff text clip: saved.txt                 # OS clipboard vs file
 ayame-diff text --side-by-side old.txt new.txt  # two-column (old | new)
 ayame-diff text --json old.txt new.txt          # machine-readable JSON
 ayame-diff text --summary old.txt new.txt       # one-line summary only
@@ -167,6 +177,11 @@ ayame-diff text --format normal old.txt new.txt > change.patch
 ayame-diff text --detect-moves --move-min-lines 2 old.txt new.txt
 ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 ```
+
+Use `clip:` (or `clipboard:`) as either input to compare directly against the
+OS clipboard. The CLI invokes `pbpaste` on macOS, PowerShell on Windows, and
+`wl-paste` or `xclip` on Linux without adding a runtime library dependency.
+Clipboard content can also pass through `--pre` like file and stdin input.
 
 ### Output formats
 
@@ -253,6 +268,10 @@ ayame-diff sorted --reverse a.txt b.txt
 equal-size candidates are streamed in parallel and compared byte-for-byte.
 `--quick` may trust equal size and mtime. Plain `.gz` files compare their
 decompressed content, while zip/tar/tar.gz archives compare as folder sources.
+Archive expansion is bounded to 64 MiB per selected entry and 256 MiB total per
+archive by default. Adjust these safeguards with `--max-archive-entry-bytes` and
+`--max-archive-bytes`; oversized or decompression-bomb inputs fail explicitly
+instead of exhausting process memory.
 
 ```bash
 ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/

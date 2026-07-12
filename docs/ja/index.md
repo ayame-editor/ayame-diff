@@ -25,7 +25,8 @@
   `--word` によるワード単位ハイライト、`--window` / `--max-hunks` によるリシンク
   制御。
 - **ローカル Web GUI** — `serve` と `gui` で埋め込みのシングルページアプリを起動し、
-  ブラウザ上でファイルを比較。
+  ブラウザ上でファイルを比較。一般的なソース、データ、マークアップ、ログ形式は、
+  表示中の差分行だけを軽量にシンタックスハイライトできます。
 - **単一バイナリ** — Linux、macOS、Windows 向けにクロスコンパイル。
 
 ## インストール
@@ -57,6 +58,14 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ayame-diff text old.txt new.txt
 ```
 
+`clip:`（または`clipboard:`）を入力に指定すると、OSクリップボードをファイルと
+直接比較できます。macOSでは`pbpaste`、WindowsではPowerShell、Linuxでは
+`wl-paste`または`xclip`を使用します。
+
+```bash
+ayame-diff text clip: saved.txt
+```
+
 2 つの CSV/TSV ファイルをキーで比較し、差分行を TSV に書き出します。
 
 ```bash
@@ -71,7 +80,9 @@ ayame-diff gui
 
 !!! tip "サブコマンドなしは `csv`"
     サブコマンドを付けずに `ayame-diff --left A --right B --out D` と実行すると、
-    後方互換のため `ayame-diff csv ...` と同じ動作になります。
+    後方互換のため `ayame-diff csv ...` と同じ動作になります。引数を一切付けずに
+    `ayame-diff` を実行した場合は、ヘルプを表示して正常終了します。portable package
+    manager によるインストール済み command alias の起動確認にも対応する動作です。
 
 ## サブコマンド一覧
 
