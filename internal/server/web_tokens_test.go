@@ -139,7 +139,7 @@ func TestPrimaryCompareAndInitialEmptyState(t *testing.T) {
 	if !strings.Contains(style, "#compare {") || !strings.Contains(style, "background: var(--accent)") {
 		t.Error("Compare must be the explicitly accented primary action")
 	}
-	for _, want := range []string{`lastComparedRequest`, `syncExportPatchVisibility`, `$("setup").addEventListener("input"`} {
+	for _, want := range []string{`lastComparedRequest`, `syncExportPatchVisibility`, `$("setup").addEventListener("input"`, `res.move_detection_skipped`, `moveDetectionSkipped`} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js missing %q", want)
 		}

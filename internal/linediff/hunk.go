@@ -71,5 +71,8 @@ type Result struct {
 	Modified     uint64
 	MovedBlocks  uint64
 	MovedLines   uint64
-	IgnoredHunks uint64
+	// MoveDetectionSkipped is true when move detection was requested but the
+	// retained hunk set was truncated, so a complete answer was impossible.
+	MoveDetectionSkipped bool
+	IgnoredHunks         uint64
 }

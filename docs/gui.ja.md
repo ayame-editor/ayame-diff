@@ -161,7 +161,7 @@ GUIは小さなJSON APIを通じた薄いクライアントです。直接呼び
 }
 ```
 
-各ハンクの`kind`は`Insert`、`Delete`、`Replace`のいずれかで、`old`/`new`配列に影響行が格納されます（`maxLines`により側ごとに制限）。エラーはHTTP 4xxステータスとともにJSON本文で返されます。
+各ハンクの`kind`は`Insert`、`Delete`、`Replace`のいずれかで、`old`/`new`配列に影響行が格納されます（`maxLines`により側ごとに制限）。移動検出を要求したもののハンク省略により完全な結果を出せない場合は、`move_detection_skipped: true`が追加されます。エラーはHTTP 4xxステータスとともにJSON本文で返されます。
 
 ```json
 { "error": "..." }

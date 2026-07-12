@@ -144,17 +144,18 @@ type jsonHunk struct {
 }
 
 type jsonResult struct {
-	OldLines     uint64     `json:"old_lines"`
-	NewLines     uint64     `json:"new_lines"`
-	Hunks        []jsonHunk `json:"hunks"`
-	HunkCount    uint64     `json:"hunk_count"`
-	OmittedHunks uint64     `json:"omitted_hunks"`
-	Added        uint64     `json:"added"`
-	Deleted      uint64     `json:"deleted"`
-	Modified     uint64     `json:"modified"`
-	MovedBlocks  uint64     `json:"moved_blocks,omitempty"`
-	MovedLines   uint64     `json:"moved_lines,omitempty"`
-	IgnoredHunks uint64     `json:"ignored_hunks,omitempty"`
+	OldLines             uint64     `json:"old_lines"`
+	NewLines             uint64     `json:"new_lines"`
+	Hunks                []jsonHunk `json:"hunks"`
+	HunkCount            uint64     `json:"hunk_count"`
+	OmittedHunks         uint64     `json:"omitted_hunks"`
+	Added                uint64     `json:"added"`
+	Deleted              uint64     `json:"deleted"`
+	Modified             uint64     `json:"modified"`
+	MovedBlocks          uint64     `json:"moved_blocks,omitempty"`
+	MovedLines           uint64     `json:"moved_lines,omitempty"`
+	MoveDetectionSkipped bool       `json:"move_detection_skipped,omitempty"`
+	IgnoredHunks         uint64     `json:"ignored_hunks,omitempty"`
 }
 
 func writeJSON(w io.Writer, res linediff.Result) error {
@@ -175,17 +176,18 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 		}
 	}
 	data, err := json.MarshalIndent(jsonResult{
-		OldLines:     res.OldLines,
-		NewLines:     res.NewLines,
-		Hunks:        hunks,
-		HunkCount:    res.HunkCount,
-		OmittedHunks: res.OmittedHunks,
-		Added:        res.Added,
-		Deleted:      res.Deleted,
-		Modified:     res.Modified,
-		MovedBlocks:  res.MovedBlocks,
-		MovedLines:   res.MovedLines,
-		IgnoredHunks: res.IgnoredHunks,
+		OldLines:             res.OldLines,
+		NewLines:             res.NewLines,
+		Hunks:                hunks,
+		HunkCount:            res.HunkCount,
+		OmittedHunks:         res.OmittedHunks,
+		Added:                res.Added,
+		Deleted:              res.Deleted,
+		Modified:             res.Modified,
+		MovedBlocks:          res.MovedBlocks,
+		MovedLines:           res.MovedLines,
+		MoveDetectionSkipped: res.MoveDetectionSkipped,
+		IgnoredHunks:         res.IgnoredHunks,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -389,6 +391,9 @@ func summaryLine(res linediff.Result) string {
 		group(res.HunkCount), group(res.Added), group(res.Deleted), group(res.Modified))
 	if res.MovedBlocks > 0 {
 		s += fmt.Sprintf(", %s moved block(s) / %s line(s)", group(res.MovedBlocks), group(res.MovedLines))
+	}
+	if res.MoveDetectionSkipped {
+		s += ", move detection skipped because hunks were omitted"
 	}
 	if res.IgnoredHunks > 0 {
 		s += fmt.Sprintf(", %s ignored hunk(s)", group(res.IgnoredHunks))

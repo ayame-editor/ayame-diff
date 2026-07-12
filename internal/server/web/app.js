@@ -31,6 +31,7 @@ const I18N = {
     syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
+    moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     comparing: "比較中…", noDiff: "差分はありません。",
     requiredField: (v) => `${v.field}を指定してください。`,
     requiredFields: (v) => `${v.fields.join("、")}を指定してください。`,
@@ -92,6 +93,7 @@ const I18N = {
     syncOrderError: "Sync points must increase on both sides.",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
+    moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     comparing: "Comparing…", noDiff: "No differences.",
     requiredField: (v) => `${v.field} is required.`,
     requiredFields: (v) => `${v.fields.join(" and ")} ${v.fields.length === 1 ? "is" : "are"} required.`,
@@ -397,6 +399,12 @@ function renderSummary(res) {
     stat("chg", t("modified"), res.modified),
   );
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
+  if (res.move_detection_skipped) {
+    const skipped = document.createElement("span");
+    skipped.className = "note";
+    skipped.textContent = t("moveDetectionSkipped");
+    el.append(skipped);
+  }
   if (ignoredHunks.size) el.append(stat("", t("ignored"), ignoredHunks.size));
 	const filters = activeFilters();
 	if (filters.length) {

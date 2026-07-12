@@ -841,17 +841,18 @@ type hunkOut struct {
 }
 
 type diffResponse struct {
-	OldLines     uint64    `json:"old_lines"`
-	NewLines     uint64    `json:"new_lines"`
-	Hunks        []hunkOut `json:"hunks"`
-	HunkCount    uint64    `json:"hunk_count"`
-	OmittedHunks uint64    `json:"omitted_hunks"`
-	Added        uint64    `json:"added"`
-	Deleted      uint64    `json:"deleted"`
-	Modified     uint64    `json:"modified"`
-	MovedBlocks  uint64    `json:"moved_blocks,omitempty"`
-	MovedLines   uint64    `json:"moved_lines,omitempty"`
-	IgnoredHunks uint64    `json:"ignored_hunks,omitempty"`
+	OldLines             uint64    `json:"old_lines"`
+	NewLines             uint64    `json:"new_lines"`
+	Hunks                []hunkOut `json:"hunks"`
+	HunkCount            uint64    `json:"hunk_count"`
+	OmittedHunks         uint64    `json:"omitted_hunks"`
+	Added                uint64    `json:"added"`
+	Deleted              uint64    `json:"deleted"`
+	Modified             uint64    `json:"modified"`
+	MovedBlocks          uint64    `json:"moved_blocks,omitempty"`
+	MovedLines           uint64    `json:"moved_lines,omitempty"`
+	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
+	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -1378,17 +1379,18 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		}
 	}
 	return diffResponse{
-		OldLines:     res.OldLines,
-		NewLines:     res.NewLines,
-		Hunks:        hunks,
-		HunkCount:    res.HunkCount,
-		OmittedHunks: res.OmittedHunks,
-		Added:        res.Added,
-		Deleted:      res.Deleted,
-		Modified:     res.Modified,
-		MovedBlocks:  res.MovedBlocks,
-		MovedLines:   res.MovedLines,
-		IgnoredHunks: res.IgnoredHunks,
+		OldLines:             res.OldLines,
+		NewLines:             res.NewLines,
+		Hunks:                hunks,
+		HunkCount:            res.HunkCount,
+		OmittedHunks:         res.OmittedHunks,
+		Added:                res.Added,
+		Deleted:              res.Deleted,
+		Modified:             res.Modified,
+		MovedBlocks:          res.MovedBlocks,
+		MovedLines:           res.MovedLines,
+		MoveDetectionSkipped: res.MoveDetectionSkipped,
+		IgnoredHunks:         res.IgnoredHunks,
 	}
 }
 
