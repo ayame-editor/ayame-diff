@@ -114,6 +114,38 @@ func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
 	}
 }
 
+func TestPrimaryCompareAndInitialEmptyState(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{
+		`id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" autofocus`,
+		`class="empty-state initial-empty"`,
+		`data-i18n="emptyDrop"`,
+		`id="exportPatch" type="button" data-i18n="exportPatch" hidden`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	navStart := strings.Index(index, `id="diffNav"`)
+	navEnd := strings.Index(index[navStart:], `</nav>`)
+	exportAt := strings.Index(index, `id="exportPatch"`)
+	if navStart < 0 || navEnd < 0 || exportAt < navStart || exportAt > navStart+navEnd {
+		t.Error("Export patch must live in the result navigation toolbar")
+	}
+	if !strings.Contains(style, "#compare {") || !strings.Contains(style, "background: var(--accent)") {
+		t.Error("Compare must be the explicitly accented primary action")
+	}
+	for _, want := range []string{`lastComparedRequest`, `syncExportPatchVisibility`, `$("setup").addEventListener("input"`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")

@@ -25,7 +25,7 @@
           </label>
           <label>
             <span>OLD</span>
-			<span class="path-control"><input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" /><button class="browse" data-target="old" type="button">…</button></span>
+			<span class="path-control"><input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button">…</button></span>
           </label>
           <label>
             <span>NEW</span>
@@ -99,9 +99,8 @@
             </select>
           </label>
           <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
-          <button id="exportPatch" type="button" data-i18n="exportPatch">Export patch</button>
-          <button id="compare" type="button" data-i18n="compare">Compare</button>
           <button id="cancel" type="button" class="cancel" data-i18n="cancel" hidden>Cancel</button>
+          <button id="compare" type="button" data-i18n="compare">Compare</button>
         </div>
 		<fieldset id="csvOptions" class="csv-options" hidden>
 		  <legend data-i18n="csvSetup">CSV / TSV setup</legend>
@@ -175,6 +174,7 @@
         <button id="addSync" type="button" data-i18n="addSync" disabled>Add sync</button>
         <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
         <button id="navHelp" type="button" class="nav-help" title="Keyboard shortcuts">?</button>
+        <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
       </nav>
       <section class="sync-panel" id="syncPanel" hidden>
         <strong data-i18n="syncPoints">Sync points</strong>
@@ -193,7 +193,13 @@
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
       <div class="diff-layout">
-        <section class="result" id="result"></section>
+        <section class="result" id="result">
+          <div class="empty-state initial-empty">
+            <strong data-i18n="emptyTitle">比較を始める</strong>
+            <p data-i18n="emptySteps">1. OLDを指定 → 2. NEWを指定 → 3. 比較</p>
+            <p data-i18n="emptyDrop">ファイルをこの画面へドロップしても比較できます。</p>
+          </div>
+        </section>
         <aside class="minimap" id="minimap" aria-label="Difference map" hidden>
           <div class="minimap-viewport" id="minimapViewport"></div>
         </aside>

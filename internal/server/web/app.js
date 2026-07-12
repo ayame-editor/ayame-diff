@@ -30,6 +30,9 @@ const I18N = {
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
+    emptyTitle: "比較を始める",
+    emptySteps: "1. OLDを指定 → 2. NEWを指定 → 3. 比較",
+    emptyDrop: "ファイルをこの画面へドロップしても比較できます。",
     enterPaths: "OLD と NEW のパスを入力してください。",
 	csvSetup: "CSV / TSV セットアップ", inspect: "ヘッダー検査", leftFormat: "左形式", rightFormat: "右形式",
 	leftParser: "左パーサー", rightParser: "右パーサー", leftDelimiter: "左区切り", rightDelimiter: "右区切り",
@@ -80,6 +83,9 @@ const I18N = {
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
+    emptyTitle: "Start a comparison",
+    emptySteps: "1. Choose OLD → 2. Choose NEW → 3. Compare",
+    emptyDrop: "You can also drop files anywhere on this screen to compare them.",
     enterPaths: "Enter both OLD and NEW paths.",
 	csvSetup: "CSV / TSV setup", inspect: "Inspect headers", leftFormat: "left format", rightFormat: "right format",
 	leftParser: "left parser", rightParser: "right parser", leftDelimiter: "left delimiter", rightDelimiter: "right delimiter",
@@ -180,6 +186,7 @@ let currentAbort = null;
 let showWS = false;
 let showSyntax = true;
 let lastData = null; // last diff response, for re-render on a display-option change
+let lastComparedRequest = null;
 let currentHunk = -1;
 let readHunks = new Set();
 let navObserver = null;
@@ -391,6 +398,7 @@ function renderResult(data) {
   const result = $("result");
   result.innerHTML = "";
   setupNavigation(data);
+  syncExportPatchVisibility();
   if (!data.hunks.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
@@ -491,11 +499,13 @@ function threeWayRequestBody() { return { ...requestBody(), base: $("base").valu
 function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) => row.join("\t")) : (value || []); }
 function renderThreeWay(data, csvMode) {
   threeWayData = { ...data, csvMode }; csvData = null;
+  lastComparedRequest = null;
   const summary = $("summary"); summary.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
   add(t("conflicts"), data.conflicts, "del"); add("left", data.left_only); add("right", data.right_only); add("same", data.same_change); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
+  syncExportPatchVisibility();
   setupNavigation(lastData);
   for (let index = 0; index < data.events.length; index++) {
     const event = data.events[index], box = document.createElement("section");
@@ -850,6 +860,8 @@ function renderCSVSummary(data) {
 function renderCSV(data) {
   csvData = data;
   lastData = null;
+  lastComparedRequest = null;
+  syncExportPatchVisibility();
   $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
   updateCSVMergeUI();
   renderCSVSummary(data);
@@ -983,7 +995,8 @@ function dirRequestBody() { return { old: $("old").value.trim(), new: $("new").v
 
 function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
-  csvData = null; lastData = null; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  csvData = null; lastData = null; lastComparedRequest = null; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  syncExportPatchVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
   for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${name}`); summary.append(item); } summary.hidden = false;
@@ -1023,6 +1036,9 @@ async function compare() {
   currentAbort = ac;
   $("compare").disabled = true;
   $("cancel").hidden = false;
+  lastData = null;
+  lastComparedRequest = null;
+  syncExportPatchVisibility();
   $("summary").hidden = true;
   $("result").innerHTML = "";
   const started = Date.now();
@@ -1040,6 +1056,7 @@ async function compare() {
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     setStatus("");
     lastData = data;
+    lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
     mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
@@ -1155,13 +1172,18 @@ function syncModeOpts() {
 	$("dirOptions").hidden = !directory;
 	$("scratch").closest("label").hidden = structured;
 	if (structured && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
-	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "exportPatch", "wrap", "syntax", "showWs"]) {
+	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "wrap", "syntax", "showWs"]) {
 		const node = $(id), holder = node?.closest("label") || node;
 		if (holder) holder.hidden = structured;
 	}
-	for (const id of ["patchFormat", "patchContext", "exportPatch", "detectMoves", "moveMinLines", "word"]) { const node = $(id), holder = node?.closest("label") || node; if (holder && threeway) holder.hidden = true; }
-	$("exportPatch").disabled = sorted || structured;
+	for (const id of ["patchFormat", "patchContext", "detectMoves", "moveMinLines", "word"]) { const node = $(id), holder = node?.closest("label") || node; if (holder && threeway) holder.hidden = true; }
+	syncExportPatchVisibility();
 	if (csv) updateCSVReview();
+}
+
+function syncExportPatchVisibility() {
+  const currentRequest = $("mode").value === "text" ? JSON.stringify(requestBody()) : null;
+  $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
 }
 
 function syncKeyMode() {
@@ -1307,6 +1329,8 @@ $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") await applyCSVProject(recentComparisons()[Number($("recentProjects").value)]); });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("setup").addEventListener("input", syncExportPatchVisibility);
+$("setup").addEventListener("change", syncExportPatchVisibility);
 $("keyMode").addEventListener("change", syncKeyMode);
 $("columnSearch").addEventListener("input", filterColumns);
 $("selectAllColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = true; }); updateCSVReview(); });
