@@ -11,6 +11,7 @@
   --border: #e7e0d3; --accent: #7a5cc0; --accent-bright: #6a4cb0;
   --danger: #c0506a; --gold: #c79a2e; --radius: 10px; --radius-control: 6px;
   --on-accent: #fff; --modal-backdrop: rgb(0 0 0 / 0.45);
+  --focus-ring: 2px solid var(--accent-bright); --focus-ring-offset: 2px;
   --shadow: 0 10px 30px rgb(42 33 64 / .10);
   --add-bg: color-mix(in srgb, #39a66b 18%, transparent); --add-fg: #23794c;
   --del-bg: color-mix(in srgb, var(--danger) 16%, transparent); --del-fg: #a33f58;

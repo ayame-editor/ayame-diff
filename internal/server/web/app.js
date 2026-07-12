@@ -280,7 +280,16 @@ function cell(cls, lineNo, node, side) {
     c.classList.add("selectable-line");
     c.dataset.side = side;
     c.dataset.line = String(lineNo - 1);
-    c.addEventListener("click", () => selectSyncLine(c));
+    c.tabIndex = 0;
+    c.setAttribute("role", "button");
+    c.setAttribute("aria-pressed", "false");
+    const select = () => selectSyncLine(c);
+    c.addEventListener("click", select);
+    c.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      select();
+    });
   }
   return c;
 }
@@ -700,16 +709,22 @@ function observeHunks() {
 
 function selectSyncLine(cell) {
   const side = cell.dataset.side;
-  document.querySelector(`.cell.sync-selected[data-side="${side}"]`)?.classList.remove("sync-selected");
+  const previous = document.querySelector(`.cell.sync-selected[data-side="${side}"]`);
+  previous?.classList.remove("sync-selected");
+  previous?.setAttribute("aria-pressed", "false");
   syncSelection[side] = Number(cell.dataset.line);
   cell.classList.add("sync-selected");
+  cell.setAttribute("aria-pressed", "true");
   $("addSync").disabled = syncSelection.old == null || syncSelection.new == null;
   if ($("addSync").disabled) setStatus(t("syncSelect"), "");
 }
 
 function resetSyncSelection() {
   syncSelection = { old: null, new: null };
-  document.querySelectorAll(".cell.sync-selected").forEach((cell) => cell.classList.remove("sync-selected"));
+  document.querySelectorAll(".cell.sync-selected").forEach((cell) => {
+    cell.classList.remove("sync-selected");
+    cell.setAttribute("aria-pressed", "false");
+  });
   $("addSync").disabled = true;
 }
 
@@ -759,7 +774,10 @@ function clearSyncPoints() {
 
 function setStatus(msg, cls) {
   const el = $("status");
-  if (!msg) { el.hidden = true; return; }
+  const error = cls === "error";
+  el.setAttribute("role", error ? "alert" : "status");
+  el.setAttribute("aria-live", error ? "assertive" : "polite");
+  if (!msg) { el.textContent = ""; el.hidden = true; return; }
   el.className = "status " + (cls || "");
   el.textContent = msg;
   el.hidden = false;
