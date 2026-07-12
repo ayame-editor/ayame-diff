@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](usage.md) | [日本語](usage.ja.md)
+
 # Usage
 
 `ayame-diff` provides comparison, web GUI, packaging, and maintenance commands.

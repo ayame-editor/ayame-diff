@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](index.md) | [日本語](ja/index.md)
+
 # ayame-diff
 
 A native command-line diff tool for **huge** CSV / TSV and text files.

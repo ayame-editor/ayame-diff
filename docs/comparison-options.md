@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](comparison-options.md) | [日本語](comparison-options.ja.md)
+
 # Comparison options
 
 The `text`, `sorted`, and `csv` subcommands share WinMerge-style comparison

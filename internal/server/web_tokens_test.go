@@ -75,6 +75,16 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
+func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	for _, want := range []string{`launch.has("base")`, `"threeway-csv"`, `launchReady`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js launch handling missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")

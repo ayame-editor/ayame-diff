@@ -1,4 +1,17 @@
+<!-- i18n: language-switcher -->
+[English](gui.md) | [日本語](gui.ja.md)
+
 # GUI
+
+## Screenshots
+
+| Setup | Side-by-side diff |
+|---|---|
+| [![Comparison setup](assets/screenshot-setup.png)](assets/screenshot-setup.png) | [![Syntax-highlighted diff](assets/screenshot-diff.png)](assets/screenshot-diff.png) |
+
+| Folder comparison | Three-way merge |
+|---|---|
+| [![Folder result tree](assets/screenshot-folder.png)](assets/screenshot-folder.png) | [![Three-way result](assets/screenshot-three-way.png)](assets/screenshot-three-way.png) |
 
 `ayame-diff` bundles a small local web app so you can compare files in the
 browser instead of the terminal. The single-page app is embedded in the binary,

@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](projects.md) | [日本語](projects.ja.md)
+
 # Comparison projects
 
 A `.ayamediff.json` project stores one repeatable CSV/TSV comparison. GUI and

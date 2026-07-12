@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](0003-encoding-dependency.en.md) | [日本語](0003-encoding-dependency.md)
+
 # ADR 0003: 文字コード対応と依存性の例外（golang.org/x/text）
 
 - ステータス: Accepted（2026-07-11）

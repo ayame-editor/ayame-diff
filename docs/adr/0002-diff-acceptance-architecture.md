@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](0002-diff-acceptance-architecture.en.md) | [日本語](0002-diff-acceptance-architecture.md)
+
 # ADR 0002: ayame-editor の diff / sortdiff 受け入れアーキテクチャ
 
 - ステータス: Accepted（2026-07-10）

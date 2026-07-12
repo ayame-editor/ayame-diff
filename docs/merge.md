@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](merge.md) | [日本語](merge.ja.md)
+
 # Merge and reconcile
 
 The local GUI can turn a comparison into a new merged file without modifying
@@ -36,4 +39,3 @@ other names use tab. Quoting is written with the standard CSV rules.
   is enabled and the second destructive confirmation is accepted.
 - Rejected, cancelled, or failed operations leave both inputs unchanged and do
   not publish a partial output.
-
