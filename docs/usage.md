@@ -277,12 +277,20 @@ instead of exhausting process memory.
 ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/
 ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
+ayame-diff dir --html folder-report.html old/ new/
+ayame-diff dir --csv folder-summary.csv --all old/ new/
 ```
 
 Dotfiles/directories are skipped unless `--hidden` is set. Symbolic links are
 always skipped, avoiding loops and ambiguous out-of-tree reads. TSV/JSON include
 status, relative path, sizes, and mtimes. In the GUI, choose **folder**, filter
 the status tree, and click a changed regular file to drill into text diff.
+
+`--html FILE` writes a self-contained light/dark tree report with status counts,
+paths, sizes, and modification times. `--csv FILE` writes the same entry fields
+as RFC 4180 CSV for downstream processing. Both write atomically; unchanged
+entries are omitted unless `--all` is set. These file outputs are mutually
+exclusive with `--json` and `--tsv`.
 
 ---
 

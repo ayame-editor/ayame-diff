@@ -216,9 +216,16 @@ ayame-diff sorted --reverse a.txt b.txt
 ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/
 ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
+ayame-diff dir --html folder-report.html old/ new/
+ayame-diff dir --csv folder-summary.csv --all old/ new/
 ```
 
 ドットファイルやディレクトリは`--hidden`を指定しない限りスキップされます。シンボリックリンクも常にスキップされ、ループや不明瞭なツリー外の読み込みを防ぎます。TSVやJSONには状態、相対パス、サイズ、mtimeが含まれます。GUIでは「フォルダ」を選び、状態ツリーをフィルタし、変更された通常ファイルをクリックしてテキスト差分を確認できます。
+
+`--html FILE` は状態別件数、パス、サイズ、更新時刻を含む、ライト/ダーク対応の
+自己完結ツリーレポートを書き出します。`--csv FILE` は同じ項目を後続処理向けの
+RFC 4180 CSV として書き出します。どちらもアトミックに保存し、`--all` がなければ
+同一項目を省略します。これらのファイル出力は `--json` / `--tsv` と同時指定できません。
 
 ---
 
