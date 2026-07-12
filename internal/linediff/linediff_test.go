@@ -24,6 +24,8 @@ func TestSplitLines(t *testing.T) {
 		{"a\nb\nc\n", []string{"a", "b", "c"}},
 		{"a\nb", []string{"a", "b"}},
 		{"a\r\nb\r\n", []string{"a", "b"}},
+		{"a\rb\rc", []string{"a", "b", "c"}},
+		{"a\rb\nc\r\nd", []string{"a", "b", "c", "d"}},
 		{"a\n\n", []string{"a", ""}},
 		{"\n", []string{""}},
 	}
@@ -42,14 +44,25 @@ func TestSplitLines(t *testing.T) {
 
 func TestSplitTextLinesPreservesTerminators(t *testing.T) {
 	t.Parallel()
-	lines := SplitTextLines("lf\ncrlf\r\nfinal")
-	if lines.Count() != 3 {
+	lines := SplitTextLines("lf\ncrlf\r\ncr\rfinal")
+	if lines.Count() != 4 {
 		t.Fatalf("count = %d", lines.Count())
 	}
-	for i, want := range []string{"\n", "\r\n", ""} {
+	for i, want := range []string{"\n", "\r\n", "\r", ""} {
 		if got := lines.LineEnding(uint64(i)); got != want {
 			t.Errorf("ending %d = %q, want %q", i, got, want)
 		}
+	}
+}
+
+func TestCROnlyDiffIsLineBased(t *testing.T) {
+	t.Parallel()
+	result := diffStrings(t, "a\rb\rc", "a\rb\rX", 200, 128)
+	if result.OldLines != 3 || result.NewLines != 3 || result.Modified != 1 || result.HunkCount != 1 {
+		t.Fatalf("CR-only diff = %+v", result)
+	}
+	if hunk := result.Hunks[0]; hunk.OldStart != 2 || hunk.NewStart != 2 || hunk.OldLen != 1 || hunk.NewLen != 1 {
+		t.Fatalf("CR-only hunk = %+v", hunk)
 	}
 }
 

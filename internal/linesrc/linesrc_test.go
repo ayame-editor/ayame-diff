@@ -81,11 +81,13 @@ func TestLineSemanticsMatchSplitLines(t *testing.T) {
 		{"single_line_no_newline", "hello"},
 		{"crlf", "a\r\nb\r\nc\r\n"},
 		{"crlf_no_trailing", "a\r\nb\r\nc"},
+		{"cr_only", "a\rb\rc\r"},
+		{"cr_only_no_trailing", "a\rb\rc"},
 		{"lone_newline", "\n"},
 		{"embedded_blank", "a\n\nb\n"},
 		{"only_blanks", "\n\n\n"},
 		{"leading_blank", "\n\na\n"},
-		{"mixed_endings", "a\r\nb\nc\r\n"},
+		{"mixed_endings", "a\r\nb\nc\rd\r\n"},
 		{"trailing_cr_no_newline", "a\r"},
 		{"unicode", "あいう\n😀\nmixed幅\n"},
 	}
@@ -103,21 +105,21 @@ func TestLineSemanticsMatchSplitLines(t *testing.T) {
 
 func TestFileLinesPreservesLineEndings(t *testing.T) {
 	t.Parallel()
-	path := writeFile(t, t.TempDir(), "mixed.txt", "lf\ncrlf\r\nfinal")
+	path := writeFile(t, t.TempDir(), "mixed.txt", "lf\ncrlf\r\ncr\rfinal")
 	lines, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lines.Close()
-	for i, want := range []string{"\n", "\r\n", ""} {
+	for i, want := range []string{"\n", "\r\n", "\r", ""} {
 		if got := lines.LineEnding(uint64(i)); got != want {
 			t.Errorf("ending %d = %q, want %q", i, got, want)
 		}
 	}
 }
 
-// TestLongLineExceedsReaderBuffer proves ReadString handles a line far larger
-// than the bufio buffer (a bufio.Scanner would fail here).
+// TestLongLineExceedsReaderBuffer proves lines far larger than the bufio buffer
+// work (a bufio.Scanner would fail here).
 func TestLongLineExceedsReaderBuffer(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", 5*readerBufSize+123)
@@ -125,6 +127,12 @@ func TestLongLineExceedsReaderBuffer(t *testing.T) {
 	dir := t.TempDir()
 	assertMatchesSplitLines(t, writeFile(t, dir, "long.txt", content), content)
 	assertMatchesSplitLines(t, writeFile(t, dir, "long.txt.gz", content), content)
+}
+
+func TestCRLFAtReaderBufferBoundary(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("x", readerBufSize-1) + "\r\ntail\r"
+	assertMatchesSplitLines(t, writeFile(t, t.TempDir(), "boundary.txt", content), content)
 }
 
 // TestRepeatedAndSequentialAccess covers cache hits and steady forward walking.

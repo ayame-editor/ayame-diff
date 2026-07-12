@@ -16,6 +16,7 @@ package linesrc
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
@@ -31,10 +32,68 @@ const (
 	// highWater is the buffer length that triggers a compaction back down to
 	// keepBehind, amortizing the shift cost to O(1) per line.
 	highWater = 2 * keepBehind
-	// readerBufSize sizes the bufio.Reader. Lines longer than this still work
-	// because ReadString accumulates across fills (unlike bufio.Scanner).
+	// readerBufSize sizes the bufio.Reader. Lines longer than this still work;
+	// universalLineReader accumulates bufio.ErrBufferFull fragments.
 	readerBufSize = 64 * 1024
 )
+
+// universalLineReader recognizes LF, CRLF, and lone CR without Scanner's token
+// limit. pending retains unread bytes when one buffered chunk contains several
+// CR-delimited lines.
+type universalLineReader struct {
+	reader  *bufio.Reader
+	pending []byte
+	eof     bool
+}
+
+func (u *universalLineReader) readLine() (string, string, bool, error) {
+	for {
+		if index := bytes.IndexAny(u.pending, "\r\n"); index >= 0 {
+			// A CR at the buffer boundary needs one more byte to distinguish CRLF.
+			if u.pending[index] == '\r' && index+1 == len(u.pending) && !u.eof {
+				if err := u.fill(); err != nil {
+					return "", "", false, err
+				}
+				continue
+			}
+			ending, width := "\n", 1
+			if u.pending[index] == '\r' {
+				ending = "\r"
+				if index+1 < len(u.pending) && u.pending[index+1] == '\n' {
+					ending, width = "\r\n", 2
+				}
+			}
+			line := string(u.pending[:index])
+			u.pending = u.pending[index+width:]
+			return line, ending, true, nil
+		}
+		if u.eof {
+			if len(u.pending) == 0 {
+				return "", "", false, nil
+			}
+			line := string(u.pending)
+			u.pending = nil
+			return line, "", true, nil
+		}
+		if err := u.fill(); err != nil {
+			return "", "", false, err
+		}
+	}
+}
+
+func (u *universalLineReader) fill() error {
+	chunk, err := u.reader.ReadSlice('\n')
+	u.pending = append(u.pending, chunk...)
+	switch err {
+	case nil, bufio.ErrBufferFull:
+		return nil
+	case io.EOF:
+		u.eof = true
+		return nil
+	default:
+		return err
+	}
+}
 
 // FileLines serves the lines of a file to linediff.Lines with bounded memory.
 // It is not safe for concurrent use.
@@ -47,7 +106,7 @@ type FileLines struct {
 	// Streaming state. reader is positioned just past line index next-1.
 	file   *os.File
 	gz     *gzip.Reader
-	reader *bufio.Reader
+	reader *universalLineReader
 	eof    bool
 
 	// Sliding window: buf holds line indexes [bufStart, next). Lines below
@@ -208,22 +267,14 @@ func (f *FileLines) readLine() (string, string, bool) {
 	if f.eof {
 		return "", "", false
 	}
-	chunk, err := f.reader.ReadString('\n')
+	line, ending, ok, err := f.reader.readLine()
 	if err != nil {
 		f.eof = true
 	}
-	// A trailing empty chunk (input ended exactly on a newline, or was empty)
-	// is not a line, matching SplitLines dropping the final empty field.
-	if len(chunk) == 0 {
+	if !ok {
 		return "", "", false
 	}
-	ending := ""
-	if strings.HasSuffix(chunk, "\r\n") {
-		ending = "\r\n"
-	} else if strings.HasSuffix(chunk, "\n") {
-		ending = "\n"
-	}
-	return normalizeLine(chunk), ending, true
+	return line, ending, true
 }
 
 // skipUTF8BOM discards a leading UTF-8 byte-order mark (EF BB BF) if present, so
@@ -239,14 +290,6 @@ func skipUTF8BOM(br *bufio.Reader) error {
 		_, _ = br.Discard(3)
 	}
 	return nil
-}
-
-// normalizeLine strips the line's trailing "\n" and then a single trailing
-// "\r", exactly as linediff.SplitLines trims each field.
-func normalizeLine(chunk string) string {
-	chunk = strings.TrimSuffix(chunk, "\n")
-	chunk = strings.TrimSuffix(chunk, "\r")
-	return chunk
 }
 
 // countLines counts lines using the same emit rule as readLine, in one pass,
@@ -272,18 +315,17 @@ func countLines(path string, gzipped bool, enc string) (uint64, error) {
 		return 0, err
 	}
 
+	reader := &universalLineReader{reader: br}
 	var count uint64
 	for {
-		chunk, err := br.ReadString('\n')
-		if len(chunk) > 0 {
-			count++
-		}
+		_, _, ok, err := reader.readLine()
 		if err != nil {
-			if err == io.EOF {
-				return count, nil
-			}
 			return 0, err
 		}
+		if !ok {
+			return count, nil
+		}
+		count++
 	}
 }
 
@@ -307,11 +349,12 @@ func (f *FileLines) reset() error {
 	}
 	f.file = file
 	f.gz = gz
-	f.reader = bufio.NewReaderSize(encoding.Decoder(r, f.encoding), readerBufSize)
-	if err := skipUTF8BOM(f.reader); err != nil {
+	reader := bufio.NewReaderSize(encoding.Decoder(r, f.encoding), readerBufSize)
+	if err := skipUTF8BOM(reader); err != nil {
 		file.Close()
 		return err
 	}
+	f.reader = &universalLineReader{reader: reader}
 	f.buf = nil
 	f.endings = nil
 	f.bufStart = 0
