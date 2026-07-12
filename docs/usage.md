@@ -164,6 +164,7 @@ reported as **Insert**, **Delete** and **Replace** hunks.
 
 ```bash
 ayame-diff text old.txt new.txt                 # unified (default)
+ayame-diff text clip: saved.txt                 # OS clipboard vs file
 ayame-diff text --side-by-side old.txt new.txt  # two-column (old | new)
 ayame-diff text --json old.txt new.txt          # machine-readable JSON
 ayame-diff text --summary old.txt new.txt       # one-line summary only
@@ -173,6 +174,11 @@ ayame-diff text --format normal old.txt new.txt > change.patch
 ayame-diff text --detect-moves --move-min-lines 2 old.txt new.txt
 ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 ```
+
+Use `clip:` (or `clipboard:`) as either input to compare directly against the
+OS clipboard. The CLI invokes `pbpaste` on macOS, PowerShell on Windows, and
+`wl-paste` or `xclip` on Linux without adding a runtime library dependency.
+Clipboard content can also pass through `--pre` like file and stdin input.
 
 ### Output formats
 
