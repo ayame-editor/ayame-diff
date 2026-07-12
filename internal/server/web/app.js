@@ -434,7 +434,7 @@ function renderResult(data) {
   syncExportPatchVisibility();
   if (!data.hunks.length) {
     const empty = document.createElement("div");
-    empty.className = "empty-state";
+    empty.className = "empty-state result-empty";
     empty.textContent = t("noDiff");
     result.append(empty);
     return;
@@ -553,7 +553,7 @@ function renderThreeWay(data, csvMode) {
     for (const [name, values] of [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]]) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
     box.append(head, grid); result.append(box);
   }
-  if (!data.events.length) { const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = t("noDiff"); result.append(empty); }
+  if (!data.events.length) { const empty = document.createElement("div"); empty.className = "empty-state result-empty"; empty.textContent = t("noDiff"); result.append(empty); }
   observeHunks(); updateThreeWayMergeUI(); updateMinimapViewport();
 }
 function updateThreeWayMergeUI() {
@@ -908,7 +908,7 @@ function renderCSV(data) {
   updateCSVMergeUI();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
-  if (!data.differences.length) { const empty = document.createElement("div"); empty.className = "empty-state"; empty.textContent = t("csvNoDiff"); result.append(empty); return; }
+  if (!data.differences.length) { const empty = document.createElement("div"); empty.className = "empty-state result-empty"; empty.textContent = t("csvNoDiff"); result.append(empty); return; }
   const changedSet = new Set((data.summary.column_changes || []).map((column) => column.index));
   const columns = data.header.map((_, index) => index).filter((index) => !$("changedColumnsOnly").checked || changedSet.has(index));
   const pageCount = Math.max(1, Math.ceil(data.differences.length / CSV_PAGE_SIZE));

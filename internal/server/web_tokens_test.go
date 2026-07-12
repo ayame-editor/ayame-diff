@@ -52,6 +52,35 @@ func TestWebStylesUseAyameTokens(t *testing.T) {
 	}
 }
 
+func TestSelectionBusyAndResultEmptyStatesAreConsistent(t *testing.T) {
+	t.Parallel()
+	tokens := readWebAsset(t, "tokens.css")
+	style := readWebAsset(t, "style.css")
+	app := readWebAsset(t, "app.js")
+
+	if !strings.Contains(tokens, "--selection-ring-width: 2px") {
+		t.Error("selection ring width token is missing")
+	}
+	for _, selector := range []string{
+		".hunk.current { outline: var(--selection-ring-width)",
+		".minimap-marker.current { outline: var(--selection-ring-width)",
+		".cell.sync-selected { outline: var(--selection-ring-width)",
+		"border: var(--selection-ring-width) solid var(--accent)",
+	} {
+		if !strings.Contains(style, selector) {
+			t.Errorf("selection style missing %q", selector)
+		}
+	}
+	for _, want := range []string{".status.busy::before", "@keyframes status-spin", "prefers-reduced-motion: reduce"} {
+		if !strings.Contains(style, want) {
+			t.Errorf("busy status style missing %q", want)
+		}
+	}
+	if strings.Count(app, `empty.className = "empty-state result-empty"`) != 3 {
+		t.Error("text, CSV, and three-way empty results must use the result card")
+	}
+}
+
 func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
