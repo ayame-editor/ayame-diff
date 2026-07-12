@@ -32,6 +32,10 @@ type Result struct {
 type Options struct {
 	// MaxRegions caps how many differing regions are kept (0 => 256).
 	MaxRegions int
+	// MaxRegionBytes caps the bytes retained on either side of one region
+	// (0 => 32). Dense differences are split into bounded regions, so retained
+	// data never grows with the input file size.
+	MaxRegionBytes int
 	// Coalesce merges differing runs separated by fewer than this many equal
 	// bytes into one region, so a scattered edit reads as one block (0 => 16).
 	Coalesce int
@@ -41,6 +45,9 @@ type Options struct {
 func Compare(oldPath, newPath string, opts Options) (*Result, error) {
 	if opts.MaxRegions <= 0 {
 		opts.MaxRegions = 256
+	}
+	if opts.MaxRegionBytes <= 0 {
+		opts.MaxRegionBytes = 32
 	}
 	if opts.Coalesce <= 0 {
 		opts.Coalesce = 16
@@ -55,14 +62,6 @@ func Compare(oldPath, newPath string, opts Options) (*Result, error) {
 		return nil, err
 	}
 	defer fb.Close()
-	if fi, err := fa.Stat(); err == nil {
-		if fj, err := fb.Stat(); err == nil {
-			// sizes filled below via counters too, but stat gives the totals
-			_ = fi
-			_ = fj
-		}
-	}
-
 	ra := bufio.NewReaderSize(fa, 64*1024)
 	rb := bufio.NewReaderSize(fb, 64*1024)
 
@@ -88,37 +87,36 @@ func Compare(oldPath, newPath string, opts Options) (*Result, error) {
 		differ := aEnd || bEnd || ba != bb
 		if differ {
 			res.TotalDiffBytes++
-			if cur != nil && gap > opts.Coalesce {
+			if cur != nil && (gap > opts.Coalesce || regionBytes(cur) >= opts.MaxRegionBytes) {
 				res.finish(cur)
 				cur = nil
 			}
 			if cur == nil {
 				if len(res.Regions) >= opts.MaxRegions {
 					res.Truncated = true
-					// keep scanning only to compute sizes/total from here on
-					if !aEnd {
-						res.OldSize++
-					}
-					if !bEnd {
-						res.NewSize++
-					}
-					continue
+				} else {
+					cur = &Region{Offset: offset}
 				}
-				cur = &Region{Offset: offset}
 			}
-			if !aEnd {
+			if cur != nil && !aEnd {
 				cur.Old = append(cur.Old, ba)
 			}
-			if !bEnd {
+			if cur != nil && !bEnd {
 				cur.New = append(cur.New, bb)
 			}
 			gap = 0
 		} else if cur != nil {
-			// equal byte inside/after a region: extend both sides so the region
-			// stays contiguous until Coalesce equal bytes end it.
-			cur.Old = append(cur.Old, ba)
-			cur.New = append(cur.New, bb)
-			gap++
+			if regionBytes(cur) >= opts.MaxRegionBytes {
+				res.finish(cur)
+				cur = nil
+				gap = 0
+			} else {
+				// equal byte inside/after a region: extend both sides so the region
+				// stays contiguous until Coalesce equal bytes end it.
+				cur.Old = append(cur.Old, ba)
+				cur.New = append(cur.New, bb)
+				gap++
+			}
 		}
 
 		if !aEnd {
@@ -134,6 +132,10 @@ func Compare(oldPath, newPath string, opts Options) (*Result, error) {
 	}
 	res.Equal = res.TotalDiffBytes == 0 && res.OldSize == res.NewSize
 	return res, nil
+}
+
+func regionBytes(reg *Region) int {
+	return max(len(reg.Old), len(reg.New))
 }
 
 // finish trims trailing equal bytes (from Coalesce look-ahead) off a region and

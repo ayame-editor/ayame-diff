@@ -6,7 +6,9 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +18,7 @@ import (
 )
 
 // source is a comparable tree of files with content, backed by either a
-// directory on disk or an archive read into memory.
+// directory on disk or a size-bounded archive held in memory.
 type source interface {
 	// files returns rel-slash-path -> size for the regular files.
 	files() (map[string]fileMeta, error)
@@ -35,7 +37,8 @@ func (d dirSource) open(rel string) (io.ReadCloser, error) {
 	return os.Open(filepath.Join(d.root, filepath.FromSlash(rel)))
 }
 
-// archiveSource holds an archive's entries in memory (uncompressed).
+// archiveSource holds an archive's selected entries in memory (uncompressed).
+// loadArchive enforces per-entry and aggregate limits before returning one.
 type archiveSource struct {
 	content map[string]archiveEntry
 }
@@ -70,9 +73,10 @@ func makeSource(path string, opts Options) (source, error) {
 }
 
 // loadArchive reads a .zip / .tar / .tar.gz / .tgz into an archiveSource,
-// honoring the exclude patterns. Contents are held in memory.
+// honoring filters and strict per-entry and aggregate expansion limits.
 func loadArchive(path string, opts Options) (source, error) {
 	content := map[string]archiveEntry{}
+	var expandedBytes int64
 	lower := strings.ToLower(path)
 
 	if strings.HasSuffix(lower, ".zip") {
@@ -93,10 +97,18 @@ func loadArchive(path string, opts Options) (source, error) {
 			if err != nil {
 				return nil, err
 			}
-			b, err := io.ReadAll(rc)
-			rc.Close()
+			declaredSize := int64(f.UncompressedSize64)
+			if f.UncompressedSize64 > math.MaxInt64 {
+				rc.Close()
+				return nil, archiveLimitError(rel, "entry", math.MaxInt64, opts)
+			}
+			b, err := readArchiveEntry(rc, rel, declaredSize, &expandedBytes, opts)
+			closeErr := rc.Close()
 			if err != nil {
 				return nil, err
+			}
+			if closeErr != nil {
+				return nil, closeErr
 			}
 			content[rel] = archiveEntry{data: b, modTime: f.Modified}
 		}
@@ -133,7 +145,7 @@ func loadArchive(path string, opts Options) (source, error) {
 		if (!opts.IncludeHidden && hiddenPath(rel)) || excluded(rel, filepath.Base(rel), opts.Excludes) || (len(opts.Includes) > 0 && !matched(rel, filepath.Base(rel), opts.Includes)) {
 			continue
 		}
-		b, err := io.ReadAll(tr)
+		b, err := readArchiveEntry(tr, rel, h.Size, &expandedBytes, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -142,9 +154,61 @@ func loadArchive(path string, opts Options) (source, error) {
 	return archiveSource{content}, nil
 }
 
+func archiveLimits(opts Options) (entry, total int64) {
+	entry = opts.MaxArchiveEntryBytes
+	if entry <= 0 {
+		entry = DefaultMaxArchiveEntryBytes
+	}
+	total = opts.MaxArchiveBytes
+	if total <= 0 {
+		total = DefaultMaxArchiveBytes
+	}
+	return entry, total
+}
+
+func readArchiveEntry(r io.Reader, name string, declaredSize int64, expandedBytes *int64, opts Options) ([]byte, error) {
+	entryLimit, totalLimit := archiveLimits(opts)
+	if declaredSize < 0 || declaredSize > entryLimit {
+		return nil, archiveLimitError(name, "entry", declaredSize, opts)
+	}
+	remaining := totalLimit - *expandedBytes
+	if remaining < 0 || declaredSize > remaining {
+		return nil, archiveLimitError(name, "total", *expandedBytes+declaredSize, opts)
+	}
+	readLimit := min(entryLimit, remaining)
+	limitWithSentinel := readLimit
+	if limitWithSentinel < math.MaxInt64 {
+		limitWithSentinel++
+	}
+	data, err := io.ReadAll(io.LimitReader(r, limitWithSentinel))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > entryLimit {
+		return nil, archiveLimitError(name, "entry", int64(len(data)), opts)
+	}
+	if int64(len(data)) > remaining {
+		return nil, archiveLimitError(name, "total", *expandedBytes+int64(len(data)), opts)
+	}
+	*expandedBytes += int64(len(data))
+	return data, nil
+}
+
+func archiveLimitError(name, kind string, size int64, opts Options) error {
+	entryLimit, totalLimit := archiveLimits(opts)
+	limit := entryLimit
+	if kind == "total" {
+		limit = totalLimit
+	}
+	if kind == "total" {
+		return fmt.Errorf("%w: archive would expand to %d bytes after %q (total limit %d bytes)", ErrArchiveLimit, size, name, limit)
+	}
+	return fmt.Errorf("%w: entry %q expands to %d bytes (entry limit %d bytes)", ErrArchiveLimit, name, size, limit)
+}
+
 // CompareAny compares two paths, each a directory or a supported archive
 // (.zip / .tar / .tar.gz / .tgz), so archives compare like folders. Archive
-// contents are read into memory.
+// selected contents are held in memory within Options' expansion limits.
 func CompareAny(oldPath, newPath string, opts Options) (*Result, error) {
 	oldSrc, err := makeSource(oldPath, opts)
 	if err != nil {

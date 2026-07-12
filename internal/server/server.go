@@ -175,13 +175,15 @@ func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 type dirRequest struct {
-	Old      string   `json:"old"`
-	New      string   `json:"new"`
-	Includes []string `json:"includes"`
-	Excludes []string `json:"excludes"`
-	Hidden   bool     `json:"hidden"`
-	Quick    bool     `json:"quick"`
-	Workers  int      `json:"workers"`
+	Old                  string   `json:"old"`
+	New                  string   `json:"new"`
+	Includes             []string `json:"includes"`
+	Excludes             []string `json:"excludes"`
+	Hidden               bool     `json:"hidden"`
+	Quick                bool     `json:"quick"`
+	Workers              int      `json:"workers"`
+	MaxArchiveEntryBytes string   `json:"maxArchiveEntryBytes"`
+	MaxArchiveBytes      string   `json:"maxArchiveBytes"`
 }
 type dirEntryResponse struct {
 	Path     string `json:"path"`
@@ -202,7 +204,16 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
 		return
 	}
-	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden, Quick: req.Quick, Workers: req.Workers})
+	entryLimit, totalLimit, err := parseArchiveLimits(req.MaxArchiveEntryBytes, req.MaxArchiveBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{
+		Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden,
+		Quick: req.Quick, Workers: req.Workers,
+		MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -218,6 +229,35 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		Same    int                `json:"same"`
 		Entries []dirEntryResponse `json:"entries"`
 	}{result.Added, result.Removed, result.Changed, result.Same, entries})
+}
+
+func parseArchiveLimits(entryText, totalText string) (int64, int64, error) {
+	entryLimit := dircompare.DefaultMaxArchiveEntryBytes
+	totalLimit := dircompare.DefaultMaxArchiveBytes
+	for _, item := range []struct {
+		name string
+		text string
+		out  *int64
+	}{
+		{"maxArchiveEntryBytes", strings.TrimSpace(entryText), &entryLimit},
+		{"maxArchiveBytes", strings.TrimSpace(totalText), &totalLimit},
+	} {
+		if item.text == "" {
+			continue
+		}
+		value, err := engine.ParseByteSize(item.text)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%s: %w", item.name, err)
+		}
+		if value < 1 {
+			return 0, 0, fmt.Errorf("%s must be at least 1 byte", item.name)
+		}
+		*item.out = value
+	}
+	if entryLimit > totalLimit {
+		return 0, 0, fmt.Errorf("maxArchiveEntryBytes cannot exceed maxArchiveBytes")
+	}
+	return entryLimit, totalLimit, nil
 }
 
 func formatTime(value time.Time) string {

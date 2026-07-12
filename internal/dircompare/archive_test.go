@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +108,49 @@ func TestIsArchive(t *testing.T) {
 		if IsArchive(p) {
 			t.Fatalf("%s should not be an archive", p)
 		}
+	}
+}
+
+func TestArchiveEntryExpansionLimit(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"bomb.bin": strings.Repeat("x", 2048)}
+	archives := []string{makeZip(t, files), makeTarGz(t, files)}
+	for _, archive := range archives {
+		_, err := loadArchive(archive, Options{MaxArchiveEntryBytes: 1024, MaxArchiveBytes: 4096})
+		if !errors.Is(err, ErrArchiveLimit) || !strings.Contains(err.Error(), "bomb.bin") || !strings.Contains(err.Error(), "entry limit 1024 bytes") {
+			t.Fatalf("archive=%s err=%v", archive, err)
+		}
+	}
+}
+
+func TestArchiveTotalExpansionLimit(t *testing.T) {
+	t.Parallel()
+	archive := makeZip(t, map[string]string{
+		"one.bin": strings.Repeat("1", 800),
+		"two.bin": strings.Repeat("2", 800),
+	})
+	_, err := loadArchive(archive, Options{MaxArchiveEntryBytes: 1024, MaxArchiveBytes: 1200})
+	if !errors.Is(err, ErrArchiveLimit) || !strings.Contains(err.Error(), "total limit 1200 bytes") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestArchiveLimitsApplyAfterFilters(t *testing.T) {
+	t.Parallel()
+	archive := makeZip(t, map[string]string{
+		"keep.txt": "small",
+		"skip.bin": strings.Repeat("x", 2048),
+	})
+	source, err := loadArchive(archive, Options{
+		Includes:             []string{"**/*.txt"},
+		MaxArchiveEntryBytes: 16,
+		MaxArchiveBytes:      16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := source.files()
+	if err != nil || len(files) != 1 || files["keep.txt"].Size != 5 {
+		t.Fatalf("files=%v err=%v", files, err)
 	}
 }

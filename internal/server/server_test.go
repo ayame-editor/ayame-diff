@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -174,6 +175,40 @@ func TestDirectoryDiffAPI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"changed":1`) || !strings.Contains(rec.Body.String(), `"added":1`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDirectoryDiffAPIRejectsOversizedArchiveEntry(t *testing.T) {
+	t.Parallel()
+	archivePath := filepath.Join(t.TempDir(), "large.zip")
+	archive, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(archive)
+	entry, err := zw.Create("large.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write(bytes.Repeat([]byte("x"), 2048)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := dirRequest{
+		Old: archivePath, New: t.TempDir(), Workers: 1,
+		MaxArchiveEntryBytes: "1KiB", MaxArchiveBytes: "4KiB",
+	}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "archive extraction limit exceeded") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

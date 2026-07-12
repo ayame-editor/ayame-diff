@@ -18,7 +18,7 @@ func runBin(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var maxRegions, maxBytes int
 	fs.IntVar(&maxRegions, "max-regions", 256, "maximum differing regions to print")
-	fs.IntVar(&maxBytes, "max-bytes", 32, "maximum bytes of hex shown per region side")
+	fs.IntVar(&maxBytes, "max-bytes", 32, "maximum bytes retained and shown per region side")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff bin [flags] OLD NEW
 
@@ -39,8 +39,16 @@ memory-bounded on large inputs.`)
 		fmt.Fprintln(stderr, "error: bin needs exactly two files: OLD NEW")
 		return 2
 	}
+	if maxRegions < 1 {
+		fmt.Fprintln(stderr, "error: --max-regions must be at least 1")
+		return 2
+	}
+	if maxBytes < 1 {
+		fmt.Fprintln(stderr, "error: --max-bytes must be at least 1")
+		return 2
+	}
 
-	res, err := hexdiff.Compare(fs.Arg(0), fs.Arg(1), hexdiff.Options{MaxRegions: maxRegions})
+	res, err := hexdiff.Compare(fs.Arg(0), fs.Arg(1), hexdiff.Options{MaxRegions: maxRegions, MaxRegionBytes: maxBytes})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
