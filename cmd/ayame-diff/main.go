@@ -21,18 +21,37 @@ import (
 
 var version = "dev"
 
-const csvUsage = `ayame-diff compares huge CSV/TSV files whose row order differs.
+const rootUsage = `ayame-diff compares text, binary files, directories, and huge CSV/TSV data.
 
-Subcommands:
-  csv     CSV/TSV key comparison (flags without a subcommand use csv)
-  text    line diff of two text files
-  sorted  sort both files, then line-diff
-  3way   compare BASE, LEFT, and RIGHT (text or CSV)
-  serve   local web GUI    gui   web GUI + open browser
-  shell-install  register file-manager integration
+Usage:
+  ayame-diff <command> [options]
+  ayame-diff OLD NEW                  compare two text files
+
+Examples:
+  ayame-diff gui a.txt b.txt          open a comparison in the browser
+  ayame-diff text a.txt b.txt         print a text diff
+  ayame-diff dir old-dir new-dir      compare directory trees
+
+Commands:
+  csv             CSV/TSV key comparison
+  text            line diff of two text files
+  sorted          sort both files, then line-diff
+  dir             compare directories or archives
+  bin             byte-level binary/hex diff
+  3way            compare BASE, LEFT, and RIGHT (text or CSV)
+  serve           run the local web UI
+  gui             run the web UI and open it in a browser
+  update          self-update to the latest release
+  remove          uninstall a standalone installation
+  shell-install   register file-manager integration
   shell-uninstall remove file-manager integration
-  update  self-update      remove  uninstall
-Run 'ayame-diff <subcommand> --help' for a subcommand's options.
+  shell-select    handle a file-manager selection
+
+Run 'ayame-diff <command> --help' for command-specific options.
+CSV flags without an explicit command remain supported for compatibility.
+`
+
+const csvUsage = `ayame-diff csv compares huge CSV/TSV files whose row order differs.
 
 This (csv) mode requires:
   --left PATH                 Left/old input file
@@ -176,6 +195,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) > 0 && (args[0] == "--version" || args[0] == "-version" || args[0] == "version") {
 		printVersion(stdout)
+		return 0
+	}
+	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")) {
+		fmt.Fprint(stdout, rootUsage)
 		return 0
 	}
 	if paths, gui, ok := quickLaunchArgs(args); ok {
