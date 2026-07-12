@@ -76,8 +76,29 @@ func TestSelectionBusyAndResultEmptyStatesAreConsistent(t *testing.T) {
 			t.Errorf("busy status style missing %q", want)
 		}
 	}
-	if strings.Count(app, `empty.className = "empty-state result-empty"`) != 3 {
+	if !strings.Contains(style, ".result-empty {") || strings.Count(app, "resultStateCard(") < 4 {
 		t.Error("text, CSV, and three-way empty results must use the result card")
+	}
+}
+
+func TestCompleteMatchCardsIncludeScopeAndDistinguishTruncation(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+	for _, want := range []string{
+		`completeMatch: "✔ 完全一致"`, `completeMatch: "✔ Complete match"`,
+		"textMatchScope", "csvMatchScope", "threeWayTextMatchScope", "threeWayCSVMatchScope",
+		`if (data.truncated) result.append(resultStateCard(t("matchNotVerified")`,
+		`comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("match result handling missing %q", want)
+		}
+	}
+	for _, want := range []string{".result-match {", ".result-partial {"} {
+		if !strings.Contains(style, want) {
+			t.Errorf("match result style missing %q", want)
+		}
 	}
 }
 
