@@ -204,6 +204,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.empty { background: transparent; }
 .w-add { background: var(--word-add); border-radius: calc(var(--radius-control) - 3px); }
 .w-del { background: var(--word-del); border-radius: calc(var(--radius-control) - 3px); }
+.syn-comment { color: var(--muted); font-style: italic; }
+.syn-keyword, .syn-heading { color: var(--accent-bright); font-weight: 600; }
+.syn-string { color: var(--add-fg); }
+.syn-number, .syn-link, .syn-level-info { color: var(--move-fg); }
+.syn-literal { color: var(--chg-fg); }
+.syn-function, .syn-level-warn { color: var(--gold); }
+.syn-key { color: var(--accent); }
+.syn-op, .syn-level-debug { color: var(--muted); }
+.syn-link { text-decoration: underline; }
+.syn-level-error { color: var(--danger); font-weight: 600; }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
