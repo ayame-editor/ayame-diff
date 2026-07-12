@@ -52,44 +52,32 @@ func (t *TextLines) LineEnding(i uint64) string {
 	return t.endings[i]
 }
 
-// SplitTextLines is SplitLines plus exact LF/CRLF/final-no-newline metadata.
+// SplitTextLines splits LF, CRLF, and lone-CR text while preserving each exact
+// terminator. A final terminator does not create an extra empty line.
 func SplitTextLines(s string) *TextLines {
 	result := &TextLines{}
 	for len(s) > 0 {
-		if i := strings.IndexByte(s, '\n'); i >= 0 {
-			line, ending := s[:i], "\n"
-			if strings.HasSuffix(line, "\r") {
-				line = strings.TrimSuffix(line, "\r")
-				ending = "\r\n"
-			}
-			result.lines = append(result.lines, line)
-			result.endings = append(result.endings, ending)
-			s = s[i+1:]
-			continue
+		i := strings.IndexAny(s, "\r\n")
+		if i < 0 {
+			result.lines = append(result.lines, s)
+			result.endings = append(result.endings, "")
+			break
 		}
-		result.lines = append(result.lines, strings.TrimSuffix(s, "\r"))
-		result.endings = append(result.endings, "")
-		break
+		ending, width := s[i:i+1], 1
+		if ending == "\r" && i+1 < len(s) && s[i+1] == '\n' {
+			ending, width = "\r\n", 2
+		}
+		result.lines = append(result.lines, s[:i])
+		result.endings = append(result.endings, ending)
+		s = s[i+width:]
 	}
 	return result
 }
 
-// SplitLines splits s into lines the same way the reference implementation's
-// document reader does: on "\n", with a trailing "\r" trimmed from each line
-// (CRLF) and a single trailing newline not producing an extra empty line.
-// An empty string yields zero lines.
+// SplitLines splits LF, CRLF, and lone-CR text into normalized lines. A final
+// terminator does not produce an extra empty line; an empty string has no lines.
 func SplitLines(s string) StringLines {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, "\n")
-	if n := len(parts); n > 0 && parts[n-1] == "" {
-		parts = parts[:n-1]
-	}
-	for i := range parts {
-		parts[i] = strings.TrimSuffix(parts[i], "\r")
-	}
-	return StringLines(parts)
+	return SplitTextLines(s).lines
 }
 
 // Whitespace selects how whitespace is treated when comparing lines.
