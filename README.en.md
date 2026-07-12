@@ -1,9 +1,7 @@
 <!-- i18n: language-switcher -->
-[English](README.en.md) | [日本語](README.md)
+[English](README.md) | [日本語](README.ja.md)
 
 # ayame-diff
-
-[English](README.md) | [日本語](README.ja.md)
 
 [![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -11,6 +9,14 @@
 A native CLI tool for comparing huge CSV/TSV files with different row orders and outputting the difference rows as TSV.
 
 Designed for files with up to 5,000,000,000 rows, it does not load all rows into memory. Input is split by key hash, each partition is sorted using memory-limited external merge sort, and then compared in parallel by multiple workers.
+
+## GUI preview
+
+[![Side-by-side diff with word and syntax highlighting](docs/assets/screenshot-diff.png)](docs/assets/screenshot-diff.png)
+
+The embedded local GUI also supports [folder comparison](docs/assets/screenshot-folder.png),
+[three-way merge](docs/assets/screenshot-three-way.png), and a configurable
+[comparison setup](docs/assets/screenshot-setup.png). See the [GUI guide](docs/gui.md).
 
 ## Main Features
 
@@ -58,13 +64,20 @@ ayame-diff text   [flags] OLD NEW                      # Text line diff
 ayame-diff sorted [flags] OLD NEW                      # Sort then line diff
 ayame-diff dir    [flags] OLD NEW                      # Recursive folder/archive (zip, tar.gz) comparison
 ayame-diff bin    [flags] OLD NEW                      # Binary/hex diff
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT three-way comparison
 ayame-diff serve  [--addr host:port]                   # Browser GUI (local web)
 ayame-diff gui    [--addr host:port] [--no-open]       # Start GUI on free port and open browser
+ayame-diff shell-install                               # Register file-manager integration
+ayame-diff shell-uninstall                             # Remove file-manager integration
 ayame-diff update [--check]                            # Self-update to latest release (SHA256 verification)
 ayame-diff remove [--yes]                              # Uninstall standalone version
 ```
 
 If you start with `--left ... --right ...` without a subcommand, it works as `csv` (backward compatible).
+Two bare paths (`ayame-diff A B`) automatically select text or folder mode.
+`ayame-diff --gui A B` opens the GUI and starts the comparison immediately.
+Enable two-item drag-and-drop and Explorer / Finder / Linux file-manager
+integration with `ayame-diff shell-install` (remove it with `shell-uninstall`).
 
 ### `text` — Line Diff
 

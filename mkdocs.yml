@@ -78,3 +78,14 @@ nav:
   - Comparison options: comparison-options.md
   - 日本語:
       - ホーム: ja/index.md
+      - 使い方: usage.ja.md
+      - 文字コード: encoding.ja.md
+      - GUI: gui.ja.md
+      - GUI 設定対応表: gui-setup-parity.ja.md
+      - ファイルマネージャー統合: shell-integration.ja.md
+      - パッケージングと Windows の信頼: packaging.ja.md
+      - Ayame ファミリーのデザイン: design.ja.md
+      - 比較プロジェクト: projects.ja.md
+      - マージと調整: merge.ja.md
+      - 3-way 比較: three-way.ja.md
+      - 比較オプション: comparison-options.ja.md

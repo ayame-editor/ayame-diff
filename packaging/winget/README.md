@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](README.md) | [日本語](README.ja.md)
+
 # WinGet manifests
 
 WinGet manifests are generated from release archives rather than edited here

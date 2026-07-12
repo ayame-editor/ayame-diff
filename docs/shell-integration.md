@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](shell-integration.md) | [日本語](shell-integration.ja.md)
+
 # File-manager and quick launch
 
 Compare two files without spelling out a subcommand:

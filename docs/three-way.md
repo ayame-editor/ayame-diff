@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](three-way.md) | [日本語](three-way.ja.md)
+
 # Three-way comparison
 
 Three-way mode compares two derived files against a common base and separates

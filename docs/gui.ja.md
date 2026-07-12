@@ -3,6 +3,16 @@
 
 # GUI
 
+## スクリーンショット
+
+| セットアップ | 左右差分 |
+|---|---|
+| [![比較セットアップ](assets/screenshot-setup.png)](assets/screenshot-setup.png) | [![構文ハイライト付き差分](assets/screenshot-diff.png)](assets/screenshot-diff.png) |
+
+| フォルダ比較 | 3-way マージ |
+|---|---|
+| [![フォルダ結果ツリー](assets/screenshot-folder.png)](assets/screenshot-folder.png) | [![3-way 結果](assets/screenshot-three-way.png)](assets/screenshot-three-way.png) |
+
 `ayame-diff`は、小さなローカルウェブアプリをバンドルしており、ターミナルの代わりにブラウザでファイルを比較できます。シングルページアプリはバイナリに埋め込まれているため、追加のインストールや外部ネットワークアクセスは必要ありません。
 
 2つのサブコマンドで起動します：

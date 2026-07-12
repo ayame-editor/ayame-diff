@@ -1,111 +1,117 @@
 <!-- i18n: language-switcher -->
-[English](README.en.md) | [日本語](README.md)
+[English](README.md) | [日本語](README.ja.md)
 
 # ayame-diff
-
-[English](README.md) | [日本語](README.ja.md)
 
 [![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-行順が異なる巨大な CSV / TSV を比較し、差分行を TSV に出力するネイティブ CLI です。
+A native CLI tool for comparing huge CSV/TSV files with different row orders and outputting the difference rows as TSV.
 
-5,000,000,000 行級を想定し、全行をメモリに載せません。入力をキーのハッシュで分割し、各分割をメモリ上限付き外部マージソートで整列した後、複数ワーカーで比較します。
+Designed for files with up to 5,000,000,000 rows, it does not load all rows into memory. Input is split by key hash, each partition is sorted using memory-limited external merge sort, and then compared in parallel by multiple workers.
 
-## 主な機能
+## GUI preview
 
-- CSV/TSV キー比較（`csv`）に加え、テキスト行 diff（`text`）とソート済み比較（`sorted`）
-- 文字コード自動判定（UTF-8 / UTF-16 / Shift_JIS / EUC-JP / ISO-2022-JP）、`--encoding` で明示指定も可能
-- CSV、TSV、`.csv.gz`、`.tsv.gz` に対応
-- 左右で形式が異なる組み合わせにも対応
-- キー指定なしなら全列をキーとして比較
-- 複数のヘッダー名、または複数の列番号をキーに指定
-- `--exclude-key` / `--exclude-key-index` で全列キーから除外する列だけを指定
-- 左右で行順が違っても比較可能
-- ヘッダー名が同じなら左右の列順が違っても自動整列
-- 重複キーを行の多重集合として厳密に比較
-- CSV セル単位差分（`_changed_cols` / JSON Lines）、数値許容差、列別変更ランキング
-- Web GUI のヘッダー検査、検索可能なキー列選択、解析/性能設定、セル強調・完全結果書き出し
-- 引用符、カンマ、タブ、改行を含む RFC 4180 系 CSV/TSV に対応
-- 単純TSV/CSV向け高速並列パーサー
-- メモリ上限付き外部ソート
-- ハッシュ分割単位の並列比較
-- gzip 入出力
-- Linux / macOS / Windows 向け単一バイナリをクロスビルド可能
-- 外部データベース、CGO、外部Goモジュール不要
+[![Side-by-side diff with word and syntax highlighting](docs/assets/screenshot-diff.png)](docs/assets/screenshot-diff.png)
 
-## インストール
+The embedded local GUI also supports [folder comparison](docs/assets/screenshot-folder.png),
+[three-way merge](docs/assets/screenshot-three-way.png), and a configurable
+[comparison setup](docs/assets/screenshot-setup.png). See the [GUI guide](docs/gui.md).
 
-Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https://github.com/hjosugi/ayame-diff/releases/latest) からOSとCPUに合うアーカイブを取得してください。
+## Main Features
+
+- CSV/TSV key comparison (`csv`), text line diff (`text`), and sorted comparison (`sorted`)
+- Automatic character encoding detection (UTF-8 / UTF-16 / Shift_JIS / EUC-JP / ISO-2022-JP), explicit specification via `--encoding`
+- Supports CSV, TSV, `.csv.gz`, `.tsv.gz`
+- Supports combinations with different formats on left and right
+- If no key specified, compares using all columns as key
+- Specify multiple header names or column numbers as keys
+- Specify columns to exclude from all-column key with `--exclude-key` / `--exclude-key-index`
+- Can compare even if row order differs between left and right
+- Automatically aligns columns if header names match, even if column order differs
+- Strict comparison of duplicate keys as multisets of rows
+- CSV cell-level diff (`_changed_cols` / JSON Lines), numeric tolerance, per-column change ranking
+- Web GUI for header inspection, searchable key column selection, analysis/performance settings, cell highlighting, full result export
+- Supports RFC 4180-style CSV/TSV with quotes, commas, tabs, and newlines
+- Fast parallel parser for simple TSV/CSV
+- Memory-limited external sort
+- Parallel comparison by hash partition
+- gzip input/output
+- Cross-buildable single binary for Linux / macOS / Windows
+- No external database, CGO, or external Go modules required
+
+## Installation
+
+If you want to use it without installing Go, Python, WSL, etc., download the archive matching your OS and CPU from [GitHub Releases](https://github.com/hjosugi/ayame-diff/releases/latest).
 
 - Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
 - macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
 
-Go 1.23以降がある場合は、ソースから直接インストールできます。
+If you have Go 1.23 or later, you can install directly from source.
 
 ```bash
 go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ```
 
-ダウンロードしたアーカイブと同じReleaseにある `SHA256SUMS` で、ファイルの完全性を確認できます。
+You can verify file integrity using the `SHA256SUMS` file in the same Release as the downloaded archive.
 
-## サブコマンド
+## Subcommands
 
 ```
-ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（既定）
-ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
-ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
-ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
-ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
-ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT の3-way比較
-ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
-ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
-ayame-diff shell-install                               # ファイルマネージャ連携を登録
-ayame-diff shell-uninstall                             # ファイルマネージャ連携を解除
-ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
-ayame-diff remove [--yes]                              # スタンドアロン版をアンインストール
+ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
+ayame-diff text   [flags] OLD NEW                      # Text line diff
+ayame-diff sorted [flags] OLD NEW                      # Sort then line diff
+ayame-diff dir    [flags] OLD NEW                      # Recursive folder/archive (zip, tar.gz) comparison
+ayame-diff bin    [flags] OLD NEW                      # Binary/hex diff
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT three-way comparison
+ayame-diff serve  [--addr host:port]                   # Browser GUI (local web)
+ayame-diff gui    [--addr host:port] [--no-open]       # Start GUI on free port and open browser
+ayame-diff shell-install                               # Register file-manager integration
+ayame-diff shell-uninstall                             # Remove file-manager integration
+ayame-diff update [--check]                            # Self-update to latest release (SHA256 verification)
+ayame-diff remove [--yes]                              # Uninstall standalone version
 ```
 
-サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
-2つの裸パス `ayame-diff A B` はファイルなら text、ディレクトリなら dir
-を自動選択します。`ayame-diff --gui A B` は GUI を開いて即比較します。
-GUIへの2項目ドロップと Explorer / Finder / Linux ファイルマネージャ連携は
-`ayame-diff shell-install` で有効にできます（解除は `shell-uninstall`）。
+If you start with `--left ... --right ...` without a subcommand, it works as `csv` (backward compatible).
+Two bare paths (`ayame-diff A B`) automatically select text or folder mode.
+`ayame-diff --gui A B` opens the GUI and starts the comparison immediately.
+Enable two-item drag-and-drop and Explorer / Finder / Linux file-manager
+integration with `ayame-diff shell-install` (remove it with `shell-uninstall`).
 
-### `text` — 行 diff
+### `text` — Line Diff
 
-行順どおりに 2 つのテキストファイル（`.gz` 可）を比較します。bounded resync window 方式で、巨大ファイルでも線形・メモリ有界です。
+Compares two text files (supports `.gz`) line by line. Uses bounded resync window method for linear and memory-bounded processing even with huge files.
 
 ```bash
-ayame-diff text old.txt new.txt                 # unified（既定）
-ayame-diff text --side-by-side old.txt new.txt  # 2 カラム表示
-ayame-diff text --json old.txt new.txt          # 機械可読 JSON
-ayame-diff text --summary old.txt new.txt       # サマリ 1 行のみ
-ayame-diff text --normal old.txt new.txt        # GNU normal-diff（パッチ）
+ayame-diff text old.txt new.txt                 # unified (default)
+ayame-diff text --side-by-side old.txt new.txt  # 2-column display
+ayame-diff text --json old.txt new.txt          # machine-readable JSON
+ayame-diff text --summary old.txt new.txt       # summary (1 line only)
+ayame-diff text --normal old.txt new.txt        # GNU normal-diff (patch)
 ayame-diff text --format unified -U 3 old.txt new.txt > change.patch
 ayame-diff text --format context -C 3 old.txt new.txt > change.patch
-ayame-diff text --detect-moves old.txt new.txt   # 移動ブロックを対応付け
-ayame-diff text --sync 100:120 old.txt new.txt   # 対応行を手動指定
-ayame-diff text --html report.html old.txt new.txt  # 自己完結 HTML レポート
-ayame-diff text --pre "jq -S ." a.json b.json   # 前処理してから diff（prediffer）
-ayame-diff text --encoding shift_jis a.txt b.txt  # 文字コードを明示（既定 auto）
+ayame-diff text --detect-moves old.txt new.txt   # match moved blocks
+ayame-diff text --sync 100:120 old.txt new.txt   # manually specify matching lines
+ayame-diff text --html report.html old.txt new.txt  # self-contained HTML report
+ayame-diff text --pre "jq -S ." a.json b.json   # prediffer (preprocess then diff)
+ayame-diff text --encoding shift_jis a.txt b.txt  # specify encoding (default auto)
 ```
 
-Shift_JIS / EUC-JP / UTF-16 / ISO-2022-JP は自動判定されます（BOM 優先、その後ヒューリスティック）。誤判定時は `--encoding` で上書きしてください。
+Shift_JIS / EUC-JP / UTF-16 / ISO-2022-JP are auto-detected (BOM prioritized, then heuristic). If misdetected, override with `--encoding`.
 
-WinMerge 風の比較オプションもあります（比較用に正規化するだけで、出力は元の行のまま）:
+WinMerge-style comparison options are also available (only normalizes for comparison, output remains original lines):
 
 ```bash
-ayame-diff text --ignore-case a.txt b.txt              # 大文字小文字を無視
-ayame-diff text --ignore-whitespace change a.txt b.txt # 空白の連続を 1 個に圧縮・端をトリム
-ayame-diff text --ignore-whitespace all a.txt b.txt    # 空白をすべて無視
-ayame-diff text --ignore-eol a.txt b.txt               # CRLF/LF 差を無視
-ayame-diff text --ignore-trailing-eol a.txt b.txt      # 末尾改行の有無だけを無視
-ayame-diff text --filter-line 'timestamp=\S+' a.log b.log # 可変部分を正規表現で除外
+ayame-diff text --ignore-case a.txt b.txt              # ignore case
+ayame-diff text --ignore-whitespace change a.txt b.txt # compress consecutive spaces to 1, trim ends
+ayame-diff text --ignore-whitespace all a.txt b.txt    # ignore all whitespace
+ayame-diff text --ignore-eol a.txt b.txt               # ignore CRLF/LF differences
+ayame-diff text --ignore-trailing-eol a.txt b.txt      # ignore only presence/absence of trailing newline
+ayame-diff text --filter-line 'timestamp=\S+' a.log b.log # exclude variable parts by regex
 ```
 
-CSV では同じ正規化をキーと値に適用でき、値比較からの列除外と数値許容差にも対応します。
+For CSV, the same normalization can be applied to keys and values, supports column exclusion from value comparison and numeric tolerance.
 
 ```bash
 ayame-diff csv --left a.csv --right b.csv --key id \
@@ -113,47 +119,47 @@ ayame-diff csv --left a.csv --right b.csv --key id \
 ayame-diff csv --left a.csv --right b.csv \
   --column-tolerance price=0.01 --out diff.tsv
 ayame-diff csv --left a.csv --right b.csv --key id \
-  --cell-diff --out cells.tsv       # _changed_cols と列別ランキング
+  --cell-diff --out cells.tsv       # _changed_cols and per-column ranking
 ayame-diff csv --left a.csv --right b.csv --key id \
-  --json --out cells.jsonl          # old/new セル値を構造化出力
+  --json --out cells.jsonl          # structured output of old/new cell values
 ayame-diff csv --project jobs/daily.ayamediff.json --diff-exit-code
 ```
 
-`--max-hunks` / `--max-lines` / `--window` / `--width` で出力量と再同期幅を調整します。`--word` を付けると、変更行の中で変わったワードだけを `[-削除-]` / `{+追加+}` のマーカーで強調します。
+Adjust output amount and resync window with `--max-hunks` / `--max-lines` / `--window` / `--width`. With `--word`, only changed words in modified lines are highlighted with `[-deleted-]` / `{+added+}` markers.
 
-### `sorted` — ソート済み比較
+### `sorted` — Sorted Comparison
 
-行順が違うだけで同じ内容を持つファイル向けに、両者を行単位でソートしてから比較します。`--numeric` / `-n`、`--reverse` / `-r` に対応（v1 はメモリ内ソート、外部ソートは #7）。
+For files with same content but different row order, sorts both sides by line then compares. Supports `--numeric` / `-n`, `--reverse` / `-r` (v1 uses in-memory sort, external sort is #7).
 
 ```bash
 ayame-diff sorted old.txt new.txt
 ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ```
 
-### `serve` — ブラウザ GUI
+### `serve` — Browser GUI
 
-ローカル Web アプリを起動し、ブラウザ上で 2 ファイルを比較します。既定で localhost にのみバインドします（入力したパスをそのまま開くため、ローカル利用専用）。
+Starts a local web app to compare two files in the browser. Binds to localhost by default (since it opens the entered path directly, for local use only).
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
 ```
 
-OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。
+Specify paths for OLD / NEW and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with header, row numbers, and word-level highlights for each hunk.
 
-## キーの選び方
+## How to Choose Keys
 
-キー指定方法は次の3モードです。
+There are three modes for specifying keys:
 
-1. オプションなし: 全列をキーにする
-2. `--key` / `--key-index`: キーに含める列を指定する
-3. `--exclude-key` / `--exclude-key-index`: 全列からキーに含めない列だけを指定する
+1. No option: use all columns as key
+2. `--key` / `--key-index`: specify columns to include as key
+3. `--exclude-key` / `--exclude-key-index`: specify columns to exclude from all-column key
 
-包含指定と除外指定は混在できません。
+Include and exclude specifications can be mixed.
 
-### 既定: 全列をキーにする
+### Default: Use All Columns as Key
 
-キーオプションを省略すると、すべての列をキーとして行の多重集合差分を取ります。
+If you omit key options, all columns are used as key for multiset row difference.
 
 ```powershell
 .\ayame-diff.exe `
@@ -162,11 +168,11 @@ OLD / NEW のパスと `text` / `sorted` モード・オプションを指定し
   --out "D:\data\diff.tsv"
 ```
 
-全列がキーのため、1列でも値が違う行は `LEFT_ONLY` と `RIGHT_ONLY` になります。全列キー時は、同じ行をキーと行データとして二重保存せず、一時ファイルには1回だけ保存します。
+Since all columns are keys, any row with a difference in any column becomes `LEFT_ONLY` or `RIGHT_ONLY`. In all-column key mode, the same row is not doubly saved as key and row data; it is saved only once in temporary files.
 
-### キーから除外する列だけを指定する
+### Specify Only Columns to Exclude from Key
 
-たとえば `updated_at` と `checksum` 以外をキーにする場合です。除外列も完全な行比較と差分出力には残ります。同じ残存キーで除外列だけが違えば、左右の行を `CHANGED` として出力します。
+For example, to use all columns except `updated_at` and `checksum` as key. Excluded columns remain in full row comparison and diff output. If only excluded columns differ for the same remaining key, left and right rows are output as `CHANGED`.
 
 ```powershell
 .\ayame-diff.exe `
@@ -177,7 +183,7 @@ OLD / NEW のパスと `text` / `sorted` モード・オプションを指定し
   --out "D:\data\diff.tsv"
 ```
 
-列番号で除外する場合です。
+To exclude by column number:
 
 ```powershell
 .\ayame-diff.exe `
@@ -188,9 +194,9 @@ OLD / NEW のパスと `text` / `sorted` モード・オプションを指定し
   --out "D:\data\diff.tsv"
 ```
 
-### キーに含める列を指定する
+### Specify Columns to Include as Key
 
-ヘッダー名を複数指定します。
+Specify multiple header names:
 
 ```bash
 ayame-diff \
@@ -201,7 +207,7 @@ ayame-diff \
   --out diff.tsv
 ```
 
-列番号を複数指定する場合です。列番号は既定で 0 始まりです。
+To specify multiple column numbers (default is 0-based):
 
 ```bash
 ayame-diff \
@@ -212,7 +218,7 @@ ayame-diff \
   --out diff.tsv
 ```
 
-1 始まりにする場合です。
+To use 1-based indexing:
 
 ```bash
 ayame-diff \
@@ -224,7 +230,7 @@ ayame-diff \
   --out diff.tsv
 ```
 
-ヘッダーがない場合です。
+If there is no header:
 
 ```bash
 ayame-diff \
@@ -236,15 +242,15 @@ ayame-diff \
   --out diff.tsv
 ```
 
-gzip 出力は拡張子で有効になります。
+gzip output is enabled by extension:
 
 ```bash
 ayame-diff --left old.csv.gz --right new.tsv.gz --key id --out diff.tsv.gz
 ```
 
-## Windowsネイティブ実行
+## Windows Native Execution
 
-配布ZIP内の `ayame-diff.exe` は Windows x64 用のネイティブコンソールEXEです。Go、Python、WSL、Java、外部DLLの追加インストールは不要です。
+The `ayame-diff.exe` in the distributed ZIP is a native console EXE for Windows x64. No need to install Go, Python, WSL, Java, or external DLLs.
 
 PowerShell:
 
@@ -253,18 +259,18 @@ PowerShell:
 .\ayame-diff.exe --help
 ```
 
-コマンドプロンプト:
+Command Prompt:
 
 ```bat
 ayame-diff.exe --version
 ayame-diff.exe --help
 ```
 
-ARM64 Windows では `arm64\ayame-diff.exe` を使います。バイナリは `CGO_ENABLED=0` でビルドしています。コード署名証明書は付いていないため、環境によっては初回実行時にWindowsの警告が表示されることがあります。
+On ARM64 Windows, use `arm64\ayame-diff.exe`. The binary is built with `CGO_ENABLED=0`. Since it is not code-signed, Windows may show a warning on first run depending on your environment.
 
-## 差分出力
+## Diff Output
 
-出力は常にTSVです。先頭に `_diff` と `_side` を追加し、その後ろに左入力の列順で元の全列を出力します。
+Output is always TSV. `_diff` and `_side` are added at the start, followed by all original columns in left input order.
 
 ```text
 _diff	_side	id	name	amount
@@ -274,20 +280,20 @@ CHANGED	left	30	Carol	300
 CHANGED	right	30	Carol	350
 ```
 
-| `_diff` | `_side` | 意味 |
+| `_diff` | `_side` | Meaning |
 |---|---|---|
-| `LEFT_ONLY` | `left` | そのキーが左側にだけ存在する |
-| `RIGHT_ONLY` | `right` | そのキーが右側にだけ存在する |
-| `CHANGED` | `left` | 両側にキーはあるが、相殺できなかった左側の行 |
-| `CHANGED` | `right` | 両側にキーはあるが、相殺できなかった右側の行 |
+| `LEFT_ONLY` | `left` | Key exists only on left side |
+| `RIGHT_ONLY` | `right` | Key exists only on right side |
+| `CHANGED` | `left` | Key exists on both sides, unmatched left row |
+| `CHANGED` | `right` | Key exists on both sides, unmatched right row |
 
-同一キーの完全一致行は1行ずつ相殺します。このため、同じキー・同じ行が左に3件、右に2件ある場合、2件は一致、残りの左1件は `CHANGED` です。
+Rows with identical keys and content are matched one by one. For example, if left has 3 identical key/row, right has 2, 2 are matched, remaining left 1 is `CHANGED`.
 
-全列をキーにする既定モードでは、同じキーは完全に同じ行です。そのため通常は `CHANGED` ではなく、差分行が `LEFT_ONLY` / `RIGHT_ONLY` として出ます。変更前後を同じキーで組にしたい場合は、識別列を `--key` で指定するか、変更しうる列を `--exclude-key` で除外してください。
+In default all-column key mode, identical keys are identical rows, so usually diff rows are `LEFT_ONLY` / `RIGHT_ONLY` rather than `CHANGED`. If you want to pair before/after rows by the same key, specify an identifier column with `--key` or exclude changeable columns with `--exclude-key`.
 
-出力順はハッシュ分割順とキー順であり、入力順でも全体のグローバルキー順でもありません。差分集合として利用してください。
+Output order is by hash partition and key order, not input order or global key order. Use as a diff set.
 
-## CSV / TSV パーサー
+## CSV / TSV Parser
 
 ### `auto`
 
@@ -296,15 +302,15 @@ CHANGED	right	30	Carol	350
 
 ### `simple`
 
-引用符を解釈しない高速パーサーです。非圧縮の通常ファイルなら、ファイル範囲を分割して並列に読みます。
+A fast parser that does not interpret quotes. For uncompressed normal files, reads in parallel by splitting file ranges.
 
-次の条件を満たすデータに向いています。
+Suitable for data meeting these conditions:
 
-- フィールド内に区切り文字がない
-- フィールド内に改行がない
-- 引用符によるエスケープが不要
+- No delimiter inside fields
+- No newline inside fields
+- No need for quote escaping
 
-引用符を使わないCSVも高速化できます。
+Can speed up CSV without quotes.
 
 ```bash
 ayame-diff \
@@ -315,7 +321,7 @@ ayame-diff \
 
 ### `rfc4180`
 
-引用符、区切り文字を含むフィールド、フィールド内改行を扱います。TSVでも引用されたタブや改行を扱う必要がある場合は明示します。
+Handles fields with quotes, delimiters, and newlines. For TSV with quoted tabs or newlines, specify explicitly.
 
 ```bash
 ayame-diff \
@@ -324,28 +330,28 @@ ayame-diff \
   --key id --out diff.tsv
 ```
 
-不正な引用符を許容する必要がある場合のみ `--lazy-quotes` を使ってください。
+Use `--lazy-quotes` only if you need to tolerate invalid quotes.
 
-## 左右の列順が異なる場合
+## If Column Order Differs Between Left and Right
 
-既定の `--align-columns-by-name=true` では、左右のヘッダー名が一意かつ同じ集合なら、右側を左側の列順に並べ替えて比較します。
+With default `--align-columns-by-name=true`, if header names are unique and the same set, right side is reordered to match left column order for comparison.
 
 ```text
 left:  id,name,amount
 right: amount,id,name
 ```
 
-この組み合わせも比較できます。ヘッダー名が重複している場合は曖昧になるためエラーにします。
+This combination can be compared. If header names are duplicated, it becomes ambiguous and results in error.
 
-列順も完全一致させたい場合は次を指定します。
+To require exact column order match:
 
 ```bash
 --align-columns-by-name=false
 ```
 
-## 5,000,000,000 行級の推奨設定
+## Recommended Settings for 5,000,000,000 Rows
 
-実際の最適値は、平均行長、キー偏り、CPU数、NVMe帯域、空きディスク、ファイルディスクリプタ上限で変わります。最初に数千万行の実データ断片で計測してください。
+Optimal values depend on average row length, key distribution, CPU count, NVMe bandwidth, free disk space, and file descriptor limit. Measure with tens of millions of real data first.
 
 ```bash
 ayame-diff \
@@ -362,26 +368,26 @@ ayame-diff \
   --merge-fan-in 32
 ```
 
-重要な調整項目:
+Important tuning items:
 
-- `--temp-dir`: ネットワークストレージではなく、高速なローカルNVMeを推奨
-- `--memory`: ソート用メモリ総量。ワーカー数だけ分割される
-- `--partitions`: 2の累乗で `2..1024`。キーの偏りが少ないほど均等になる
-- `--parse-workers`: 非圧縮 `simple` 入力の並列読み取り数
-- `--workers`: ソート・比較する分割数の並列度
-- `--partition-buffer`: 分割ファイル1個当たりの書き込みバッファ
-- `--merge-fan-in`: 外部マージで同時に開くソート済みrun数
+- `--temp-dir`: Use fast local NVMe, not network storage
+- `--memory`: Total memory for sorting, split by worker count
+- `--partitions`: Power of 2, `2..1024`. More even with less key skew
+- `--parse-workers`: Parallel read count for uncompressed `simple` input
+- `--workers`: Parallelism for sorting/comparing partitions
+- `--partition-buffer`: Write buffer per partition file
+- `--merge-fan-in`: Number of sorted runs opened simultaneously in external merge
 
-注意事項:
+Notes:
 
-- 一時領域には、少なくとも左右の非圧縮入力合計の数倍を見込んでください。行幅、フィールド数、差分量によって増減します。
-- `.gz` 入力は展開ストリームを逐次処理するため、入力パース自体は並列化されません。その後の分割比較は並列です。
-- `--partitions 1024` は多数の一時ファイルを開くため、OSのファイルディスクリプタ上限を確認してください。
-- 極端に同じキーへ集中するデータでは、そのキーを含む分割がボトルネックになります。
-- 標準入力は使えません。形式判定と分割処理に再読可能なファイルが必要です。
-- 中断時は既定で作業ディレクトリを削除します。調査したい場合は `--keep-temp` を指定します。
+- Temporary area should be several times the total uncompressed input size for left and right. Varies by row width, field count, diff amount.
+- `.gz` input is processed sequentially as decompressed stream, so input parsing is not parallelized. Partition comparison is parallel.
+- `--partitions 1024` opens many temp files; check OS file descriptor limit.
+- If data is extremely concentrated on the same key, the partition containing that key becomes a bottleneck.
+- Standard input cannot be used. File is needed for format detection and partition processing.
+- On interruption, working directory is deleted by default. Specify `--keep-temp` if you want to investigate.
 
-## 主要オプション
+## Main Options
 
 ```text
 --left PATH
@@ -416,57 +422,57 @@ ayame-diff \
 --output-header=true|false
 ```
 
-全オプションは次で確認できます。
+Check all options with:
 
 ```bash
 ayame-diff --help
 ```
 
-## 終了コード
+## Exit Codes
 
-通常:
+Normal:
 
-- `0`: 正常終了
-- `2`: 入力、設定、I/Oなどのエラー
-- `130`: 割り込み、または明示的なキャンセル（例: `remove` の確認で中止）
+- `0`: Success
+- `2`: Error (input, settings, I/O, etc.)
+- `130`: Interrupted or explicit cancel (e.g. abort on `remove` confirmation)
 
-`--diff-exit-code` 指定時:
+With `--diff-exit-code`:
 
-- `0`: 差分なし
-- `1`: 差分あり
-- `2`: エラー
+- `0`: No difference
+- `1`: Difference found
+- `2`: Error
 
-## ビルド
+## Build
 
-Go 1.23 以降を使います。外部依存はありません。
+Requires Go 1.23 or later. No external dependencies.
 
-現在のOS向け:
+For current OS:
 
 ```bash
 go build -trimpath -o ayame-diff ./cmd/ayame-diff
 ```
 
-Linux、macOS、Windows向けをまとめて作る場合:
+To build for Linux, macOS, Windows together:
 
 ```bash
 ./scripts/build-all.sh
 ```
 
-Windows PowerShellで全OS向けを作る場合:
+To build for all OSes on Windows PowerShell:
 
 ```powershell
 ./scripts/build-all.ps1
 ```
 
-Windows x64 / ARM64だけを作る場合:
+To build only Windows x64 / ARM64:
 
 ```powershell
 .\scripts\build-windows.ps1
 ```
 
-成果物は `dist/` に作られます。
+Artifacts are created in `dist/`.
 
-## テスト
+## Test
 
 ```bash
 go test ./...
@@ -474,31 +480,31 @@ go test -race ./...
 go vet ./...
 ```
 
-## 処理方式
+## Processing Method
 
-1. 左右の形式、ヘッダー、列数、キー選択を検査
-2. 選択された複数キーを長さ付きバイナリで厳密に符号化
-3. キーの xxHash64 で分割先だけを決定
-4. 元の完全なキーと完全な行を分割ファイルへ保存
-5. 各分割をメモリ上限付き外部マージソート
-6. ソート済み左右をストリーミング比較
-7. 分割ごとのTSVを1つのTSVまたはTSV.GZへ結合
+1. Inspect left/right format, header, column count, key selection
+2. Encode selected multiple keys strictly as length-prefixed binary
+3. Decide partition destination by key's xxHash64
+4. Save original full key and full row to partition file
+5. Memory-limited external merge sort for each partition
+6. Stream compare sorted left/right
+7. Merge partition TSVs into one TSV or TSV.GZ
 
-ハッシュ値は分割先の選択だけに使い、同一性判定には完全なキーを使います。ハッシュ衝突で異なるキーを同じキーとして扱うことはありません。
+Hash value is used only for partition selection; full key is used for identity check. Different keys are never treated as same key due to hash collision.
 
-全列キーではキーが完全な行そのものになるため、行データを別に複製せず、ディスクI/Oと一時領域を抑えます。
+In all-column key mode, key is the full row itself, so row data is not duplicated, reducing disk I/O and temporary space.
 
-## 制約
+## Limitations
 
-- 左右の列数は同じ必要があります。
-- ヘッダー整列を使う場合、左右のヘッダー名集合は同じ必要があります。
-- `--key` / `--key-index` と `--exclude-key` / `--exclude-key-index` は同時指定できません。
-- 全列を除外してキーを0列にする指定はできません。
-- `simple` パーサーでは引用符、フィールド内区切り文字、フィールド内改行を解釈しません。
-- 1レコードの符号化後サイズは `--max-record-bytes` 以下である必要があります。
-- 1フィールドは4GiB未満です。
-- 差分出力自体が非常に大きい場合、最終結合と圧縮が処理時間を占めます。
+- Left and right must have same column count.
+- For header alignment, left/right header name sets must match.
+- `--key` / `--key-index` and `--exclude-key` / `--exclude-key-index` cannot be specified together.
+- Cannot specify all columns as excluded to make key zero columns.
+- `simple` parser does not interpret quotes, delimiters inside fields, or newlines inside fields.
+- Encoded size of one record must be less than `--max-record-bytes`.
+- One field is less than 4GiB.
+- If diff output itself is very large, final merge and compression may dominate processing time.
 
-## ライセンス
+## License
 
-MIT License。xxHash64実装に関する通知は `THIRD_PARTY_NOTICES.md` を参照してください。
+MIT License. For notices regarding xxHash64 implementation, see `THIRD_PARTY_NOTICES.md`.

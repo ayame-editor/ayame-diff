@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](design.md) | [日本語](design.ja.md)
+
 # Ayame family design
 
 `ayame-diff` and [ayame-editor](https://github.com/hjosugi/ayame-editor)
@@ -36,4 +39,3 @@ a reviewer checks the sister project and records any intentional divergence in
 this document. Product layouts and diff/editor-only semantic colors do not
 need to match. This avoids a build-time dependency between independently
 released repositories.
-

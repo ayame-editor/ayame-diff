@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](packaging.md) | [日本語](packaging.ja.md)
+
 # Packaging and Windows trust
 
 ## Distribution roles

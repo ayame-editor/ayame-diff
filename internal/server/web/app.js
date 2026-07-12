@@ -1374,11 +1374,13 @@ syncPatchOpts();
 applyLang(lang);
 
 const launch = new URLSearchParams(location.search);
+if (launch.has("base")) $("base").value = launch.get("base");
 if (launch.has("old")) $("old").value = launch.get("old");
 if (launch.has("new")) $("new").value = launch.get("new");
-if (["text", "sorted", "csv", "dir"].includes(launch.get("mode"))) $("mode").value = launch.get("mode");
-if (launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
-if (launch.get("autorun") === "1" && $("old").value && $("new").value) queueMicrotask(compare);
+if (["text", "sorted", "csv", "threeway", "threeway-csv", "dir"].includes(launch.get("mode"))) $("mode").value = launch.get("mode");
+if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
+const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);
+if (launch.get("autorun") === "1" && launchReady) queueMicrotask(compare);
 
 fetch("/api/health")
   .then((r) => r.json())
