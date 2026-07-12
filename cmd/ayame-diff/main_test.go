@@ -46,7 +46,7 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		{name: "remove help", args: []string{"remove", "--help"}, code: 0, stdout: "Uninstall"},
 		{name: "shell install help", args: []string{"shell-install", "--help"}, code: 0, stdout: "file-manager"},
 		{name: "shell uninstall help", args: []string{"shell-uninstall", "--help"}, code: 0, stdout: "file-manager"},
-		{name: "no arguments", code: 2, stderr: "no arguments given"},
+		{name: "no arguments", code: 0, stdout: "Subcommands:"},
 		{name: "parse error", args: []string{"--not-a-real-flag"}, code: 2, stderr: "flag provided but not defined"},
 		{name: "text missing paths", args: []string{"text", "only-one"}, code: 2, stderr: "needs exactly two paths"},
 		{name: "removed interactive mode", args: []string{"--interactive"}, code: 2, stderr: "interactive setup UI was removed"},

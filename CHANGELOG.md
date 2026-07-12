@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.10 - 2026-07-12
+
+- Made a no-argument invocation print help and exit successfully so WinGet and
+  other portable package managers can probe the installed command alias
+  without receiving a false application failure.
+- Added a pre-publication Windows package gate that extracts the exact release
+  ZIP, executes its x64 binary, verifies no-argument/help/version/text flows,
+  checks the ARM64 payload, and binds both WinGet manifest entries to the ZIP's
+  actual SHA-256. GitHub Releases are now created only after this gate passes.
+
 ## v0.7.9 - 2026-07-12
 
 - Added two-way and three-way merge workflows for text and keyed CSV, including

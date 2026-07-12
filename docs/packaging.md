@@ -18,6 +18,13 @@ The files follow Microsoft's
 [manifest specification](https://github.com/microsoft/winget-pkgs/tree/master/doc/manifest)
 and are checked against its official 1.12 JSON schemas.
 
+Before a GitHub Release is published, a Windows runner downloads the exact
+release candidate produced by the packaging job. It expands the Windows and
+WinGet archives, executes the packaged x64 binary with no arguments,
+`--help`, `--version`, and a real text comparison, confirms the ARM64 payload,
+and verifies that both manifest entries contain the release ZIP's actual
+SHA-256. The publish job cannot run unless this package-level gate succeeds.
+
 ```bash
 go run ./cmd/packaging-gen \
   -version v1.2.3 -checksums release/SHA256SUMS -out dist/packaging

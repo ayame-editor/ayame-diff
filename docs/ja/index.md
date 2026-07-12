@@ -68,7 +68,9 @@ ayame-diff gui
 
 !!! tip "サブコマンドなしは `csv`"
     サブコマンドを付けずに `ayame-diff --left A --right B --out D` と実行すると、
-    後方互換のため `ayame-diff csv ...` と同じ動作になります。
+    後方互換のため `ayame-diff csv ...` と同じ動作になります。引数を一切付けずに
+    `ayame-diff` を実行した場合は、ヘルプを表示して正常終了します。portable package
+    manager によるインストール済み command alias の起動確認にも対応する動作です。
 
 ## サブコマンド一覧
 

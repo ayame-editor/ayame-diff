@@ -87,3 +87,50 @@ jobs:
           name: ayame-diff-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ayame-diff-*
           if-no-files-found: error
+
+  package-candidate:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ayame-diff-*
+          path: dist
+          merge-multiple: true
+      - name: Package the cross-built release candidate
+        env:
+          VERSION: ${{ env.CANDIDATE_VERSION }}
+        run: ./scripts/package-release.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-package-candidate
+          path: |
+            release/ayame-diff-${{ env.CANDIDATE_VERSION }}-windows.zip
+            release/ayame-diff-${{ env.CANDIDATE_VERSION }}-winget-manifests.zip
+          if-no-files-found: error
+
+  windows-package-smoke:
+    needs: package-candidate
+    runs-on: windows-latest
+    env:
+      CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-package-candidate
+          path: release
+      - name: Verify packaged executable and WinGet manifest
+        shell: pwsh
+        run: >-
+          ./scripts/windows-package-smoke.ps1
+          -Archive "release/ayame-diff-${{ env.CANDIDATE_VERSION }}-windows.zip"
+          -ManifestArchive "release/ayame-diff-${{ env.CANDIDATE_VERSION }}-winget-manifests.zip"
+          -Version "${{ env.CANDIDATE_VERSION }}"

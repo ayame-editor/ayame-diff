@@ -24,7 +24,7 @@ var version = "dev"
 const csvUsage = `ayame-diff compares huge CSV/TSV files whose row order differs.
 
 Subcommands:
-  csv     CSV/TSV key comparison (this default; a bare invocation is csv)
+  csv     CSV/TSV key comparison (flags without a subcommand use csv)
   text    line diff of two text files
   sorted  sort both files, then line-diff
   3way   compare BASE, LEFT, and RIGHT (text or CSV)
@@ -292,9 +292,11 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	cfg.Log = stderr
 
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "ayame-diff: no arguments given; --left, --right, and --out are required.")
-		fmt.Fprintln(stderr, "Run 'ayame-diff --help' for usage, or 'ayame-diff text|sorted' for line diff.")
-		return 2
+		// A package manager may execute a newly installed portable command
+		// without arguments to verify that its alias starts successfully. Treat
+		// that probe like --help instead of reporting missing CSV operands.
+		fmt.Fprintln(stdout, csvUsage)
+		return 0
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
