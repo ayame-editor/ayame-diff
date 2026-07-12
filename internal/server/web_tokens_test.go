@@ -199,6 +199,28 @@ func TestLocalizedWebAttributesCoverStaticLabels(t *testing.T) {
 	}
 }
 
+func TestClientValidationMessagesAreFullyLocalized(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+
+	for _, line := range strings.Split(app, "\n") {
+		if strings.Contains(line, "setStatus(") && (strings.Contains(line, " required") || strings.Contains(line, "invalid index")) {
+			t.Errorf("status message contains an English literal: %s", line)
+		}
+	}
+	for _, want := range []string{
+		"requiredField: (v) => `${v.field}を指定してください。`",
+		"invalidIndex: (v) => `${v.field}のインデックスが不正です。`",
+		`t("requiredFields", { fields: missing })`,
+		`t("invalidIndex", { field: t("ignoreColumns") })`,
+		`if (!validateInputs(body)) return;`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")
