@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -77,9 +80,10 @@ jobs:
           CGO_ENABLED: '0'
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ env.CANDIDATE_VERSION }}
         run: >-
           go build -trimpath
-          -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)"
+          -ldflags "-s -w -X main.version=${VERSION}"
           -o "ayame-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
           ./cmd/ayame-diff
       - uses: actions/upload-artifact@v7
@@ -91,8 +95,6 @@ jobs:
   package-candidate:
     needs: build
     runs-on: ubuntu-latest
-    env:
-      CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -119,8 +121,6 @@ jobs:
   windows-package-smoke:
     needs: package-candidate
     runs-on: windows-latest
-    env:
-      CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
