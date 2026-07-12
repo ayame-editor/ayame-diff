@@ -85,6 +85,35 @@ func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
 	}
 }
 
+func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+
+	for _, want := range []string{
+		`data-i18n-aria-label="langSwitchLabel"`,
+		`data-i18n-aria-label="firstDiff"`,
+		`data-i18n-title="nextDiff"`,
+		`aria-hidden="true"`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`event.isComposing`,
+		`event.keyCode === 229`,
+		`["base", "old", "new", "oldText", "newText"]`,
+		`data-i18n-aria-label`,
+		`langButton: "日本語 → EN"`,
+		`langButton: "English → 日本語"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")

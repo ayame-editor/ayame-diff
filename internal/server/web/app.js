@@ -16,6 +16,11 @@ const I18N = {
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
     diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
+    differenceNavigation: "差分ナビゲーション",
+    firstDiff: "最初の差分",
+    previousDiff: "前の差分",
+    nextDiff: "次の差分",
+    lastDiff: "最後の差分",
     navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右 / Alt+B ベース、Alt+Home/End",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
@@ -46,7 +51,8 @@ const I18N = {
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
-    langButton: "EN",
+    langButton: "日本語 → EN",
+    langSwitchLabel: "言語を英語に切り替え",
   },
   en: {
     mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
@@ -60,6 +66,11 @@ const I18N = {
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
     diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
+    differenceNavigation: "Difference navigation",
+    firstDiff: "First difference",
+    previousDiff: "Previous difference",
+    nextDiff: "Next difference",
+    lastDiff: "Last difference",
     navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right / Alt+B base; Alt+Home/End",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
@@ -90,7 +101,8 @@ const I18N = {
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
-    langButton: "日本語",
+    langButton: "English → 日本語",
+    langSwitchLabel: "Switch language to Japanese",
   },
 };
 let lang = localStorage.getItem("ayame-lang");
@@ -110,7 +122,8 @@ function applyLang(next) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
 	for (const el of document.querySelectorAll("[data-i18n-placeholder]")) el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
-  $("lang").textContent = t("langButton");
+  for (const el of document.querySelectorAll("[data-i18n-title]")) el.title = t(el.getAttribute("data-i18n-title"));
+  for (const el of document.querySelectorAll("[data-i18n-aria-label]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria-label")));
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	renderRecentComparisons();
@@ -1305,6 +1318,15 @@ $("browserUp").addEventListener("click", async () => { try { await loadBrowser($
 $("chooseFolder").addEventListener("click", () => { if (browserTarget) $(browserTarget).value = $("browserPath").value; $("fileBrowser").close(); });
 $("dirStatus").addEventListener("change", () => { if (directoryData) renderDirectory(directoryData, directoryBody); });
 $("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
+function compareFromKeyboard(event) {
+  if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+  if (event.currentTarget.tagName === "TEXTAREA" && !event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  if (!$("compare").disabled) compare();
+}
+for (const id of ["base", "old", "new", "oldText", "newText"]) {
+  $(id).addEventListener("keydown", compareFromKeyboard);
+}
 $("patchFormat").addEventListener("change", syncPatchOpts);
 $("firstDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]); });
 $("prevDiff").addEventListener("click", () => stepHunk(-1));
