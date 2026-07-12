@@ -2,23 +2,32 @@ package linediff
 
 import "testing"
 
+func mustDiffWith(t testing.TB, old, new Lines, options Options) Result {
+	t.Helper()
+	result, err := DiffWith(old, new, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
 func TestDiffWithEOLControls(t *testing.T) {
 	lf := SplitTextLines("one\ntwo\n")
 	crlf := SplitTextLines("one\r\ntwo\r\n")
-	if got := DiffWith(lf, crlf, Options{MaxHunks: 10, Window: 8}); got.Modified != 2 {
+	if got := mustDiffWith(t, lf, crlf, Options{MaxHunks: 10, Window: 8}); got.Modified != 2 {
 		t.Fatalf("EOL-sensitive diff = %+v", got)
 	}
-	if got := DiffWith(lf, crlf, Options{MaxHunks: 10, Window: 8, IgnoreEOL: true}); got.HunkCount != 0 {
+	if got := mustDiffWith(t, lf, crlf, Options{MaxHunks: 10, Window: 8, IgnoreEOL: true}); got.HunkCount != 0 {
 		t.Fatalf("ignore EOL diff = %+v", got)
 	}
 	missing := SplitTextLines("one\ntwo")
-	if got := DiffWith(lf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.HunkCount != 0 {
+	if got := mustDiffWith(t, lf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.HunkCount != 0 {
 		t.Fatalf("ignore trailing EOL diff = %+v", got)
 	}
-	if got := DiffWith(crlf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
+	if got := mustDiffWith(t, crlf, missing, Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
 		t.Fatalf("non-trailing EOL must remain = %+v", got)
 	}
-	if got := DiffWith(SplitTextLines("one\r\n"), SplitTextLines("one\n"), Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
+	if got := mustDiffWith(t, SplitTextLines("one\r\n"), SplitTextLines("one\n"), Options{MaxHunks: 10, Window: 8, IgnoreTrailingEOL: true}); got.Modified != 1 {
 		t.Fatalf("trailing CRLF/LF is not a missing-EOL difference = %+v", got)
 	}
 }
@@ -30,7 +39,7 @@ func TestDiffWithLineFiltersKeepsOriginalPositions(t *testing.T) {
 	}
 	old := StringLines{"timestamp=10:00 request_id=1 ok", "real=old"}
 	new := StringLines{"timestamp=10:01 request_id=2 ok", "real=new"}
-	got := DiffWith(old, new, Options{MaxHunks: 10, Window: 8, LineFilters: filters})
+	got := mustDiffWith(t, old, new, Options{MaxHunks: 10, Window: 8, LineFilters: filters})
 	if got.Modified != 1 || len(got.Hunks) != 1 || got.Hunks[0].OldStart != 1 {
 		t.Fatalf("filtered diff = %+v", got)
 	}
@@ -49,7 +58,7 @@ func TestDiffWithIgnoreCase(t *testing.T) {
 		t.Fatalf("case-sensitive hunks = %d, want 2", r.HunkCount)
 	}
 	// With ignore-case: no differences.
-	r := DiffWith(old, new, Options{MaxHunks: 200, Window: 128, IgnoreCase: true})
+	r := mustDiffWith(t, old, new, Options{MaxHunks: 200, Window: 128, IgnoreCase: true})
 	if r.HunkCount != 0 {
 		t.Fatalf("ignore-case hunks = %d, want 0 (%+v)", r.HunkCount, r.Hunks)
 	}
@@ -64,13 +73,13 @@ func TestDiffWithWhitespace(t *testing.T) {
 		t.Fatal("exact compare should see whitespace differences")
 	}
 	// WSChange: collapsed/trimmed whitespace makes them equal.
-	if r := DiffWith(old, new, Options{MaxHunks: 200, Window: 128, Whitespace: WSChange}); r.HunkCount != 0 {
+	if r := mustDiffWith(t, old, new, Options{MaxHunks: 200, Window: 128, Whitespace: WSChange}); r.HunkCount != 0 {
 		t.Fatalf("WSChange hunks = %d, want 0 (%+v)", r.HunkCount, r.Hunks)
 	}
 	// WSAll: "a\tb" vs "a b c" differ only if non-space differs.
 	oldA := SplitLines("a b c\n")
 	newA := SplitLines("abc\n")
-	if r := DiffWith(oldA, newA, Options{MaxHunks: 200, Window: 128, Whitespace: WSAll}); r.HunkCount != 0 {
+	if r := mustDiffWith(t, oldA, newA, Options{MaxHunks: 200, Window: 128, Whitespace: WSAll}); r.HunkCount != 0 {
 		t.Fatalf("WSAll hunks = %d, want 0", r.HunkCount)
 	}
 }
@@ -81,7 +90,7 @@ func TestDiffWithPreservesOriginalPositions(t *testing.T) {
 	// the originals.
 	old := SplitLines("Alpha\nBeta\n")
 	new := SplitLines("alpha\nGamma\n")
-	r := DiffWith(old, new, Options{MaxHunks: 200, Window: 128, IgnoreCase: true})
+	r := mustDiffWith(t, old, new, Options{MaxHunks: 200, Window: 128, IgnoreCase: true})
 	if r.HunkCount != 1 {
 		t.Fatalf("hunks = %d, want 1", r.HunkCount)
 	}

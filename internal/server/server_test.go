@@ -517,6 +517,29 @@ func TestDiffAPISyncPointsAndIgnoredPatchAudit(t *testing.T) {
 	}
 }
 
+func TestDiffAPIsRejectInvalidSyncPoints(t *testing.T) {
+	t.Parallel()
+	body, _ := json.Marshal(diffRequest{
+		Inline:     true,
+		OldText:    "a\nb\n",
+		NewText:    "a\nc\n",
+		SyncPoints: []linediff.SyncPoint{{Old: 2, New: 1}},
+	})
+	server := newTestServer(t)
+	for _, path := range []string{"/api/diff", "/api/patch", "/api/merge/text"} {
+		t.Run(path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body)))
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "outside document bounds") {
+				t.Fatalf("error does not explain invalid sync point: %s", recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestDiffAPIErrors(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)

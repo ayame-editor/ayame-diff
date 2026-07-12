@@ -6,12 +6,26 @@ func TestSyncPointRecoversBeyondWindow(t *testing.T) {
 	t.Parallel()
 	old := SplitLines("start\na\nb\nc\nANCHOR\ntail\n")
 	new := SplitLines("start\nx1\nx2\nx3\nx4\nx5\na\nb\nc\nANCHOR\ntail\n")
-	without := DiffWith(old, new, Options{MaxHunks: 100, Window: 2})
-	with := DiffWith(old, new, Options{
+	without := mustDiffWith(t, old, new, Options{MaxHunks: 100, Window: 2})
+	with := mustDiffWith(t, old, new, Options{
 		MaxHunks: 100, Window: 2, SyncPoints: []SyncPoint{{Old: 1, New: 6}},
 	})
 	if with.Modified >= without.Modified || with.Added != 5 {
 		t.Fatalf("sync did not recover alignment: without=%+v with=%+v", without, with)
+	}
+}
+
+func TestDiffWithRejectsInvalidSyncPoints(t *testing.T) {
+	t.Parallel()
+	old := SplitLines("a\nb\n")
+	new := SplitLines("a\nc\n")
+	for _, points := range [][]SyncPoint{
+		{{Old: 2, New: 1}},
+		{{Old: 1, New: 1}, {Old: 0, New: 1}},
+	} {
+		if _, err := DiffWith(old, new, Options{SyncPoints: points}); err == nil {
+			t.Fatalf("DiffWith silently accepted invalid points: %+v", points)
+		}
 	}
 }
 
