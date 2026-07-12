@@ -34,7 +34,8 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		code                 int
 	}{
 		{name: "version", args: []string{"--version"}, code: 0, stdout: "ayame-diff"},
-		{name: "csv help", args: []string{"--help"}, code: 0, stdout: "compares huge CSV/TSV"},
+		{name: "top-level help", args: []string{"--help"}, code: 0, stdout: "open a comparison in the browser"},
+		{name: "csv help", args: []string{"csv", "--help"}, code: 0, stdout: "compares huge CSV/TSV"},
 		{name: "text help", args: []string{"text", "--help"}, code: 0, stdout: "Line-level diff"},
 		{name: "sorted help", args: []string{"sorted", "--help"}, code: 0, stdout: "Sort both text files"},
 		{name: "dir help", args: []string{"dir", "--help"}, code: 0, stdout: "Recursively compare"},
@@ -46,7 +47,7 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		{name: "remove help", args: []string{"remove", "--help"}, code: 0, stdout: "Uninstall"},
 		{name: "shell install help", args: []string{"shell-install", "--help"}, code: 0, stdout: "file-manager"},
 		{name: "shell uninstall help", args: []string{"shell-uninstall", "--help"}, code: 0, stdout: "file-manager"},
-		{name: "no arguments", code: 0, stdout: "Subcommands:"},
+		{name: "no arguments", code: 0, stdout: "ayame-diff gui a.txt b.txt"},
 		{name: "parse error", args: []string{"--not-a-real-flag"}, code: 2, stderr: "flag provided but not defined"},
 		{name: "text missing paths", args: []string{"text", "only-one"}, code: 2, stderr: "needs exactly two paths"},
 		{name: "removed interactive mode", args: []string{"--interactive"}, code: 2, stderr: "interactive setup UI was removed"},
@@ -70,6 +71,27 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 				t.Errorf("stderr = %q, want empty", stderr.String())
 			}
 		})
+	}
+}
+
+func TestRootUsageListsEverySubcommandOnItsOwnLine(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{
+		"csv", "text", "sorted", "dir", "bin", "3way", "serve", "gui", "update", "remove",
+		"shell-install", "shell-uninstall", "shell-select",
+	} {
+		if !strings.Contains(rootUsage, "\n  "+command+" ") {
+			t.Errorf("root usage does not list %q on its own line", command)
+		}
+	}
+	for _, example := range []string{
+		"ayame-diff gui a.txt b.txt",
+		"ayame-diff text a.txt b.txt",
+		"ayame-diff dir old-dir new-dir",
+	} {
+		if !strings.Contains(rootUsage, example) {
+			t.Errorf("root usage missing example %q", example)
+		}
 	}
 }
 
