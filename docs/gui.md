@@ -214,8 +214,10 @@ Success response:
 ```
 
 Each hunk's `kind` is `Insert`, `Delete` or `Replace`, with `old`/`new` arrays
-holding the affected lines (truncated to `maxLines` per side). Errors return an
-HTTP 4xx status with a JSON body:
+holding the affected lines (truncated to `maxLines` per side). The optional
+`move_detection_skipped: true` field indicates that move detection was
+requested but omitted hunks made a complete result impossible. Errors return
+an HTTP 4xx status with a JSON body:
 
 ```json
 { "error": "..." }

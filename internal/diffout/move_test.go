@@ -31,3 +31,21 @@ func TestMovedBlocksRenderInTextAndJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestSkippedMoveDetectionRendersInSummaryAndJSON(t *testing.T) {
+	t.Parallel()
+	res := linediff.Result{HunkCount: 2, OmittedHunks: 1, Modified: 2, MoveDetectionSkipped: true}
+	var output, summary bytes.Buffer
+	if err := Write(&bytes.Buffer{}, &summary, linediff.StringLines{}, linediff.StringLines{}, res, Options{Format: Summary}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary.String(), "move detection skipped because hunks were omitted") {
+		t.Fatalf("summary = %q", summary.String())
+	}
+	if err := Write(&output, &bytes.Buffer{}, linediff.StringLines{}, linediff.StringLines{}, res, Options{Format: JSON}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"move_detection_skipped": true`) {
+		t.Fatalf("JSON = %s", output.String())
+	}
+}

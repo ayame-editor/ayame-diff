@@ -481,6 +481,26 @@ func TestDiffAPIDetectsMovedBlocks(t *testing.T) {
 	}
 }
 
+func TestDiffAPIMarksMoveDetectionSkippedWhenHunksAreOmitted(t *testing.T) {
+	t.Parallel()
+	body, _ := json.Marshal(diffRequest{
+		Inline: true, DetectMoves: true, MoveMinLines: 1, MaxHunks: 1,
+		OldText: "a\nb\nc\n", NewText: "A\nB\nC\n",
+	})
+	recorder := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response diffResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.OmittedHunks == 0 || !response.MoveDetectionSkipped || response.MovedBlocks != 0 {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
 func TestDiffAPISyncPointsAndIgnoredPatchAudit(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)

@@ -46,6 +46,9 @@ func TestDetectMovesHonorsMinimumAndOmittedGuard(t *testing.T) {
 	if DetectMoves(old, new, &res, MoveOptions{MinLines: 1}) != 0 {
 		t.Fatal("truncated hunk sets must not produce partial move pairs")
 	}
+	if !res.MoveDetectionSkipped {
+		t.Fatal("truncated hunk set did not record skipped move detection")
+	}
 }
 
 func BenchmarkDiffMoveDetection(b *testing.B) {

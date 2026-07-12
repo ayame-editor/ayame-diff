@@ -16,7 +16,15 @@ type moveKey struct {
 // equal. It returns the number of move pairs and annotates both hunks in res.
 // Callers opt in explicitly, so the normal Diff path pays no hashing cost.
 func DetectMoves(old, new Lines, res *Result, opts MoveOptions) uint64 {
-	if res == nil || len(res.Hunks) == 0 || res.OmittedHunks != 0 {
+	if res == nil {
+		return 0
+	}
+	res.MoveDetectionSkipped = false
+	if res.OmittedHunks != 0 {
+		res.MoveDetectionSkipped = true
+		return 0
+	}
+	if len(res.Hunks) == 0 {
 		return 0
 	}
 	if opts.MinLines == 0 {
