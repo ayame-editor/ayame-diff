@@ -169,6 +169,36 @@ func TestCSVPaginationIsDirectAndAccessible(t *testing.T) {
 	}
 }
 
+func TestLocalizedWebAttributesCoverStaticLabels(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+
+	for _, tag := range regexp.MustCompile(`<[^>]+>`).FindAllString(index, -1) {
+		if strings.Contains(tag, ` title="`) && !strings.Contains(tag, `data-i18n-title=`) {
+			t.Errorf("static title is not localized: %s", tag)
+		}
+		if strings.Contains(tag, ` aria-label="`) && !strings.Contains(tag, `data-i18n-aria-label=`) {
+			t.Errorf("static aria-label is not localized: %s", tag)
+		}
+	}
+	for _, want := range []string{
+		`data-i18n-placeholder="lineFiltersPlaceholder"`,
+		`data-i18n-title="keyboardShortcuts"`,
+		`data-i18n-aria-label="differenceMap"`,
+		`data-i18n-aria-label="browseFile"`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{`[data-i18n-title]`, `[data-i18n-aria-label]`, `lineFiltersPlaceholder: "1行に1つの正規表現"`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")
