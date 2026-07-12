@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -165,7 +166,7 @@ func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(absolute)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
@@ -215,7 +216,7 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	entries := make([]dirEntryResponse, len(result.Entries))
@@ -445,7 +446,7 @@ func (s *Server) handleCSVInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	inspection, err := engine.InspectInputs(csvConfig(req, "inspect.tmp"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)
@@ -469,16 +470,12 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 	cfg := csvConfig(req, output)
 	inspection, err := engine.InspectInputs(cfg)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	summary, err := engine.Run(r.Context(), cfg)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, r.Context().Err()) {
-			status = 499
-		}
-		writeError(w, status, err.Error())
+		writeClassifiedError(w, err, http.StatusInternalServerError)
 		return
 	}
 	file, err := os.Open(output)
@@ -537,9 +534,13 @@ func (s *Server) handleCSVExport(w http.ResponseWriter, r *http.Request) {
 	if cfg.OutputFormat == "" {
 		cfg.OutputFormat = "tsv"
 	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	summary, err := engine.Run(r.Context(), cfg)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
@@ -600,9 +601,13 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 	} else {
 		cfg.OutputDelimiter = '\t'
 	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	summary, err := engine.Run(r.Context(), cfg)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusInternalServerError)
 		return
 	}
 	if overwriteInput {
@@ -668,7 +673,7 @@ func (s *Server) handleProjectLoad(w http.ResponseWriter, r *http.Request) {
 	}
 	loaded, err := project.Load(body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	req := requestFromConfig(loaded.CSV)
@@ -704,7 +709,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	result := struct {
@@ -729,6 +734,10 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "use GET")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.version})
 }
 
@@ -817,7 +826,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	oldLines, newLines, closeLines, err := openRequestLines(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	defer closeLines()
@@ -880,7 +889,7 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 	}
 	oldLines, newLines, closeLines, err := openRequestLines(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	defer closeLines()
@@ -952,7 +961,7 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	oldLines, newLines, closeLines, err := openRequestLines(req.diffRequest)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	defer closeLines()
@@ -1330,4 +1339,23 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeClassifiedError(w http.ResponseWriter, err error, fallback int) {
+	writeError(w, statusForError(err, fallback), err.Error())
+}
+
+func statusForError(err error, fallback int) int {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return http.StatusRequestTimeout
+	case errors.Is(err, fs.ErrNotExist):
+		return http.StatusNotFound
+	case errors.Is(err, fs.ErrPermission):
+		return http.StatusForbidden
+	case errors.Is(err, engine.ErrUnresolvedRows):
+		return http.StatusBadRequest
+	default:
+		return fallback
+	}
 }
