@@ -3,7 +3,9 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -40,6 +42,51 @@ func TestHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" || body["version"] != "test" {
 		t.Fatalf("health = %v", body)
+	}
+}
+
+func TestHealthRejectsNonGETMethods(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/health", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStatusForError(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		err      error
+		fallback int
+		want     int
+	}{
+		{"missing", os.ErrNotExist, http.StatusInternalServerError, http.StatusNotFound},
+		{"permission", os.ErrPermission, http.StatusInternalServerError, http.StatusForbidden},
+		{"cancelled", context.Canceled, http.StatusInternalServerError, http.StatusRequestTimeout},
+		{"deadline", context.DeadlineExceeded, http.StatusInternalServerError, http.StatusRequestTimeout},
+		{"unresolved merge", engine.ErrUnresolvedRows, http.StatusInternalServerError, http.StatusBadRequest},
+		{"internal", errors.New("disk failed"), http.StatusInternalServerError, http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := statusForError(test.err, test.fallback); got != test.want {
+				t.Fatalf("statusForError(%v) = %d, want %d", test.err, got, test.want)
+			}
+		})
+	}
+}
+
+func TestMissingResourcesReturnNotFound(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+	for _, endpoint := range []string{"/api/path-info?path=", "/api/files?path="} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint+url.QueryEscape(missing), nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s status = %d body=%s", endpoint, rec.Code, rec.Body.String())
+		}
 	}
 }
 
@@ -493,7 +540,7 @@ func TestDiffAPIErrors(t *testing.T) {
 	rec = httptest.NewRecorder()
 	body, _ = json.Marshal(diffRequest{Old: "/no/such/a", New: "/no/such/b"})
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(body)))
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing-file status = %d", rec.Code)
 	}
 }

@@ -28,6 +28,10 @@ type partitionStats struct {
 type diffKind string
 type diffSide string
 
+// ErrUnresolvedRows is a client-resolvable merge conflict rather than an
+// internal processing failure.
+var ErrUnresolvedRows = errors.New("CSV merge has unresolved rows")
+
 type jsonCellChange struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
@@ -241,7 +245,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			choice, unresolved := reconcile.choice(id)
 			if unresolved {
 				if !reconcile.allowUnresolved {
-					return errors.New("CSV merge has unresolved rows")
+					return ErrUnresolvedRows
 				}
 				stats.UnresolvedRows++
 			}
@@ -288,7 +292,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			choice, unresolved := reconcile.choice(id)
 			if unresolved {
 				if !reconcile.allowUnresolved {
-					return errors.New("CSV merge has unresolved rows")
+					return ErrUnresolvedRows
 				}
 				stats.UnresolvedRows++
 			}
