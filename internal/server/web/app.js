@@ -32,6 +32,10 @@ const I18N = {
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     comparing: "比較中…", noDiff: "差分はありません。",
+    requiredField: (v) => `${v.field}を指定してください。`,
+    requiredFields: (v) => `${v.fields.join("、")}を指定してください。`,
+    invalidIndex: (v) => `${v.field}のインデックスが不正です。`,
+    projectPath: "プロジェクトパス",
     emptyTitle: "比較を始める",
     emptySteps: "1. OLDを指定 → 2. NEWを指定 → 3. 比較",
     emptyDrop: "ファイルをこの画面へドロップしても比較できます。",
@@ -89,6 +93,10 @@ const I18N = {
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     comparing: "Comparing…", noDiff: "No differences.",
+    requiredField: (v) => `${v.field} is required.`,
+    requiredFields: (v) => `${v.fields.join(" and ")} ${v.fields.length === 1 ? "is" : "are"} required.`,
+    invalidIndex: (v) => `${v.field} contains an invalid index.`,
+    projectPath: "project path",
     emptyTitle: "Start a comparison",
     emptySteps: "1. Choose OLD → 2. Choose NEW → 3. Compare",
     emptyDrop: "You can also drop files anywhere on this screen to compare them.",
@@ -467,7 +475,7 @@ function redoMerge() {
 }
 async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
-  if (!output) { setStatus(`${t("saveMerge")}: ${t("outputPath")} required`, "error"); return; }
+  if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
   const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
@@ -485,7 +493,7 @@ async function saveTextMerge() {
 }
 async function saveCSVMerge() {
   const output = $("mergeOutput").value.trim();
-  if (!output) { setStatus(`${t("saveMerge")}: ${t("outputPath")} required`, "error"); return; }
+  if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
   const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
@@ -558,7 +566,7 @@ async function compareThreeWay(csvMode) {
   finally { $("compare").disabled = false; }
 }
 async function saveThreeWayMerge() {
-  const output = $("mergeOutput").value.trim(); if (!output) { setStatus(`${t("saveMerge")}: output required`, "error"); return; }
+  const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
   const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || confirm(t("overwriteWarning")); if (!confirmOverwrite) return;
@@ -793,7 +801,7 @@ function csvRequestBody() {
   if (hasHeader) body.ignoreColumnNames = ignored;
   else {
 	body.ignoreColumnIndexes = ignored.map(Number);
-	if (body.ignoreColumnIndexes.some((value) => !Number.isInteger(value) || value < 0)) body._validationError = `${t("ignoreColumns")}: invalid index`;
+	if (body.ignoreColumnIndexes.some((value) => !Number.isInteger(value) || value < 0)) body._validationError = t("invalidIndex", { field: t("ignoreColumns") });
   }
   for (const spec of splitList($("columnTolerances").value)) {
     const pos = spec.lastIndexOf("=");
@@ -952,7 +960,7 @@ async function exportCSV() {
 	let body = csvRequestBody();
 	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
 	if (!validateInputs(body)) return;
-  if (!body.output) { setStatus(`${t("outputPath")}: required`, "error"); return; }
+  if (!body.output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
   try { const resp = await fetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
@@ -1001,13 +1009,17 @@ async function saveProject() {
 	let body = csvRequestBody();
 	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
 	body.projectPath = $("projectPath").value.trim();
-  if (!validateInputs(body) || !body.projectPath || !body.output) { setStatus(`${t("saveProject")}: ${t("outputPath")} / project path required`, "error"); return; }
+  if (!validateInputs(body)) return;
+  const missing = [];
+  if (!body.projectPath) missing.push(t("projectPath"));
+  if (!body.output) missing.push(t("outputPath"));
+  if (missing.length) { setStatus(t("requiredFields", { fields: missing }), "error"); return; }
   try { const resp = await fetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function loadProject() {
-  const path = $("projectPath").value.trim(); if (!path) { setStatus(`${t("openProject")}: path required`, "error"); return; }
+  const path = $("projectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
   try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); await applyCSVProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
