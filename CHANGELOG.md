@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.7.14 - 2026-07-13
+
+- Added complete top-level CLI help covering every subcommand and GUI entry
+  point while preserving explicit CSV help and existing script compatibility.
+  (#95)
+- Completed keyboard and screen-reader support for focus rings, the minimap,
+  sync-point cells, and live status announcements, and localized the remaining
+  client-side validation messages. (#123, #143)
+- Made HTTP failures accurately distinguish invalid requests, missing files,
+  permission failures, timeouts, unresolved merges, and internal errors; health
+  checks now reject unsupported methods. (#112)
+- Rejected invalid sync points throughout the diff engine and all text API
+  paths instead of silently falling back to an unanchored comparison. (#163)
+- Added field-specific validation for numeric API controls without leaking Go
+  struct or type names for negative, zero, fractional, or oversized values.
+  (#167)
+- Added line-level comparison and exact terminator preservation for classic Mac
+  CR-only files across in-memory, plain-file, gzip, and decoded inputs. (#157)
+
 ## v0.7.13 - 2026-07-12
 
 - Completed the bilingual user and contributor documentation, including GUI
