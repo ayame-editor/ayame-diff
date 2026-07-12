@@ -32,7 +32,7 @@ Examples:
   ayame-diff text a.txt b.txt         print a text diff
   ayame-diff dir old-dir new-dir      compare directory trees
 
-Commands:
+Subcommands:
   csv             CSV/TSV key comparison
   text            line diff of two text files
   sorted          sort both files, then line-diff
