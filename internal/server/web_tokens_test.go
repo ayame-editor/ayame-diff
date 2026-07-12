@@ -146,6 +146,29 @@ func TestPrimaryCompareAndInitialEmptyState(t *testing.T) {
 	}
 }
 
+func TestCSVPaginationIsDirectAndAccessible(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{
+		`pageInput.type = "number"`,
+		`pageInput.min = "1"`,
+		`pageInput.max = String(pageCount)`,
+		`event.key === "Enter"`,
+		`setAttribute("aria-label", t("previousPage"))`,
+		`setAttribute("aria-label", t("nextPage"))`,
+		`pageInput.setAttribute("aria-label", t("pageInput"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	if !strings.Contains(style, ".csv-page-input") {
+		t.Error("CSV page input styling is missing")
+	}
+}
+
 func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")
