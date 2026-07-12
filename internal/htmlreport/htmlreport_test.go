@@ -53,3 +53,22 @@ func TestWriteEscapesHTML(t *testing.T) {
 		t.Fatal("expected escaped '<' in the output")
 	}
 }
+
+func TestWriteShowsOmittedHunks(t *testing.T) {
+	t.Parallel()
+	old := linediff.SplitLines("a\nkeep\nb\nkeep again\nc\n")
+	new := linediff.SplitLines("A\nkeep\nB\nkeep again\nC\n")
+	res := linediff.Diff(old, new, 1, 1)
+	if res.OmittedHunks == 0 {
+		t.Fatal("fixture must omit at least one hunk")
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, old, new, res, "limited"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"class=\"omitted\"", "hunks omitted", "--max-hunks", "report is incomplete"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("report missing %q", want)
+		}
+	}
+}

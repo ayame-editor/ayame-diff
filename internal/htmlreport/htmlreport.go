@@ -37,6 +37,8 @@ word-break:break-word;border-top:1px solid var(--border)}
 .ln{color:var(--muted);text-align:right;user-select:none}
 .add{background:var(--add-bg)}.del{background:var(--del-bg)}.chg{background:var(--chg-bg)}
 .w-add{background:var(--w-add);border-radius:3px}.w-del{background:var(--w-del);border-radius:3px}
+.omitted{margin:0 1rem 1rem;padding:.65rem .8rem;border:1px solid var(--border);
+border-left:4px solid #b7791f;border-radius:6px;background:var(--chg-bg)}
 `
 
 // Write renders res to w as a full self-contained HTML document. title labels
@@ -50,6 +52,9 @@ func Write(w io.Writer, old, new linediff.Lines, res linediff.Result, title stri
 	fmt.Fprintf(bw, "<header><h1>ayame-diff</h1></header>\n")
 	fmt.Fprintf(bw, "<div class=\"summary\">%s: <b>%d</b> hunks, <b>%d</b> added, <b>%d</b> deleted, <b>%d</b> modified</div>\n",
 		esc(title), res.HunkCount, res.Added, res.Deleted, res.Modified)
+	if res.OmittedHunks > 0 {
+		fmt.Fprintf(bw, "<div class=\"omitted\"><b>%d hunks omitted</b> because the --max-hunks limit was reached. The report is incomplete.</div>\n", res.OmittedHunks)
+	}
 	fmt.Fprintln(bw, "<main>")
 	for _, h := range res.Hunks {
 		writeHunk(bw, old, new, h)

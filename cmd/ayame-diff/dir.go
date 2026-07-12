@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/dircompare"
+	"github.com/hjosugi/ayame-diff/internal/dirreport"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
@@ -20,12 +22,15 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff dir", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var all, jsonOut, tsvOut, includeHidden, quick, diffExit bool
+	var htmlPath, csvPath string
 	excludes, includes := stringFlags(), stringFlags()
 	workers := min(runtime.NumCPU(), 8)
 	maxArchiveEntryBytes, maxArchiveBytes := "64MiB", "256MiB"
 	fs.BoolVar(&all, "all", false, "include unchanged (same) files in the output")
 	fs.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
 	fs.BoolVar(&tsvOut, "tsv", false, "emit status/path/size/mtime as TSV")
+	fs.StringVar(&htmlPath, "html", "", "write a self-contained folder tree report")
+	fs.StringVar(&csvPath, "csv", "", "write an RFC 4180 folder summary")
 	fs.Var(&excludes, "exclude", "glob to skip (repeatable), matched on the relative path or base name")
 	fs.Var(&includes, "include", "glob to include (repeatable), matched on the relative path or base name")
 	fs.BoolVar(&includeHidden, "hidden", false, "include dotfiles and hidden dot-directories (symlinks are always skipped)")
@@ -55,8 +60,14 @@ Unchanged files are hidden unless --all is given.`)
 		return 2
 	}
 
-	if jsonOut && tsvOut {
-		fmt.Fprintln(stderr, "error: --json and --tsv cannot be combined")
+	formats := 0
+	for _, selected := range []bool{jsonOut, tsvOut, htmlPath != "", csvPath != ""} {
+		if selected {
+			formats++
+		}
+	}
+	if formats > 1 {
+		fmt.Fprintln(stderr, "error: --json, --tsv, --html, and --csv cannot be combined")
 		return 2
 	}
 	if workers < 1 || workers > 64 {
@@ -86,7 +97,24 @@ Unchanged files are hidden unless --all is given.`)
 		return 2
 	}
 
-	if jsonOut {
+	if htmlPath != "" {
+		title := fs.Arg(0) + " vs " + fs.Arg(1)
+		if err := atomicfile.Write(htmlPath, atomicfile.Options{}, func(w io.Writer) error {
+			return dirreport.WriteHTML(w, res, title, all)
+		}); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		writeDirReportSummary(stderr, res, htmlPath)
+	} else if csvPath != "" {
+		if err := atomicfile.Write(csvPath, atomicfile.Options{}, func(w io.Writer) error {
+			return dirreport.WriteCSV(w, res, all)
+		}); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 2
+		}
+		writeDirReportSummary(stderr, res, csvPath)
+	} else if jsonOut {
 		if err := writeDirJSON(stdout, res); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return 2
@@ -107,6 +135,11 @@ Unchanged files are hidden unless --all is given.`)
 		return 1
 	}
 	return 0
+}
+
+func writeDirReportSummary(stderr io.Writer, res *dircompare.Result, path string) {
+	fmt.Fprintf(stderr, "%d added, %d removed, %d changed, %d same\nwrote %s\n",
+		res.Added, res.Removed, res.Changed, res.Same, path)
 }
 
 func parsePositiveByteSize(flagName, value string) (int64, error) {
