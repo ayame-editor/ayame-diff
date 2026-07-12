@@ -540,6 +540,32 @@ func TestDiffAPIsRejectInvalidSyncPoints(t *testing.T) {
 	}
 }
 
+func TestDiffAPIRejectsInvalidNumericFieldsWithoutGoDetails(t *testing.T) {
+	t.Parallel()
+	server := newTestServer(t)
+	for _, field := range []string{"window", "maxHunks", "maxLines", "moveMinLines"} {
+		for _, value := range []string{"-1", "0", "1.5", "18446744073709551616"} {
+			t.Run(field+"="+value, func(t *testing.T) {
+				body := []byte(`{"inline":true,"oldText":"a\n","newText":"b\n","` + field + `":` + value + `}`)
+				recorder := httptest.NewRecorder()
+				server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/diff", bytes.NewReader(body)))
+				if recorder.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+				}
+				message := recorder.Body.String()
+				if !strings.Contains(message, field) {
+					t.Fatalf("error does not identify %s: %s", field, message)
+				}
+				for _, leaked := range []string{"diffRequest", "uint64", "Go struct", "type int"} {
+					if strings.Contains(message, leaked) {
+						t.Fatalf("error leaks %q: %s", leaked, message)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestDiffAPIErrors(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)
