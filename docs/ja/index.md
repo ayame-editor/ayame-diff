@@ -55,6 +55,14 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 ayame-diff text old.txt new.txt
 ```
 
+`clip:`（または`clipboard:`）を入力に指定すると、OSクリップボードをファイルと
+直接比較できます。macOSでは`pbpaste`、WindowsではPowerShell、Linuxでは
+`wl-paste`または`xclip`を使用します。
+
+```bash
+ayame-diff text clip: saved.txt
+```
+
 2 つの CSV/TSV ファイルをキーで比較し、差分行を TSV に書き出します。
 
 ```bash
