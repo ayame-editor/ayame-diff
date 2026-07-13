@@ -8,6 +8,8 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
+  logo: assets/favicon.svg
+  favicon: assets/favicon.svg
   features:
     - navigation.instant
     - navigation.tracking
@@ -22,15 +24,15 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -58,34 +60,53 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 
+extra_css:
+  - assets/ayame-docs.css
+
 extra:
+  generator: false
+  alternate:
+    - name: English
+      link: /ayame-diff/
+      lang: en
+    - name: 日本語
+      link: /ayame-diff/ja/
+      lang: ja
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/hjosugi/ayame-diff
 
 nav:
   - Home: index.md
-  - Usage: usage.md
-  - Encoding: encoding.md
-  - GUI: gui.md
-  - GUI setup parity: gui-setup-parity.md
-  - File-manager integration: shell-integration.md
-  - Packaging and Windows trust: packaging.md
-  - Ayame family design: design.md
-  - Comparison projects: projects.md
-  - Merge and reconcile: merge.md
-  - Three-way comparison: three-way.md
-  - Comparison options: comparison-options.md
+  - Get started:
+      - GUI guide: gui.md
+      - File-manager integration: shell-integration.md
+  - Compare:
+      - CLI usage: usage.md
+      - Comparison options: comparison-options.md
+      - Encoding: encoding.md
+      - Merge and reconcile: merge.md
+      - Three-way comparison: three-way.md
+  - Automate:
+      - Comparison projects: projects.md
+      - GUI setup parity: gui-setup-parity.md
+  - Project:
+      - Packaging and Windows trust: packaging.md
+      - Ayame family design: design.md
   - 日本語:
       - ホーム: ja/index.md
-      - 使い方: usage.ja.md
-      - 文字コード: encoding.ja.md
-      - GUI: gui.ja.md
-      - GUI 設定対応表: gui-setup-parity.ja.md
-      - ファイルマネージャー統合: shell-integration.ja.md
-      - パッケージングと Windows の信頼: packaging.ja.md
-      - Ayame ファミリーのデザイン: design.ja.md
-      - 比較プロジェクト: projects.ja.md
-      - マージと調整: merge.ja.md
-      - 3-way 比較: three-way.ja.md
-      - 比較オプション: comparison-options.ja.md
+      - はじめる:
+          - GUI ガイド: gui.ja.md
+          - ファイルマネージャー統合: shell-integration.ja.md
+      - 比較する:
+          - CLI の使い方: usage.ja.md
+          - 比較オプション: comparison-options.ja.md
+          - 文字コード: encoding.ja.md
+          - マージと調整: merge.ja.md
+          - 3-way 比較: three-way.ja.md
+      - 自動化する:
+          - 比較プロジェクト: projects.ja.md
+          - GUI 設定対応表: gui-setup-parity.ja.md
+      - プロジェクト:
+          - パッケージングと Windows の信頼: packaging.ja.md
+          - Ayame ファミリーのデザイン: design.ja.md

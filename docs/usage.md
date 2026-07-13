@@ -26,9 +26,18 @@ Two bare paths are a quick-launch form: files use `text`, directories use
 `dir`, and adding `--gui` opens and immediately runs the browser GUI. See
 [File-manager and quick launch](shell-integration.md).
 
+<div class="doc-jump-grid">
+  <a class="doc-jump" href="#csv">Compare CSV / TSV</a>
+  <a class="doc-jump" href="#text">Compare text</a>
+  <a class="doc-jump" href="#sorted">Compare after sorting</a>
+  <a class="doc-jump" href="#dir">Compare folders</a>
+  <a class="doc-jump" href="#exit-codes">Use in scripts / CI</a>
+  <a class="doc-jump" href="../gui/">Prefer the GUI?</a>
+</div>
+
 ---
 
-## `csv` — CSV/TSV key comparison (default)
+## `csv` — CSV/TSV key comparison (default) { #csv }
 
 Compare two CSV/TSV files (including `.csv.gz` and `.tsv.gz`) by key, even when
 their row order differs, and write the differing rows to a TSV. Left and right
@@ -159,7 +168,7 @@ relative paths, GUI history, and cron/CI usage.
 
 ---
 
-## `text` — line-oriented text diff
+## `text` — line-oriented text diff { #text }
 
 Compare two text files (plain or `.gz`) in row order. A bounded resync window
 keeps it linear and memory-bounded even on huge inputs. The differences are
@@ -236,7 +245,7 @@ tolerance, `--word`, `--window` and `--max-hunks`.
 
 ---
 
-## `sorted` — sort, then diff
+## `sorted` — sort, then diff { #sorted }
 
 For files that hold the same rows in a different order, `sorted` sorts both
 inputs line-wise and then runs the same line diff as `text`. It accepts every
@@ -262,7 +271,7 @@ ayame-diff sorted --reverse a.txt b.txt
 
 ---
 
-## `dir` — recursive folder / archive comparison
+## `dir` — recursive folder / archive comparison { #dir }
 
 `dir OLD NEW` pairs slash-normalized relative paths. Size is checked first;
 equal-size candidates are streamed in parallel and compared byte-for-byte.
@@ -294,7 +303,7 @@ exclusive with `--json` and `--tsv`.
 
 ---
 
-## Exit codes
+## Exit codes { #exit-codes }
 
 Normally:
 
