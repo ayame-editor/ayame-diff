@@ -57,6 +57,11 @@ const (
 // limit (#170). A var so tests can shrink it before New.
 var maxConcurrentComparisons = max(2, runtime.NumCPU())
 
+// dropSessionTTL is how long an unowned (previous-run) drop directory may sit
+// before opportunistic cleanup removes it. Live sessions are excluded from
+// cleanup regardless of age (#168). A var so tests can shrink it.
+var dropSessionTTL = 24 * time.Hour
+
 // Server serves the UI and diff API.
 type Server struct {
 	version    string
@@ -166,10 +171,12 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) dropRoot(session string) (string, error) {
 	s.dropMu.Lock()
-	defer s.dropMu.Unlock()
-	if root := s.drops[session]; root != "" {
+	root := s.drops[session]
+	s.dropMu.Unlock()
+	if root != "" {
 		return root, nil
 	}
+
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
@@ -178,19 +185,54 @@ func (s *Server) dropRoot(session string) (string, error) {
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", err
 	}
-	// Clear stale browser drop sessions opportunistically.
-	if entries, readErr := os.ReadDir(base); readErr == nil {
-		for _, entry := range entries {
-			if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > 24*time.Hour {
-				_ = os.RemoveAll(filepath.Join(base, entry.Name()))
-			}
+
+	s.dropMu.Lock()
+	// A concurrent call for the same session may have registered a root while we
+	// prepared the base directory; keep the first one.
+	if existing := s.drops[session]; existing != "" {
+		s.dropMu.Unlock()
+		return existing, nil
+	}
+	root, err = os.MkdirTemp(base, "session-")
+	if err != nil {
+		s.dropMu.Unlock()
+		return "", err
+	}
+	s.drops[session] = root
+	s.dropMu.Unlock()
+
+	// Reclaim orphaned directories from previous runs, but never a live one, and
+	// never while holding the lock (#168).
+	s.cleanupStaleDrops(base)
+	return root, nil
+}
+
+// cleanupStaleDrops removes drop directories older than dropSessionTTL that no
+// live session owns. The live-root set is snapshotted under the lock; the
+// directory scan and each RemoveAll run without it, so a first drop never blocks
+// other sessions behind filesystem work and an active session's directory (which
+// handleDrop may be writing to) is never deleted (#168).
+func (s *Server) cleanupStaleDrops(base string) {
+	s.dropMu.Lock()
+	live := make(map[string]struct{}, len(s.drops))
+	for _, root := range s.drops {
+		live[root] = struct{}{}
+	}
+	s.dropMu.Unlock()
+
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		full := filepath.Join(base, entry.Name())
+		if _, active := live[full]; active {
+			continue
+		}
+		if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > dropSessionTTL {
+			_ = os.RemoveAll(full)
 		}
 	}
-	root, err := os.MkdirTemp(base, "session-")
-	if err == nil {
-		s.drops[session] = root
-	}
-	return root, err
 }
 
 func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
