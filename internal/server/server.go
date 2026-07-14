@@ -13,7 +13,9 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -731,7 +733,79 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handler exposes the routes for http.ListenAndServe (and tests).
-func (s *Server) Handler() http.Handler { return s.mux }
+// contentSecurityPolicy locks the embedded single-page UI to its own origin:
+// scripts and styles load only from us (runtime layout styles set via the
+// CSSOM still work; inline <style>/style="" are covered by 'unsafe-inline'),
+// images allow local data: URIs, and framing, objects, workers, foreign
+// connections, and form posts are denied. Mirrors the sibling ayame-editor
+// policy so the family stays consistent. (#146)
+const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'"
+
+// Handler returns the HTTP handler wrapped in the security middleware, so every
+// route (the embedded UI and the JSON API) gets hardening headers and CSRF
+// protection whether it is served by `serve` or `gui`.
+func (s *Server) Handler() http.Handler { return secure(s.mux) }
+
+// secure adds response-hardening headers to every reply (#146) and rejects
+// cross-origin state-changing requests (#145). Without an Origin check a page
+// on any other website can, while the user has this local server running, POST
+// to e.g. /api/csv/export or /api/merge/* and write attacker-chosen files: the
+// request targets 127.0.0.1 with a valid Host, `text/plain` dodges the CORS
+// preflight, and the response being unreadable cross-origin does not stop the
+// write side effect. Only an Origin check closes that hole.
+func secure(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		if !safeMethod(r.Method) && !sameOriginRequest(r) {
+			writeError(w, http.StatusForbidden, "cross-origin request rejected")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// safeMethod reports whether the method only reads state. Cross-origin reads
+// are already blocked from being *read back* by the same-origin policy, so the
+// CSRF gate only needs to guard the state-changing verbs.
+func safeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+// sameOriginRequest is the CSRF gate. A browser always attaches an Origin on a
+// cross-site request, so an absent Origin marks a non-browser client (curl, the
+// native GUI shell) that a malicious page cannot drive — allow it. When present,
+// the Origin's host:port must equal the request's own Host (true same-origin,
+// which also holds when the user bound `--addr` to a LAN address), with
+// loopback origins accepted as a fallback for proxy/port quirks on a local tool.
+func sameOriginRequest(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
