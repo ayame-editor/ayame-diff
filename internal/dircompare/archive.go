@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -282,7 +283,7 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for index := range jobs {
-				equal, err := contentEqual(oldSrc, newSrc, res.Entries[index].Path)
+				equal, err := contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
 				results <- struct {
 					index int
 					equal bool
@@ -333,8 +334,17 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 	return res, nil
 }
 
+// errExpansionOverLimit is returned internally by readersEqual when the
+// decompressed byte count passes the cap; contentEqual translates it into a
+// file-scoped ErrArchiveLimit.
+var errExpansionOverLimit = errors.New("decompressed content exceeds limit")
+
 // contentEqual streams both sources' copies of rel and compares their bytes.
-func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
+// For an on-disk .gz the comparison is bounded by the archive entry limit so a
+// small file that expands hugely cannot burn unbounded CPU/time (#147): once
+// the decompressed bytes pass the cap the compare fails with ErrArchiveLimit
+// rather than streaming forever.
+func contentEqual(oldSrc, newSrc source, rel string, opts Options) (bool, error) {
 	a, err := oldSrc.open(rel)
 	if err != nil {
 		return false, err
@@ -347,6 +357,7 @@ func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
 	defer b.Close()
 	var ar, br io.Reader = a, b
 	var ag, bg *gzip.Reader
+	var limit int64
 	if strings.HasSuffix(strings.ToLower(rel), ".gz") {
 		ag, err = gzip.NewReader(a)
 		if err != nil {
@@ -360,23 +371,37 @@ func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
 		}
 		defer bg.Close()
 		br = bg
+		limit, _ = archiveLimits(opts)
 	}
-	return readersEqual(ar, br)
+	equal, err := readersEqual(ar, br, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	return equal, err
 }
 
 // readersEqual reports whether two readers yield identical bytes, short-
-// circuiting on the first difference.
-func readersEqual(a, b io.Reader) (bool, error) {
+// circuiting on the first difference. A positive limit bounds the number of
+// bytes compared: if the readers stay equal past limit bytes, it returns
+// errExpansionOverLimit instead of consuming them unbounded (used to cap gzip
+// expansion, #147). limit <= 0 means unbounded (plain files, already bounded by
+// their on-disk size).
+func readersEqual(a, b io.Reader, limit int64) (bool, error) {
 	const bufSize = 64 * 1024
 	ra := bufio.NewReaderSize(a, bufSize)
 	rb := bufio.NewReaderSize(b, bufSize)
 	bufA := make([]byte, bufSize)
 	bufB := make([]byte, bufSize)
+	var total int64
 	for {
 		na, errA := io.ReadFull(ra, bufA)
 		nb, errB := io.ReadFull(rb, bufB)
 		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
 			return false, nil
+		}
+		total += int64(na)
+		if limit > 0 && total > limit {
+			return false, errExpansionOverLimit
 		}
 		aDone := errA == io.EOF || errA == io.ErrUnexpectedEOF
 		bDone := errB == io.EOF || errB == io.ErrUnexpectedEOF

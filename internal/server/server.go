@@ -745,6 +745,14 @@ const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; connect-src 
 // protection whether it is served by `serve` or `gui`.
 func (s *Server) Handler() http.Handler { return secure(s.mux) }
 
+// maxJSONBodyBytes caps every JSON request body so a huge or slow POST cannot
+// exhaust memory (#147). It is deliberately generous — real diff/merge requests
+// carry paths, options, and merge choices (kilobytes), and even pasted "scratch"
+// text is well under this — while still bounding worst-case allocation. File
+// contents travel via /api/drop, which streams to disk and is exempt below. A
+// var (not const) so tests can shrink it without allocating the full ceiling.
+var maxJSONBodyBytes int64 = 64 << 20 // 64 MiB
+
 // secure adds response-hardening headers to every reply (#146) and rejects
 // cross-origin state-changing requests (#145). Without an Origin check a page
 // on any other website can, while the user has this local server running, POST
@@ -761,6 +769,12 @@ func secure(next http.Handler) http.Handler {
 		if !safeMethod(r.Method) && !sameOriginRequest(r) {
 			writeError(w, http.StatusForbidden, "cross-origin request rejected")
 			return
+		}
+		// Bound JSON request bodies so a crafted or slow POST can't exhaust
+		// memory (#147). /api/drop streams uploads to disk in bounded memory and
+		// carries file contents, so it keeps its own handling and is exempt.
+		if !safeMethod(r.Method) && r.URL.Path != "/api/drop" {
+			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 		}
 		next.ServeHTTP(w, r)
 	})

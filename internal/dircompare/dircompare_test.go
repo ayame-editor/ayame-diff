@@ -2,9 +2,11 @@ package dircompare
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,6 +88,54 @@ func TestFiltersHiddenSymlinksQuickAndGzip(t *testing.T) {
 	gz, err := Compare(oldDir, newDir, Options{Includes: []string{"*.gz"}})
 	if err != nil || statusOf(gz, "data.txt.gz") != Same {
 		t.Fatalf("gzip=%+v err=%v", gz, err)
+	}
+}
+
+// TestGzipExpansionIsBounded covers #147: an on-disk .gz that expands past the
+// archive entry limit must fail with ErrArchiveLimit rather than stream
+// unbounded CPU/time, while a within-limit .gz still compares normally.
+func TestGzipExpansionIsBounded(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeGz := func(root, content string) {
+		file, err := os.Create(filepath.Join(root, "big.txt.gz"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer := gzip.NewWriter(file)
+		if _, err := writer.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Small on disk (highly compressible) but expands well past the cap below.
+	content := strings.Repeat("A", 8192)
+	writeGz(oldDir, content)
+	writeGz(newDir, content)
+
+	// Decompression cap below the expanded size: the compare must fail with a
+	// limit error, not consume the whole (potentially enormous) stream.
+	if _, err := Compare(oldDir, newDir, Options{
+		Includes:             []string{"*.gz"},
+		MaxArchiveEntryBytes: 512,
+		MaxArchiveBytes:      512,
+	}); !errors.Is(err, ErrArchiveLimit) {
+		t.Fatalf("want ErrArchiveLimit for oversized .gz, got %v", err)
+	}
+
+	// A generous cap leaves the identical files comparing equal (no regression).
+	ok, err := Compare(oldDir, newDir, Options{
+		Includes:             []string{"*.gz"},
+		MaxArchiveEntryBytes: 1 << 20,
+		MaxArchiveBytes:      1 << 20,
+	})
+	if err != nil || statusOf(ok, "big.txt.gz") != Same {
+		t.Fatalf("within-limit gzip compare: status=%v err=%v", statusOf(ok, "big.txt.gz"), err)
 	}
 }
 
