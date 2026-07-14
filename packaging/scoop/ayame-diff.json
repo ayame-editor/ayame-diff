@@ -1,42 +1,19 @@
 {
-    "version": "0.0.0",
-    "description": "Fast CSV/TSV key-diff and text-diff CLI with a local web GUI.",
-    "homepage": "https://github.com/hjosugi/ayame-diff",
-    "license": "MIT",
+  "version": "0.0.0",
+  "description": "Fast CSV, text, folder, and binary diff with a local web GUI.",
+  "homepage": "https://github.com/hjosugi/ayame-diff",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v0.0.0/ayame-diff-v0.0.0-windows.zip", "hash": "0000000000000000000000000000000000000000000000000000000000000000", "extract_dir": "ayame-diff-v0.0.0-windows"},
+    "arm64": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v0.0.0/ayame-diff-v0.0.0-windows.zip", "hash": "0000000000000000000000000000000000000000000000000000000000000000", "extract_dir": "ayame-diff-v0.0.0-windows\\arm64"}
+  },
+  "bin": "ayame-diff.exe",
+  "checkver": {"github": "https://github.com/hjosugi/ayame-diff"},
+  "autoupdate": {
     "architecture": {
-        "64bit": {
-            "url": "https://github.com/hjosugi/ayame-diff/releases/download/v0.0.0/ayame-diff-v0.0.0-windows.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
-            "extract_dir": "ayame-diff-v0.0.0-windows"
-        },
-        "arm64": {
-            "url": "https://github.com/hjosugi/ayame-diff/releases/download/v0.0.0/ayame-diff-v0.0.0-windows.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
-            "extract_dir": "ayame-diff-v0.0.0-windows\\arm64"
-        }
+      "64bit": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows"},
+      "arm64": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows\\arm64"}
     },
-    "bin": "ayame-diff.exe",
-    "notes": [
-        "Run 'ayame-diff --help' for subcommands (csv, text, sorted, serve).",
-        "'ayame-diff serve' starts the local web GUI in your browser."
-    ],
-    "checkver": {
-        "github": "https://github.com/hjosugi/ayame-diff"
-    },
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip",
-                "extract_dir": "ayame-diff-v$version-windows"
-            },
-            "arm64": {
-                "url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip",
-                "extract_dir": "ayame-diff-v$version-windows\\arm64"
-            }
-        },
-        "hash": {
-            "url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/SHA256SUMS",
-            "regex": "([a-fA-F0-9]{64})\\s+(?:\\./)?$basename"
-        }
-    }
+    "hash": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/SHA256SUMS", "regex": "([a-fA-F0-9]{64})\\s+(?:\\./)?$basename"}
+  }
 }

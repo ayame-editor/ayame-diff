@@ -2,6 +2,7 @@ name: lint
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -26,6 +27,8 @@ jobs:
           fi
       - run: go vet ./...
       - name: staticcheck
+        # Pinned so an unrelated PR never breaks when a new staticcheck ships;
+        # bump deliberately. v0.7.0 == staticcheck 2026.1.
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
           staticcheck ./...
