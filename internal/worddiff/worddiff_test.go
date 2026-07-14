@@ -61,11 +61,19 @@ func TestTokenize(t *testing.T) {
 			want: []string{"a1_b2"},
 		},
 		{
-			// CJK letters are \p{L}, so a run of them is one word token, split
-			// from the surrounding punctuation.
+			// CJK is written without spaces, so each character is its own token
+			// (Han + Hiragana here), split from the surrounding punctuation. This
+			// lets an inline diff align on individual characters. (#161)
 			name: "japanese",
 			in:   "日本語です。",
-			want: []string{"日本語です", "。"},
+			want: []string{"日", "本", "語", "で", "す", "。"},
+		},
+		{
+			// A base letter keeps its combining mark ("e" + U+0301) as one token
+			// instead of stranding the mark. (#161)
+			name: "combining mark",
+			in:   "café",
+			want: []string{"café"},
 		},
 	}
 	for _, c := range cases {
@@ -178,18 +186,23 @@ func TestDiff(t *testing.T) {
 			},
 		},
 		{
-			// Multibyte / Japanese: the changed middle word is isolated while
-			// the shared head and tail stay unchanged, proving rune-safe
-			// tokenization and merging.
+			// Multibyte / Japanese: spaceless CJK is tokenized per character, so
+			// the single changed character is isolated while the shared head and
+			// tail stay unchanged — the whole point of #161. (Previously the lack
+			// of an alignable boundary marked the entire line changed.)
 			name:   "japanese changed word",
 			old:    "私は猫が好きです",
 			new:    "私は犬が好きです",
 			wantOK: true,
 			wantOld: []Segment{
-				{Text: "私は猫が好きです", Changed: true},
+				{Text: "私は", Changed: false},
+				{Text: "猫", Changed: true},
+				{Text: "が好きです", Changed: false},
 			},
 			wantNew: []Segment{
-				{Text: "私は犬が好きです", Changed: true},
+				{Text: "私は", Changed: false},
+				{Text: "犬", Changed: true},
+				{Text: "が好きです", Changed: false},
 			},
 		},
 		{

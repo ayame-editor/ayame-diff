@@ -168,12 +168,33 @@ function applyLang(next) {
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 const INLINE_MAX_CHARS = 2000;
 const INLINE_MAX_TOKENS = 260;
-const TOKEN_RE = /(\s+|[\p{Letter}\p{Number}_]+|[^\s\p{Letter}\p{Number}_]+)/gu;
+// Word class includes combining marks (\p{Mark}) so a base letter keeps its
+// accent (e.g. "e"+U+0301) instead of stranding the mark as a separate token.
+const TOKEN_RE = /(\s+|[\p{Letter}\p{Mark}\p{Number}_]+|[^\s\p{Letter}\p{Mark}\p{Number}_]+)/gu;
+// CJK is written without spaces, so a whole run would be one token and the diff
+// could only mark it all changed; split each such character out so "日本語" vs
+// "日本国" highlights just the last character. Mirrors worddiff.go's cjkScripts.
+const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function inlineTokens(text) {
   const tokens = [];
-  for (const m of String(text || "").matchAll(TOKEN_RE)) tokens.push(m[0]);
+  for (const m of String(text || "").matchAll(TOKEN_RE)) appendSplitCJK(tokens, m[0]);
   return tokens;
+}
+// appendSplitCJK pushes tok, emitting each CJK character as its own token while
+// keeping maximal non-CJK runs intact. Non-CJK tokens take a fast path.
+function appendSplitCJK(tokens, tok) {
+  if (!CJK_RE.test(tok)) { tokens.push(tok); return; }
+  let buf = "";
+  for (const ch of tok) { // iterates by code point
+    if (CJK_RE.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) tokens.push(buf);
 }
 function pushPart(parts, text, changed) {
   if (!text) return;
