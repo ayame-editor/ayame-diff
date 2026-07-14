@@ -39,25 +39,25 @@ the GUI chooses text/folder mode and starts comparing immediately.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() > 2 {
 		fmt.Fprintln(stderr, "error: gui accepts at most two paths: OLD NEW")
-		return 2
+		return exitUsage
 	}
 
 	srv, err := server.New(version)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
 	guiURL := guiLaunchURL("http://"+ln.Addr().String()+"/", fs.Args())
 	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
@@ -68,9 +68,9 @@ the GUI chooses text/folder mode and starts comparing immediately.`)
 	}
 	if err := http.Serve(ln, srv.Handler()); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
-	return 0
+	return exitOK
 }
 
 func guiLaunchURL(base string, paths []string) string {

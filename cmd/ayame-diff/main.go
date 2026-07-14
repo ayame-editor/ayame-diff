@@ -21,6 +21,23 @@ import (
 
 var version = "dev"
 
+// Exit codes form a stable taxonomy so scripts can tell "differences found"
+// apart from "something failed" (#113). Runtime failures use 3 (not 1) so exit
+// 1 is reserved for a real diff under --diff-exit-code.
+//
+//	0    success — completed; no differences reported
+//	1    differences found (only when --diff-exit-code is set)
+//	2    usage error — bad flags, arguments, or incompatible options
+//	3    runtime error — I/O, comparison, server, or update failure
+//	130  interrupted (Ctrl-C / SIGTERM)
+const (
+	exitOK        = 0
+	exitDiff      = 1
+	exitUsage     = 2
+	exitError     = 3
+	exitInterrupt = 130
+)
+
 const rootUsage = `ayame-diff compares text, binary files, directories, and huge CSV/TSV data.
 
 Usage:
@@ -49,6 +66,13 @@ Subcommands:
 
 Run 'ayame-diff <command> --help' for command-specific options.
 CSV flags without an explicit command remain supported for compatibility.
+
+Exit codes:
+  0    success (no differences)
+  1    differences found (with --diff-exit-code)
+  2    usage error (bad flags or arguments)
+  3    runtime error (I/O, comparison, server, or update failure)
+  130  interrupted
 `
 
 const csvUsage = `ayame-diff csv compares huge CSV/TSV files whose row order differs.
@@ -190,16 +214,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if a == "--interactive" || a == "-interactive" {
 			fmt.Fprintln(stderr, "ayame-diff: the interactive setup UI was removed.")
 			fmt.Fprintln(stderr, "Pass --left, --right, and --out (plus any key options) directly. See --help.")
-			return 2
+			return exitUsage
 		}
 	}
 	if len(args) > 0 && (args[0] == "--version" || args[0] == "-version" || args[0] == "version") {
 		printVersion(stdout)
-		return 0
+		return exitOK
 	}
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")) {
 		fmt.Fprint(stdout, rootUsage)
-		return 0
+		return exitOK
 	}
 	if paths, gui, ok := quickLaunchArgs(args); ok {
 		if gui {
@@ -294,21 +318,21 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	opts, err := parseFlags(args, flagOutput(args, stdout, stderr))
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if opts.ShowVersion {
 		printVersion(stdout)
-		return 0
+		return exitOK
 	}
 	cfg := opts.Engine
 	if opts.Project != "" {
 		loaded, loadErr := project.Load(opts.Project)
 		if loadErr != nil {
 			fmt.Fprintln(stderr, "error:", loadErr)
-			return 2
+			return exitError
 		}
 		cfg = loaded.CSV
 	}
@@ -319,7 +343,7 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 		// without arguments to verify that its alias starts successfully. Treat
 		// that probe like --help instead of reporting missing CSV operands.
 		fmt.Fprintln(stdout, csvUsage)
-		return 0
+		return exitOK
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -327,11 +351,11 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	if opts.SaveProject != "" {
 		if err := cfg.Validate(); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitUsage
 		}
 		if err := project.Save(opts.SaveProject, project.Project{Mode: "csv", CSV: cfg, Report: project.Report{CellDiff: cfg.CellDiff, OutputFormat: cfg.OutputFormat}}); err != nil {
 			fmt.Fprintln(stderr, "error: save project:", err)
-			return 2
+			return exitError
 		}
 		fmt.Fprintln(stderr, "saved project:", opts.SaveProject)
 	}
@@ -339,19 +363,19 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		if errors.Is(err, context.Canceled) {
-			return 130
+			return exitInterrupt
 		}
-		return 2
+		return exitError
 	}
 	if opts.SummaryJSON != "" {
 		data, marshalErr := json.MarshalIndent(summary, "", "  ")
 		if marshalErr != nil {
 			fmt.Fprintln(stderr, "error: encode summary:", marshalErr)
-			return 2
+			return exitError
 		}
 		if writeErr := os.WriteFile(opts.SummaryJSON, append(data, '\n'), 0o644); writeErr != nil {
 			fmt.Fprintln(stderr, "error: write summary:", writeErr)
-			return 2
+			return exitError
 		}
 	}
 
@@ -371,9 +395,9 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr)
 	}
 	if opts.DiffExitCode && summary.DiffRows > 0 {
-		return 1
+		return exitDiff
 	}
-	return 0
+	return exitOK
 }
 
 func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
@@ -419,7 +443,7 @@ func parseFlags(args []string, output ...io.Writer) (cliOptions, error) {
 	registerPerfFlags(fs, cfg)
 	fs.BoolVar(&cfg.Progress, "progress", true, "print periodic progress to stderr")
 	fs.StringVar(&opts.SummaryJSON, "summary-json", "", "write machine-readable summary JSON")
-	fs.BoolVar(&opts.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
+	fs.BoolVar(&opts.DiffExitCode, "diff-exit-code", false, "exit 1 when differences exist (usage errors exit 2, runtime errors 3)")
 	fs.BoolVar(&cfg.OutputHeader, "output-header", true, "write a header to the output TSV")
 	fs.BoolVar(&opts.ShowVersion, "version", false, "print version and exit")
 	fs.StringVar(&opts.Project, "project", "", "load a versioned .ayamediff.json project")

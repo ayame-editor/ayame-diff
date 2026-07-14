@@ -38,7 +38,7 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&workers, "workers", workers, "parallel content comparison workers (1..64)")
 	fs.StringVar(&maxArchiveEntryBytes, "max-archive-entry-bytes", maxArchiveEntryBytes, "maximum uncompressed size of one archive entry")
 	fs.StringVar(&maxArchiveBytes, "max-archive-bytes", maxArchiveBytes, "maximum total uncompressed size of one archive")
-	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist; errors exit 2")
+	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist (usage errors exit 2, runtime errors 3)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
 
@@ -50,14 +50,14 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 2 {
 		fmt.Fprintln(stderr, "error: dir needs exactly two paths: OLD NEW (directories or archives)")
-		return 2
+		return exitUsage
 	}
 
 	formats := 0
@@ -68,25 +68,25 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	if formats > 1 {
 		fmt.Fprintln(stderr, "error: --json, --tsv, --html, and --csv cannot be combined")
-		return 2
+		return exitUsage
 	}
 	if workers < 1 || workers > 64 {
 		fmt.Fprintln(stderr, "error: --workers must be from 1 to 64")
-		return 2
+		return exitUsage
 	}
 	entryLimit, err := parsePositiveByteSize("--max-archive-entry-bytes", maxArchiveEntryBytes)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	totalLimit, err := parsePositiveByteSize("--max-archive-bytes", maxArchiveBytes)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if entryLimit > totalLimit {
 		fmt.Fprintln(stderr, "error: --max-archive-entry-bytes cannot exceed --max-archive-bytes")
-		return 2
+		return exitUsage
 	}
 	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{
 		Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden,
@@ -94,7 +94,7 @@ Unchanged files are hidden unless --all is given.`)
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 
 	if htmlPath != "" {
@@ -103,7 +103,7 @@ Unchanged files are hidden unless --all is given.`)
 			return dirreport.WriteHTML(w, res, title, all)
 		}); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		writeDirReportSummary(stderr, res, htmlPath)
 	} else if csvPath != "" {
@@ -111,30 +111,30 @@ Unchanged files are hidden unless --all is given.`)
 			return dirreport.WriteCSV(w, res, all)
 		}); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		writeDirReportSummary(stderr, res, csvPath)
 	} else if jsonOut {
 		if err := writeDirJSON(stdout, res); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 	} else if tsvOut {
 		if err := writeDirTSV(stdout, res, all); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		fmt.Fprintf(stderr, "%d added, %d removed, %d changed, %d same\n", res.Added, res.Removed, res.Changed, res.Same)
 	} else {
 		if err := writeDirText(stdout, stderr, res, all); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 	}
 	if diffExit && res.Added+res.Removed+res.Changed > 0 {
-		return 1
+		return exitDiff
 	}
-	return 0
+	return exitOK
 }
 
 func writeDirReportSummary(stderr io.Writer, res *dircompare.Result, path string) {
