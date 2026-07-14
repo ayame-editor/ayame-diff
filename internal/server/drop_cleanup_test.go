@@ -37,6 +37,14 @@ func TestDropCleanupSpareLiveSessions(t *testing.T) {
 	if err := os.MkdirAll(orphan, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// Age it deterministically. A just-created dir's mtime can read as slightly
+	// in the future relative to time.Now on Windows (filesystem vs wall-clock
+	// granularity), making time.Since negative and the 1ns TTL check flaky; an
+	// explicit past mtime keeps the staleness unambiguous on every platform.
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(orphan, past, past); err != nil {
+		t.Fatal(err)
+	}
 
 	// A second session triggers cleanup.
 	if _, err := s.dropRoot("B"); err != nil {

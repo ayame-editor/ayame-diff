@@ -67,7 +67,11 @@ func TestRepoManifestsMatchGenerator(t *testing.T) {
 		{filepath.Join(out, "scoop", "ayame-diff.json"), filepath.Join("..", "..", "packaging", "scoop", "ayame-diff.json")},
 		{filepath.Join(out, "homebrew", "ayame-diff.rb"), filepath.Join("..", "..", "packaging", "homebrew", "ayame-diff.rb")},
 	} {
-		if readGenerated(t, m.generated) != readGenerated(t, m.committed) {
+		// Compare on content, not byte-for-byte: git may check the committed
+		// files out with CRLF on Windows (autocrlf) while the generator always
+		// emits LF. Release generation runs on Linux, so the published bytes are
+		// LF regardless; this test only pins the manifests' shape.
+		if lf(readGenerated(t, m.generated)) != lf(readGenerated(t, m.committed)) {
 			t.Errorf("%s is out of sync with the generator; regenerate it with\n"+
 				"  go run ./cmd/packaging-gen -version 0.0.0 -checksums <zero-SHA256SUMS> -out <dir>\n"+
 				"and copy the result into packaging/", m.committed)
@@ -84,6 +88,9 @@ func TestGenerateRequiresAssets(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// lf normalizes CRLF to LF so manifest comparisons are line-ending agnostic.
+func lf(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
 
 func readGenerated(t *testing.T, path string) string {
 	t.Helper()
