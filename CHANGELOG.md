@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.7.16 - 2026-07-14
+
+- Added folder-comparison report export so directory diffs can be saved and
+  shared. (#191)
+- Systematized CLI exit codes so scripts can distinguish a clean run, a found
+  difference, a usage error, a runtime failure, and an interrupt. (#113)
+- Surfaced each side's auto-detected encoding on file diffs, and localized the
+  mode/status selects, the CSV/folder/three-way summaries, and byte counts.
+  (#130, #125)
+- Auto-detected ISO-2022-JP and BOM-less UTF-16 input, and split CJK text per
+  character so inline word highlighting works for Japanese. (#158, #161)
+- Rejected cross-origin state-changing requests and added HTTP hardening
+  headers to the local GUI server. (#145, #146)
+- Propagated request cancellation so directory, text, patch, and three-way
+  diffs abort promptly when the browser disconnects instead of finishing the
+  full comparison. (#169)
+- Capped client-controlled memory and archive limits, bounded gzip
+  decompression and JSON request bodies, and gated expensive comparisons behind
+  a concurrency limit. (#170, #147)
+- Excluded live sessions from browser-drop cleanup and moved the filesystem
+  scan out of the lock, so an in-flight upload is never deleted mid-request.
+  (#168)
+- Made the CSV-merge overwrite atomic on Windows and capped worker counts.
+  (#171)
+- Corrected duplicate-key cell attribution and numeric/NaN sort ordering in the
+  comparison engine. (#165)
+- Detected binary and directory inputs on the text path and steered users to
+  the binary or folder modes instead of emitting a garbled diff. (#166)
+- Disabled controls that do not apply to the current mode and tied the
+  move-min-lines input to move detection. (#124)
+- Kept syntax tokens legible on changed rows by pulling same-hue colors toward
+  the body text color, and padded the inline word-diff highlights. (#150)
+- Gave every GUI control hover and active feedback with short, reduced-motion-
+  aware transitions so the interface no longer feels inert. (#149)
+- Tokenized syntax highlighting per line without O(L²) substring allocation.
+  (#152)
+- Hardened release engineering: a minimum-Go build/test job, a pinned
+  staticcheck, de-duplicated lint runs, reproducible release archives, and a
+  drift guard for the generated package manifests. (#172)
+- Broadened server handler test coverage across error and guard branches, and
+  redesigned the documentation navigation. (#141)
+
 ## v0.7.15 - 2026-07-13
 
 - Fixed appending to a file without a final newline so the unchanged former
