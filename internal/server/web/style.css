@@ -77,6 +77,10 @@ input[type="text"] {
   background: var(--bg); color: var(--fg); width: 6.5rem;
 }
 .opt.check { display: flex; align-items: center; gap: 0.35rem; }
+/* Dim a whole option when its control is disabled (e.g. move-min-lines while
+   move detection is off, #124) so the dependency reads as inactive, matching
+   button:disabled below. */
+.opt:has(input:disabled, select:disabled) { opacity: 0.5; }
 button {
   margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;

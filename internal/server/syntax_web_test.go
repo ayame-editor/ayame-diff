@@ -39,7 +39,7 @@ func TestEmbeddedJavaScriptSyntax(t *testing.T) {
 	if err != nil {
 		t.Skip("node is unavailable")
 	}
-	for _, path := range []string{"web/syntax.js", "web/app.js"} {
+	for _, path := range []string{"web/syntax.js", "web/modes.js", "web/app.js"} {
 		cmd := exec.Command(node, "--check", path)
 		cmd.Dir = "."
 		if output, err := cmd.CombinedOutput(); err != nil {

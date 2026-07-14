@@ -1294,8 +1294,26 @@ function syncModeOpts() {
 		if (holder) holder.hidden = structured;
 	}
 	for (const id of ["patchFormat", "patchContext", "detectMoves", "moveMinLines", "word"]) { const node = $(id), holder = node?.closest("label") || node; if (holder && threeway) holder.hidden = true; }
+	// Hide comparison-condition controls the active mode never reads, so a
+	// visible toggle always affects the result (#124). Recomputed every call, so
+	// switching back to a mode that honors a condition restores its control.
+	const dead = new Set(globalThis.AyameModes?.deadCompareConditions($("mode").value) || []);
+	for (const id of globalThis.AyameModes?.COMPARE_CONDITIONS || []) {
+		const node = $(id), holder = node?.closest("label") || node;
+		if (holder) holder.hidden = dead.has(id);
+	}
+	syncMoveMinLines();
 	syncExportPatchVisibility();
 	if (csv) updateCSVReview();
+}
+
+// syncMoveMinLines disables the "move min lines" input while move detection is
+// off: the value is meaningless — and ignored by the server — unless
+// detectMoves is checked, so a live-looking control there is a false affordance
+// (#124).
+function syncMoveMinLines() {
+	const node = $("moveMinLines");
+	if (node) node.disabled = !$("detectMoves").checked;
 }
 
 function syncExportPatchVisibility() {
@@ -1446,6 +1464,7 @@ $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") await applyCSVProject(recentComparisons()[Number($("recentProjects").value)]); });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("detectMoves").addEventListener("change", syncMoveMinLines);
 $("setup").addEventListener("input", syncExportPatchVisibility);
 $("setup").addEventListener("change", syncExportPatchVisibility);
 $("keyMode").addEventListener("change", syncKeyMode);
