@@ -1,5 +1,7 @@
 package linediff
 
+import "context"
+
 // MoveOptions bounds the optional post-processing pass. Detection is exact:
 // hashes only select candidates and every paired block is compared line by line.
 type MoveOptions struct {
@@ -16,16 +18,25 @@ type moveKey struct {
 // equal. It returns the number of move pairs and annotates both hunks in res.
 // Callers opt in explicitly, so the normal Diff path pays no hashing cost.
 func DetectMoves(old, new Lines, res *Result, opts MoveOptions) uint64 {
+	pairs, _ := DetectMovesContext(context.Background(), old, new, res, opts)
+	return pairs
+}
+
+// DetectMovesContext is DetectMoves that aborts early when ctx is cancelled,
+// returning ctx.Err() so the (potentially many-hunk, block-hashing) pass stops
+// on a client disconnect (#169). The partial annotations on a cancelled pass are
+// discarded by the caller along with the aborted request.
+func DetectMovesContext(ctx context.Context, old, new Lines, res *Result, opts MoveOptions) (uint64, error) {
 	if res == nil {
-		return 0
+		return 0, nil
 	}
 	res.MoveDetectionSkipped = false
 	if res.OmittedHunks != 0 {
 		res.MoveDetectionSkipped = true
-		return 0
+		return 0, nil
 	}
 	if len(res.Hunks) == 0 {
-		return 0
+		return 0, nil
 	}
 	if opts.MinLines == 0 {
 		opts.MinLines = 2
@@ -40,6 +51,11 @@ func DetectMoves(old, new Lines, res *Result, opts MoveOptions) uint64 {
 	deletes := make(map[moveKey][]int)
 	deleteCandidates := 0
 	for i := range res.Hunks {
+		if i&(cancelCheckInterval-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+		}
 		h := &res.Hunks[i]
 		h.MoveID, h.MovePeer = 0, 0
 		if h.Kind != Delete || h.OldLen < opts.MinLines || deleteCandidates >= opts.MaxCandidates {
@@ -52,6 +68,11 @@ func DetectMoves(old, new Lines, res *Result, opts MoveOptions) uint64 {
 	var pairs uint64
 	insertCandidates := 0
 	for i := range res.Hunks {
+		if i&(cancelCheckInterval-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				return pairs, err
+			}
+		}
 		insert := &res.Hunks[i]
 		if insert.Kind != Insert || insert.NewLen < opts.MinLines || insertCandidates >= opts.MaxCandidates {
 			continue
@@ -81,7 +102,7 @@ func DetectMoves(old, new Lines, res *Result, opts MoveOptions) uint64 {
 		}
 		deletes[key] = indexes
 	}
-	return pairs
+	return pairs, nil
 }
 
 func hashBlock(lines Lines, start, count uint64) uint64 {
