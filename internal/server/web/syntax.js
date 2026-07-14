@@ -24,13 +24,37 @@
     const normalized = String(path || "").replaceAll("\\", "/");
     return normalized.slice(normalized.lastIndexOf("/") + 1);
   }
+  const languageCache = new Map();
   function languageForPath(path) {
+    // highlightSpans runs per line, but the path is constant for a whole diff
+    // side, so memoize the resolution instead of re-deriving basename/extension
+    // for every line. A diff has at most a couple of paths, so the cache stays
+    // tiny; clear it if it somehow grows (e.g. a folder diff of many files).
+    if (languageCache.has(path)) return languageCache.get(path);
     const name = basename(path).toLowerCase();
-    if (name === "dockerfile" || name === "makefile") return "shell";
-    if (name === "cargo.lock" || name === "package-lock.json") return "json";
-    if (name === "pnpm-lock.yaml") return "yaml";
-    const dot = name.lastIndexOf(".");
-    return dot < 0 ? null : (EXT_LANGUAGE[name.slice(dot + 1)] || null);
+    let lang;
+    if (name === "dockerfile" || name === "makefile") lang = "shell";
+    else if (name === "cargo.lock" || name === "package-lock.json") lang = "json";
+    else if (name === "pnpm-lock.yaml") lang = "yaml";
+    else {
+      const dot = name.lastIndexOf(".");
+      lang = dot < 0 ? null : (EXT_LANGUAGE[name.slice(dot + 1)] || null);
+    }
+    if (languageCache.size > 64) languageCache.clear();
+    languageCache.set(path, lang);
+    return lang;
+  }
+
+  // Sticky (y) regexes are reused across every line: matching at .lastIndex
+  // tokenizes in place, avoiding the O(L^2) substring garbage that text.slice(i)
+  // produced once per character in the tokenizer loops below.
+  const JSON_LITERAL_RE = /(?:true|false|null)\b/uy;
+  const JSON_NUMBER_RE = /-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/iuy;
+  const CODE_NUMBER_RE = /(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/iuy;
+  const CODE_IDENT_RE = /[A-Za-z_$][\w$]*/uy;
+  function stickyMatch(re, text, i) {
+    re.lastIndex = i;
+    return re.exec(text); // matches only at i (sticky), else null
   }
   function inferLanguage(text) {
     if (/^\s*(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)\b/u.test(text)) return "log";
@@ -68,16 +92,15 @@
     const out = [];
     let i = 0;
     while (i < text.length) {
-      const rest = text.slice(i);
-      if (rest.startsWith("//")) { push(out, "comment", rest); break; }
+      if (text.startsWith("//", i)) { push(out, "comment", text.slice(i)); break; }
       if (text[i] === '"') {
         const end = quotedEnd(text, i, '"');
         push(out, nextNonSpace(text, end) === ":" ? "key" : "string", text.slice(i, end));
         i = end; continue;
       }
-      const literal = rest.match(/^(true|false|null)\b/u);
+      const literal = stickyMatch(JSON_LITERAL_RE, text, i);
       if (literal) { push(out, "literal", literal[0]); i += literal[0].length; continue; }
-      const number = rest.match(/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/iu);
+      const number = stickyMatch(JSON_NUMBER_RE, text, i);
       if (number) { push(out, "number", number[0]); i += number[0].length; continue; }
       push(out, /^[{}[\],:]+$/u.test(text[i]) ? "op" : "plain", text[i]); i++;
     }
@@ -114,9 +137,8 @@
     const out = [], keywords = KEYWORDS[lang] || new Set(), lineComment = commentPrefix(lang);
     let i = 0;
     while (i < text.length) {
-      const rest = text.slice(i);
-      if (lineComment && rest.startsWith(lineComment)) { push(out, "comment", rest); break; }
-      if (rest.startsWith("/*")) {
+      if (lineComment && text.startsWith(lineComment, i)) { push(out, "comment", text.slice(i)); break; }
+      if (text.startsWith("/*", i)) {
         const close = text.indexOf("*/", i + 2), end = close < 0 ? text.length : close + 2;
         push(out, "comment", text.slice(i, end)); i = end; continue;
       }
@@ -124,9 +146,9 @@
       if (ch === '"' || ch === "'" || (ch === "`" && lang === "javascript")) {
         const end = quotedEnd(text, i, ch); push(out, "string", text.slice(i, end)); i = end; continue;
       }
-      const number = rest.match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/iu);
+      const number = stickyMatch(CODE_NUMBER_RE, text, i);
       if (number) { push(out, "number", number[0]); i += number[0].length; continue; }
-      const ident = rest.match(/^[A-Za-z_$][\w$]*/u);
+      const ident = stickyMatch(CODE_IDENT_RE, text, i);
       if (ident) {
         const word = ident[0], lower = word.toLowerCase();
         const kind = keywords.has(word) || keywords.has(lower) ? "keyword"
