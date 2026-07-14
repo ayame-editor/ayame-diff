@@ -430,17 +430,15 @@ ayame-diff --help
 
 ## Exit Codes
 
-Normal:
-
-- `0`: Success
-- `2`: Error (input, settings, I/O, etc.)
+- `0`: Success (no differences reported)
+- `1`: Differences found — only with `--diff-exit-code`
+- `2`: Usage error (bad flags, arguments, or incompatible options)
+- `3`: Runtime error (input/output, comparison, server, or update failure)
 - `130`: Interrupted or explicit cancel (e.g. abort on `remove` confirmation)
 
-With `--diff-exit-code`:
-
-- `0`: No difference
-- `1`: Difference found
-- `2`: Error
+Without `--diff-exit-code`, a completed comparison exits `0` whether or not
+differences were found. `1` is reserved for a real diff, so scripts can tell
+"differences found" apart from "something failed" (which is always `2` or `3`).
 
 ## Build
 

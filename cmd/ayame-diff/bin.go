@@ -30,33 +30,33 @@ memory-bounded on large inputs.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 2 {
 		fmt.Fprintln(stderr, "error: bin needs exactly two files: OLD NEW")
-		return 2
+		return exitUsage
 	}
 	if maxRegions < 1 {
 		fmt.Fprintln(stderr, "error: --max-regions must be at least 1")
-		return 2
+		return exitUsage
 	}
 	if maxBytes < 1 {
 		fmt.Fprintln(stderr, "error: --max-bytes must be at least 1")
-		return 2
+		return exitUsage
 	}
 
 	res, err := hexdiff.Compare(fs.Arg(0), fs.Arg(1), hexdiff.Options{MaxRegions: maxRegions, MaxRegionBytes: maxBytes})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 
 	if res.Equal {
 		fmt.Fprintf(stderr, "identical (%d bytes)\n", res.OldSize)
-		return 0
+		return exitOK
 	}
 
 	bw := bufio.NewWriter(stdout)
@@ -67,7 +67,7 @@ memory-bounded on large inputs.`)
 	}
 	if err := bw.Flush(); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 
 	suffix := ""
@@ -76,7 +76,7 @@ memory-bounded on large inputs.`)
 	}
 	fmt.Fprintf(stderr, "files differ: %d region(s), %d byte(s); sizes %d / %d%s\n",
 		len(res.Regions), res.TotalDiffBytes, res.OldSize, res.NewSize, suffix)
-	return 0
+	return exitOK
 }
 
 // hexBytes formats b as space-separated hex, capped at max bytes with a note.

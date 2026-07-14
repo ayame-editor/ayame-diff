@@ -22,30 +22,30 @@ func runShellInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "error: shell-install takes no arguments")
-		return 2
+		return exitUsage
 	}
 	env, err := shellEnvironment()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	paths, err := shellintegration.Install(env)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
 	fmt.Fprintln(stdout, "file-manager integration installed")
 	for _, path := range paths {
 		fmt.Fprintln(stdout, path)
 	}
-	return 0
+	return exitOK
 }
 
 func runShellUninstall(args []string, stdout, stderr io.Writer) int {
@@ -56,26 +56,26 @@ func runShellUninstall(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "error: shell-uninstall takes no arguments")
-		return 2
+		return exitUsage
 	}
 	env, err := shellEnvironment()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	if err := shellintegration.Uninstall(env); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
 	fmt.Fprintln(stdout, "file-manager integration removed")
-	return 0
+	return exitOK
 }
 
 func shellEnvironment() (shellintegration.Environment, error) {
@@ -103,12 +103,12 @@ type shellSelection struct {
 func runShellSelect(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(stderr, "error: shell-select needs one path")
-		return 2
+		return exitUsage
 	}
 	config, err := os.UserConfigDir()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	statePath := filepath.Join(config, "ayame-diff", "shell-selection.json")
 	data, readErr := os.ReadFile(statePath)
@@ -120,13 +120,13 @@ func runShellSelect(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
 	data, _ = json.Marshal(shellSelection{Path: args[0], Time: time.Now()})
 	if err := os.WriteFile(statePath, data, 0o600); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
 	fmt.Fprintln(stdout, "first path selected; choose the second path with Compare with Ayame Diff")
-	return 0
+	return exitOK
 }
