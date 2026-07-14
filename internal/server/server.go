@@ -613,12 +613,11 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if overwriteInput {
-		if runtime.GOOS == "windows" {
-			if err := os.Remove(req.Output); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
+		// os.Rename atomically replaces an existing destination on every
+		// platform (Windows uses MoveFileEx with MOVEFILE_REPLACE_EXISTING), so
+		// the staged merge output swaps into place in one step. The previous
+		// Windows-only os.Remove(req.Output) before the rename opened a window
+		// where a failing rename left the input gone with no staged copy. (#171)
 		if err := os.Rename(target, req.Output); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

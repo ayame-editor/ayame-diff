@@ -60,10 +60,14 @@ type Config struct {
 // Resource limits are exported so CLI and GUI validation can share the
 // engine's exact constraints instead of duplicating magic numbers.
 const (
-	MinPartitions           = 2
-	MaxPartitions           = 1024
-	MinMergeFanIn           = 2
-	MaxMergeFanIn           = 256
+	MinPartitions = 2
+	MaxPartitions = 1024
+	MinMergeFanIn = 2
+	MaxMergeFanIn = 256
+	// MaxWorkers caps --workers and --parse-workers. Beyond a few hundred the
+	// goroutines only add scheduling overhead, and an unbounded value (from a
+	// crafted API request) would spawn workers without limit.
+	MaxWorkers              = 1024
 	MinPartitionBuffer      = 4 * 1024
 	MaxPartitionBuffer      = 16 * 1024 * 1024
 	MinRecordBytes          = 1024
@@ -221,6 +225,9 @@ func (c Config) resolve() (resolvedConfig, error) {
 	}
 	if c.ParseWorkers < 1 || c.Workers < 1 {
 		return resolvedConfig{}, fmt.Errorf("--parse-workers and --workers must be at least 1")
+	}
+	if c.ParseWorkers > MaxWorkers || c.Workers > MaxWorkers {
+		return resolvedConfig{}, fmt.Errorf("--parse-workers and --workers must be at most %d", MaxWorkers)
 	}
 	if err := ValidateMergeFanIn(c.MergeFanIn); err != nil {
 		return resolvedConfig{}, err
