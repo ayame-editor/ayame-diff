@@ -98,7 +98,11 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 		return 0, err
 	}
 	defer r.Close()
-	reader := csv.NewReader(bufio.NewReaderSize(r, 4*1024*1024))
+	buffered := bufio.NewReaderSize(r, 4*1024*1024)
+	if _, err := skipBOM(buffered); err != nil {
+		return 0, fmt.Errorf("read %s input: %w", spec.Label, err)
+	}
+	reader := csv.NewReader(buffered)
 	reader.Comma = rune(spec.Delimiter)
 	reader.FieldsPerRecord = -1
 	reader.ReuseRecord = true
@@ -106,7 +110,10 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 	reader.TrimLeadingSpace = cfg.TrimLeadingSpace
 	if cfg.HasHeader {
 		if _, err := reader.Read(); err != nil {
-			return 0, err
+			if errors.Is(err, io.EOF) {
+				return 0, nil
+			}
+			return 0, fmt.Errorf("skip %s header: %w", spec.Label, err)
 		}
 	}
 	var rows uint64
@@ -151,9 +158,15 @@ func partitionSimpleSequential(ctx context.Context, spec inputSpec, info inspect
 	}
 	defer r.Close()
 	reader := bufio.NewReaderSize(r, 4*1024*1024)
+	if _, err := skipBOM(reader); err != nil {
+		return 0, fmt.Errorf("read %s input: %w", spec.Label, err)
+	}
 	if cfg.HasHeader {
-		if _, _, _, err := readPhysicalLine(reader, nil); err != nil {
-			return 0, err
+		// A header-only file without a trailing newline yields io.EOF
+		// alongside the header bytes; that is a valid zero-row input, not
+		// an error (the RFC4180 and parallel paths already treat it so).
+		if _, _, _, err := readPhysicalLine(reader, nil); err != nil && !errors.Is(err, io.EOF) {
+			return 0, fmt.Errorf("skip %s header: %w", spec.Label, err)
 		}
 	}
 	var rows uint64
@@ -244,9 +257,7 @@ func partitionSimpleParallel(ctx context.Context, spec inputSpec, info inspected
 	for i := 0; i < workers; i++ {
 		x := <-ch
 		total += x.rows
-		if x.err != nil && first == nil {
-			first = x.err
-		}
+		first = preferRootCause(first, x.err)
 	}
 	if first != nil {
 		return total, first

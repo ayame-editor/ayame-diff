@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/hjosugi/fcsv-diff/internal/engine"
 	"github.com/hjosugi/fcsv-diff/internal/interactive"
@@ -84,13 +83,11 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	started := time.Now()
 	summary, err := engine.Run(ctx, cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
-	summary.Elapsed = time.Since(started).Round(time.Millisecond).String()
 
 	if cfg.SummaryJSON != "" {
 		data, marshalErr := json.MarshalIndent(summary, "", "  ")

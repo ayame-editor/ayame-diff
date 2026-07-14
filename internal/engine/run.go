@@ -12,14 +12,41 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
+
+// preferRootCause keeps the most informative of two worker errors. A failing
+// worker cancels the shared context before its result is collected, so
+// sibling workers often report a bare context.Canceled first; that must not
+// mask the real failure (disk full, corrupt record, ...).
+func preferRootCause(current, candidate error) error {
+	if candidate == nil {
+		return current
+	}
+	if current == nil {
+		return candidate
+	}
+	if isContextError(current) && !isContextError(candidate) {
+		return candidate
+	}
+	return current
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
 
 func Run(ctx context.Context, cfg Config) (Summary, error) {
 	var summary Summary
-	if err := cfg.Validate(); err != nil {
+	started := time.Now()
+	cfg, err := cfg.resolved()
+	if err != nil {
 		return summary, err
 	}
 	if err := validateDistinctOutput(cfg.LeftPath, cfg.RightPath, cfg.OutputPath); err != nil {
+		return summary, err
+	}
+	if err := ensureFileDescriptorBudget(cfg); err != nil {
 		return summary, err
 	}
 
@@ -49,7 +76,13 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		return summary, err
 	}
 	if !cfg.KeepTemp {
-		defer os.RemoveAll(workRoot)
+		if createdByUs {
+			defer os.RemoveAll(workRoot)
+		} else {
+			// The user supplied --work-dir; remove only what we created
+			// inside it, never the directory itself.
+			defer func() { _ = removeDirContents(workRoot) }()
+		}
 	} else {
 		fmt.Fprintln(os.Stderr, "work directory:", workRoot)
 	}
@@ -83,10 +116,22 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		Partitions:   cfg.Partitions,
 		Workers:      minInt(cfg.Workers, cfg.Partitions),
 	}
-	if createdByUs && cfg.KeepTemp {
-		fmt.Fprintln(os.Stderr, "temporary data kept at:", workRoot)
-	}
+	summary.Elapsed = time.Since(started).Round(time.Millisecond).String()
 	return summary, nil
+}
+
+// removeDirContents deletes every entry inside dir while keeping dir itself.
+func removeDirContents(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type partitionResult struct {
@@ -139,9 +184,7 @@ func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, c
 	var firstErr error
 	for result := range results {
 		if result.err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("process partition %d: %w", result.index, result.err)
-			}
+			firstErr = preferRootCause(firstErr, fmt.Errorf("process partition %d: %w", result.index, result.err))
 			continue
 		}
 		paths[result.index] = result.path

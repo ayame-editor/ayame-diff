@@ -44,6 +44,9 @@ type Summary struct {
 	Elapsed      string `json:"elapsed"`
 }
 
+// Validate checks the configuration without modifying it. It is safe to
+// call any number of times; normalization (index-base shifting and derived
+// byte sizes) happens in resolved(), which returns a fresh copy.
 func (c *Config) Validate() error {
 	if c.LeftPath == "" || c.RightPath == "" || c.OutputPath == "" {
 		return fmt.Errorf("--left, --right, and --out are required")
@@ -59,15 +62,13 @@ func (c *Config) Validate() error {
 	if c.IndexBase != 0 && c.IndexBase != 1 {
 		return fmt.Errorf("--index-base must be 0 or 1")
 	}
-	for i := range c.KeyIndexes {
-		c.KeyIndexes[i] -= c.IndexBase
-		if c.KeyIndexes[i] < 0 {
+	for _, index := range c.KeyIndexes {
+		if index-c.IndexBase < 0 {
 			return fmt.Errorf("key index becomes negative after applying --index-base")
 		}
 	}
-	for i := range c.ExcludeKeyIndexes {
-		c.ExcludeKeyIndexes[i] -= c.IndexBase
-		if c.ExcludeKeyIndexes[i] < 0 {
+	for _, index := range c.ExcludeKeyIndexes {
+		if index-c.IndexBase < 0 {
 			return fmt.Errorf("excluded key index becomes negative after applying --index-base")
 		}
 	}
@@ -80,8 +81,7 @@ func (c *Config) Validate() error {
 	if c.MergeFanIn < 2 || c.MergeFanIn > 256 {
 		return fmt.Errorf("--merge-fan-in must be from 2 to 256")
 	}
-	var err error
-	c.MemoryBytes, err = parseBytes(c.MemoryText)
+	memoryBytes, err := parseBytes(c.MemoryText)
 	if err != nil {
 		return fmt.Errorf("--memory: %w", err)
 	}
@@ -92,19 +92,18 @@ func (c *Config) Validate() error {
 	if partitionBuffer < 4*1024 || partitionBuffer > 16*1024*1024 {
 		return fmt.Errorf("--partition-buffer must be between 4KiB and 16MiB")
 	}
-	c.PartitionBufferBytes = int(partitionBuffer)
-	c.MaxRecordBytes, err = parseBytes(c.MaxRecordText)
+	maxRecordBytes, err := parseBytes(c.MaxRecordText)
 	if err != nil {
 		return fmt.Errorf("--max-record-bytes: %w", err)
 	}
-	if c.MaxRecordBytes < 1024 {
+	if maxRecordBytes < 1024 {
 		return fmt.Errorf("--max-record-bytes must be at least 1KiB")
 	}
 	minimumMemory := int64(c.Workers) * 16 * 1024 * 1024
-	if c.MemoryBytes < minimumMemory {
+	if memoryBytes < minimumMemory {
 		return fmt.Errorf("--memory must be at least %dMiB for %d workers", minimumMemory/(1024*1024), c.Workers)
 	}
-	if int64(c.Partitions)*int64(c.PartitionBufferBytes) > c.MemoryBytes/2 {
+	if int64(c.Partitions)*partitionBuffer > memoryBytes/2 {
 		return fmt.Errorf("partition buffers use too much memory; lower --partition-buffer or --partitions")
 	}
 	for name, value := range map[string]string{"--left-format": c.LeftFormat, "--right-format": c.RightFormat} {
@@ -118,6 +117,44 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// resolved validates the configuration and returns a normalized copy:
+// key indexes are rebased to zero using IndexBase (into fresh slices, so
+// the caller's slices are never written through) and the derived byte
+// sizes are populated. Calling resolved twice on the same source Config
+// yields the same result; the source is never modified.
+func (c Config) resolved() (Config, error) {
+	if err := c.Validate(); err != nil {
+		return Config{}, err
+	}
+	out := c
+	if len(c.KeyIndexes) > 0 {
+		out.KeyIndexes = make([]int, len(c.KeyIndexes))
+		for i, index := range c.KeyIndexes {
+			out.KeyIndexes[i] = index - c.IndexBase
+		}
+	}
+	if len(c.ExcludeKeyIndexes) > 0 {
+		out.ExcludeKeyIndexes = make([]int, len(c.ExcludeKeyIndexes))
+		for i, index := range c.ExcludeKeyIndexes {
+			out.ExcludeKeyIndexes[i] = index - c.IndexBase
+		}
+	}
+	out.IndexBase = 0
+	var err error
+	if out.MemoryBytes, err = parseBytes(c.MemoryText); err != nil {
+		return Config{}, fmt.Errorf("--memory: %w", err)
+	}
+	partitionBuffer, err := parseBytes(c.PartitionBufferText)
+	if err != nil {
+		return Config{}, fmt.Errorf("--partition-buffer: %w", err)
+	}
+	out.PartitionBufferBytes = int(partitionBuffer)
+	if out.MaxRecordBytes, err = parseBytes(c.MaxRecordText); err != nil {
+		return Config{}, fmt.Errorf("--max-record-bytes: %w", err)
+	}
+	return out, nil
 }
 
 func parseBytes(text string) (int64, error) {

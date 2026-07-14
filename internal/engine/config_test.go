@@ -15,16 +15,24 @@ func TestConfigRejectsIncludeAndExcludeKeyOptions(t *testing.T) {
 	}
 }
 
-func TestConfigAppliesIndexBaseToExcludedIndexes(t *testing.T) {
+func TestResolvedAppliesIndexBaseToExcludedIndexes(t *testing.T) {
 	t.Parallel()
 	cfg := validConfigForValidation()
 	cfg.IndexBase = 1
 	cfg.ExcludeKeyIndexes = []int{1, 3}
-	if err := cfg.Validate(); err != nil {
+	resolved, err := cfg.resolved()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ExcludeKeyIndexes[0] != 0 || cfg.ExcludeKeyIndexes[1] != 2 {
-		t.Fatalf("excluded indexes = %#v", cfg.ExcludeKeyIndexes)
+	if resolved.ExcludeKeyIndexes[0] != 0 || resolved.ExcludeKeyIndexes[1] != 2 {
+		t.Fatalf("resolved excluded indexes = %#v", resolved.ExcludeKeyIndexes)
+	}
+	// Validate and resolved must leave the source config untouched.
+	if cfg.ExcludeKeyIndexes[0] != 1 || cfg.ExcludeKeyIndexes[1] != 3 {
+		t.Fatalf("source excluded indexes were mutated: %#v", cfg.ExcludeKeyIndexes)
+	}
+	if resolved.MemoryBytes == 0 || resolved.PartitionBufferBytes == 0 || resolved.MaxRecordBytes == 0 {
+		t.Fatalf("resolved must populate derived byte sizes: %+v", resolved)
 	}
 }
 
