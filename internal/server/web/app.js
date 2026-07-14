@@ -30,6 +30,13 @@ const I18N = {
     syncSelect: "左右から対応させる行を1行ずつ選択してください。",
     syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
+    // mode select + folder status-filter options, translated so JA follows (#125)
+    modeText: "テキスト", modeSorted: "ソート済み", modeCsv: "CSV / TSV",
+    modeFolder: "フォルダ", modeThreeway: "3-way テキスト", modeThreewayCsv: "3-way CSV",
+    statusDifferent: "差分あり", statusAll: "すべて",
+    // summary labels shared by the CSV / folder / 3-way renderers (#125)
+    changed: "変更", removed: "削除", same: "一致", left: "左", right: "右",
+    leftOnly: "左のみ", rightOnly: "右のみ", equalRows: "一致", bytes: "バイト",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -98,6 +105,11 @@ const I18N = {
     syncSelect: "Select one corresponding line on each side.",
     syncOrderError: "Sync points must increase on both sides.",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
+    modeText: "text", modeSorted: "sorted", modeCsv: "csv / tsv",
+    modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
+    statusDifferent: "different", statusAll: "all",
+    changed: "changed", removed: "removed", same: "same", left: "left", right: "right",
+    leftOnly: "left only", rightOnly: "right only", equalRows: "equal", bytes: "bytes",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     comparing: "Comparing…", noDiff: "No differences.",
@@ -581,7 +593,7 @@ function renderThreeWay(data, csvMode) {
   lastComparedRequest = null;
   const summary = $("summary"); summary.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
-  add(t("conflicts"), data.conflicts, "del"); add("left", data.left_only); add("right", data.right_only); add("same", data.same_change); summary.hidden = false;
+  add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
@@ -943,8 +955,8 @@ function renderCSVSummary(data) {
   const summary = data.summary, el = $("summary");
   el.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = Number(value || 0).toLocaleString(); item.append(b, ` ${label}`); el.append(item); };
-  add("left only", summary.left_only, "del"); add("right only", summary.right_only, "add");
-  add("changed", Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add("equal", summary.equal_rows);
+  add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
+  add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
   if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
   el.hidden = false;
@@ -1116,7 +1128,7 @@ function renderDirectory(data, body) {
   syncExportPatchVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
-  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${name}`); summary.append(item); } summary.hidden = false;
+  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${t(name)}`); summary.append(item); } summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
   const filter = $("dirStatus").value;
   for (const entry of data.entries) {
@@ -1124,7 +1136,7 @@ function renderDirectory(data, body) {
     const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
     const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
     const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
-    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} bytes\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
+    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
     if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
     else row.disabled = true;
     tree.append(row);
