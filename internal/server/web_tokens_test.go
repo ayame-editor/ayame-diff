@@ -125,6 +125,46 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
+func TestInteractiveControlsHaveHoverActiveAndTransitions(t *testing.T) {
+	t.Parallel()
+	style := readWebAsset(t, "style.css")
+
+	// Hover feedback, an active press, and a selectable-line hover preview so no
+	// control feels dead (#149). All clickables are <button>s, so the base rule
+	// covers them; the primary/cancel keep their own identity on hover.
+	for _, want := range []string{
+		"button:hover:not(:disabled)",
+		"button:active:not(:disabled)",
+		"transform: translateY(1px)",
+		".cell.selectable-line:hover",
+		"#compare:hover:not(:disabled)",
+		".cancel:hover:not(:disabled)",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("interaction state missing %q", want)
+		}
+	}
+	// State changes ease rather than snap: buttons/lines and hunk/status carry a
+	// transition.
+	for _, want := range []string{
+		"button, .cell.selectable-line {\n  transition:",
+		".hunk, .status {\n  transition:",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("transition rule missing %q", want)
+		}
+	}
+	// Motion must be respectful of prefers-reduced-motion: transitions and the
+	// active-press transform are disabled there.
+	rm := style[strings.Index(style, "@media (prefers-reduced-motion: reduce)"):]
+	rm = rm[:strings.Index(rm, "}\n\n")]
+	for _, want := range []string{"transition: none", "transform: none"} {
+		if !strings.Contains(rm, want) {
+			t.Errorf("reduced-motion block must include %q", want)
+		}
+	}
+}
+
 func TestChangeCellSyntaxAndWordHighlightRemainReadable(t *testing.T) {
 	t.Parallel()
 	style := readWebAsset(t, "style.css")
