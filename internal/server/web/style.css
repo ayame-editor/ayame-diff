@@ -116,6 +116,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .summary .del b { color: var(--del-fg); }
 .summary .move b { color: var(--move-fg); }
 .summary .note { color: var(--muted); }
+/* A left/right encoding mismatch is a likely cause of garbled output (#130). */
+.summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
 
 .diff-nav {
   position: sticky; top: 0; z-index: 4; margin-top: 0.8rem; padding: 0.35rem 0.5rem;
