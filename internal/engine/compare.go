@@ -11,8 +11,14 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sort"
 	"strings"
 )
+
+// maxSimilarityPairs bounds the O(L*R) column-similarity scoring used to pair
+// unmatched duplicate-key rows (#165). Beyond it, a pathologically large
+// duplicate-key group falls back to cheap positional pairing.
+const maxSimilarityPairs = 4096
 
 type partitionStats struct {
 	EqualRows      uint64
@@ -390,6 +396,55 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 		}
 		return cellScratch.indexes(leftRecord.record.Row, rightRecord.record.Row, columnCount)
 	}
+	// pairBySimilarity decides which unmatched same-key left rows correspond to
+	// which unmatched right rows, minimizing the total changed columns rather
+	// than pairing by sort position (#165). Every left may pair with every right
+	// (same key), so a greedy pass over pairs ordered by changed-column count
+	// yields a full min(L,R) matching. It returns mate[li] = index into
+	// unmatchedRight, or -1 when that left row stays unpaired (a left-only row).
+	// Only column counts are scored here; the caller recomputes changedColumns
+	// for each chosen pair so it never retains cellScratch's reused buffer.
+	pairBySimilarity := func(unmatchedLeft, unmatchedRight []int, leftGroup, rightGroup []comparedRecord) ([]int, error) {
+		mate := make([]int, len(unmatchedLeft))
+		for i := range mate {
+			mate[i] = -1
+		}
+		pairs := min(len(unmatchedLeft), len(unmatchedRight))
+		if len(unmatchedLeft)*len(unmatchedRight) > maxSimilarityPairs {
+			for i := 0; i < pairs; i++ {
+				mate[i] = i // positional fallback for pathological groups
+			}
+			return mate, nil
+		}
+		type cand struct{ li, ri, cost int }
+		cands := make([]cand, 0, len(unmatchedLeft)*len(unmatchedRight))
+		for li, l := range unmatchedLeft {
+			for ri, r := range unmatchedRight {
+				changed, err := changedColumns(leftGroup[l], rightGroup[r])
+				if err != nil {
+					return nil, err
+				}
+				cands = append(cands, cand{li, ri, len(changed)})
+			}
+		}
+		sort.SliceStable(cands, func(a, b int) bool {
+			if cands[a].cost != cands[b].cost {
+				return cands[a].cost < cands[b].cost
+			}
+			if cands[a].li != cands[b].li {
+				return cands[a].li < cands[b].li
+			}
+			return cands[a].ri < cands[b].ri
+		})
+		usedRight := make([]bool, len(unmatchedRight))
+		for _, c := range cands {
+			if mate[c.li] >= 0 || usedRight[c.ri] {
+				continue
+			}
+			mate[c.li], usedRight[c.ri] = c.ri, true
+		}
+		return mate, nil
+	}
 	compareGroup := func(key []byte) error {
 		leftGroup, err := readGroup(left, key)
 		if err != nil {
@@ -486,9 +541,20 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 			}
 		}
 		if cellDiff {
-			pairs := min(len(unmatchedLeft), len(unmatchedRight))
-			for i := 0; i < pairs; i++ {
-				leftRecord, rightRecord := leftGroup[unmatchedLeft[i]], rightGroup[unmatchedRight[i]]
+			mate, err := pairBySimilarity(unmatchedLeft, unmatchedRight, leftGroup, rightGroup)
+			if err != nil {
+				return err
+			}
+			usedRight := make([]bool, len(unmatchedRight))
+			keptLeft := make([]int, 0, len(unmatchedLeft))
+			for li, l := range unmatchedLeft {
+				ri := mate[li]
+				if ri < 0 {
+					keptLeft = append(keptLeft, l)
+					continue
+				}
+				usedRight[ri] = true
+				leftRecord, rightRecord := leftGroup[l], rightGroup[unmatchedRight[ri]]
 				changed, err := changedColumns(leftRecord, rightRecord)
 				if err != nil {
 					return err
@@ -505,7 +571,13 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				stats.ChangedLeft++
 				stats.ChangedRight++
 			}
-			unmatchedLeft, unmatchedRight = unmatchedLeft[pairs:], unmatchedRight[pairs:]
+			keptRight := make([]int, 0, len(unmatchedRight))
+			for ri, r := range unmatchedRight {
+				if !usedRight[ri] {
+					keptRight = append(keptRight, r)
+				}
+			}
+			unmatchedLeft, unmatchedRight = keptLeft, keptRight
 		}
 		for _, index := range unmatchedLeft {
 			if err := writeDiff(diffChanged, diffLeft, leftGroup[index].record, nil); err != nil {

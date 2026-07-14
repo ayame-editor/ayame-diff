@@ -5,6 +5,8 @@
 package linesort
 
 import (
+	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,15 +55,38 @@ func SortLines(lines []string, numeric, reverse bool) linediff.StringLines {
 func lexLess(a, b string) bool { return a < b }
 
 // numericLess compares by parsed numeric value, falling back to lexical order
-// when either side is not a number (mirroring `sort -n`).
+// when a side is not a real number (mirroring `sort -n`). It is a strict-weak
+// ordering even with NaN or ±Inf inputs (#165): real numbers order by value,
+// with a lexical tiebreak for equal magnitudes; everything else (unparseable
+// text and NaN) orders lexically and sorts after the real numbers. Because NaN
+// is never treated as a number, the old `fa != fb` / `fa < fb` contradiction —
+// which made less(a,b) and less(b,a) both false and broke the sort — cannot
+// occur.
 func numericLess(a, b string) bool {
-	fa, ea := strconv.ParseFloat(strings.TrimSpace(a), 64)
-	fb, eb := strconv.ParseFloat(strings.TrimSpace(b), 64)
-	if ea == nil && eb == nil {
+	fa, aNum := sortNumber(a)
+	fb, bNum := sortNumber(b)
+	if aNum && bNum {
 		if fa != fb {
 			return fa < fb
 		}
-		return a < b
+		return a < b // equal magnitude: deterministic lexical tiebreak
 	}
-	return a < b
+	if aNum != bNum {
+		return aNum // real numbers sort before non-numeric text (and NaN)
+	}
+	return a < b // both non-numeric: lexical
+}
+
+// sortNumber reports whether s is an orderable real number and returns its
+// value. Overflow/underflow (e.g. 1e400 -> +Inf) still count as numbers so they
+// order by magnitude; NaN does not, so it can never violate the ordering.
+func sortNumber(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
+		return 0, false
+	}
+	if math.IsNaN(f) {
+		return 0, false
+	}
+	return f, true
 }

@@ -259,6 +259,61 @@ func TestRunCSVCellDiffJSONLines(t *testing.T) {
 	}
 }
 
+// TestRunCSVCellDiffPairsDuplicateKeysBySimilarity covers #165: when several
+// rows share a key, unmatched rows must pair by column similarity, not by sort
+// position. Here A~A' differ only in `value` and B~B' only in `name`, but the
+// right rows are in the opposite order — positional pairing would cross-pair and
+// blame `city` too. Correct pairing attributes exactly one changed column each.
+func TestRunCSVCellDiffPairsDuplicateKeysBySimilarity(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.jsonl")
+	mustWriteFile(t, leftPath, "id,name,city,value\n1,alice,NYC,10\n1,bob,LA,20\n")
+	mustWriteFile(t, rightPath, "id,name,city,value\n1,bobby,LA,20\n1,alice,NYC,11\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.CellDiff, cfg.OutputFormat = true, "jsonl"
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only `name` and `value` change (one each); `city` is never a real change.
+	counts := map[string]uint64{}
+	for _, c := range summary.ColumnChanges {
+		counts[c.Name] = c.Count
+	}
+	if counts["name"] != 1 || counts["value"] != 1 || counts["city"] != 0 {
+		t.Fatalf("column attribution scrambled by positional pairing: %+v", summary.ColumnChanges)
+	}
+
+	// Each changed record names exactly the one column that actually differs.
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byColumn := map[string]jsonCellChange{}
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
+		var item jsonRecordDiff
+		if err := json.Unmarshal(line, &item); err != nil {
+			t.Fatal(err)
+		}
+		if item.Kind != diffChanged || len(item.Old) == 0 || len(item.New) == 0 {
+			continue
+		}
+		if len(item.ChangedColumns) != 1 {
+			t.Fatalf("record changed in %d columns, want 1: %s", len(item.ChangedColumns), line)
+		}
+		byColumn[item.ChangedColumns[0].Name] = item.ChangedColumns[0]
+	}
+	if c := byColumn["name"]; c.Old != "bob" || c.New != "bobby" {
+		t.Fatalf("name change misattributed: %+v", c)
+	}
+	if c := byColumn["value"]; c.Old != "10" || c.New != "11" {
+		t.Fatalf("value change misattributed: %+v", c)
+	}
+}
+
 func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
