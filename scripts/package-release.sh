@@ -22,6 +22,31 @@ require_file() {
   fi
 }
 
+# Reproducible archives (#172): pin entry order, timestamps, and ownership so a
+# given tag always checksums identically (downstream Homebrew/Scoop/WinGet hash
+# these). tar entries are sorted with epoch mtime and zeroed ownership; gzip -n
+# drops the mtime/name from the gzip header. zip has a 1980 epoch floor, so the
+# staged tree is stamped to 1980-01-01 and fed in sorted order with -X (no uid/
+# gid/extra-timestamp fields). Staging dirs are temporary, so stamping is safe.
+REPRO_MTIME='@0'
+REPRO_ZIP_STAMP='198001010000'
+
+make_targz() {
+  # <parent-dir> <entry> <output>
+  tar --sort=name --mtime="$REPRO_MTIME" --owner=0 --group=0 --numeric-owner \
+    -C "$1" -cf - "$2" | gzip -n -9 > "$3"
+}
+
+make_zip() {
+  # <parent-dir> <entry> <output-absolute>
+  rm -f "$3"
+  (
+    cd "$1"
+    find "$2" -exec touch -t "$REPRO_ZIP_STAMP" {} +
+    find "$2" | LC_ALL=C sort | zip -X -q "$3" -@
+  )
+}
+
 while read -r os arch ext; do
   case "$os" in ''|'#'*) continue ;; esac
   [ "$ext" = "-" ] && ext=""
@@ -48,16 +73,13 @@ package_unix() {
     cp "$ROOT/packaging/linux/ayame-diff.desktop" "$stage/share/applications/"
     cp "$ICONS/ayame-diff.png" "$stage/share/icons/hicolor/256x256/apps/ayame-diff.png"
   fi
-  tar -C "$RELEASE" -czf "$RELEASE/$name.tar.gz" "$name"
+  make_targz "$RELEASE" "$name" "$RELEASE/$name.tar.gz"
   rm -rf "$stage"
 
   if [ "$os" = "darwin" ]; then
     "$ROOT/packaging/macos/build-app.sh" \
       "$DIST/ayame-diff-${os}-${arch}" "$VERSION" "$stage" "$ICONS/ayame-diff.icns"
-    (
-      cd "$stage"
-      zip -qr "$RELEASE/${name}-app.zip" "Ayame Diff.app"
-    )
+    make_zip "$stage" "Ayame Diff.app" "$RELEASE/${name}-app.zip"
     rm -rf "$stage"
   fi
 }
@@ -86,10 +108,7 @@ cp "$ROOT/packaging/windows/start-gui.cmd" "$windows_stage/"
 cp "$ROOT/packaging/windows/install-shell.cmd" "$ROOT/packaging/windows/uninstall-shell.cmd" "$windows_stage/"
 cp "$ICONS/ayame-diff.ico" "$windows_stage/"
 cp "$ROOT/README_WINDOWS.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$windows_stage/"
-(
-  cd "$RELEASE"
-  zip -qr "$windows_name.zip" "$windows_name"
-)
+make_zip "$RELEASE" "$windows_name" "$RELEASE/$windows_name.zip"
 rm -rf "$windows_stage"
 rm -rf "$ICONS"
 
@@ -104,10 +123,7 @@ rm -rf "$ICONS"
 PACKAGE_META="$DIST/packaging"
 rm -rf "$PACKAGE_META"
 (cd "$ROOT" && go run ./cmd/packaging-gen -version "$VERSION" -checksums "$RELEASE/SHA256SUMS" -out "$PACKAGE_META")
-(
-  cd "$PACKAGE_META/winget"
-  zip -qr "$RELEASE/ayame-diff-${VERSION}-winget-manifests.zip" manifests
-)
+make_zip "$PACKAGE_META/winget" "manifests" "$RELEASE/ayame-diff-${VERSION}-winget-manifests.zip"
 cp "$PACKAGE_META/scoop/ayame-diff.json" "$RELEASE/ayame-diff-${VERSION}-scoop.json"
 cp "$PACKAGE_META/homebrew/ayame-diff.rb" "$RELEASE/ayame-diff-${VERSION}-homebrew.rb"
 rm -rf "$PACKAGE_META"

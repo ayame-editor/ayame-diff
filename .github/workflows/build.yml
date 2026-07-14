@@ -30,6 +30,23 @@ jobs:
       - run: go vet ./...
       - run: make smoke
 
+  # Verify the minimum Go declared in go.mod actually builds and tests, so a
+  # 1.24+ only feature can't slip in while every other job runs 1.26 (#172).
+  # GOTOOLCHAIN=local forbids an auto-upgrade, so this genuinely exercises 1.23;
+  # when go.mod's go directive rises, bump go-version here to match.
+  minimum-go:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: true
+      - run: go build ./...
+      - run: go test ./...
+
   targets:
     runs-on: ubuntu-latest
     outputs:
