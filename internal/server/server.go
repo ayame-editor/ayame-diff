@@ -254,7 +254,7 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{
+	result, err := dircompare.CompareAnyContext(r.Context(), req.Old, req.New, dircompare.Options{
 		Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden,
 		Quick: req.Quick, Workers: req.Workers,
 		MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
@@ -1064,15 +1064,18 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	if req.DetectMoves {
-		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+		if _, err := linediff.DetectMovesContext(r.Context(), oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
-		})
+		}); err != nil {
+			writeClassifiedError(w, err, http.StatusBadRequest)
+			return
+		}
 	}
 	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
@@ -1138,15 +1141,18 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	if req.DetectMoves {
-		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+		if _, err := linediff.DetectMovesContext(r.Context(), oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
-		})
+		}); err != nil {
+			writeClassifiedError(w, err, http.StatusBadRequest)
+			return
+		}
 	}
 	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	oldLabel, newLabel := req.Old, req.New
@@ -1206,9 +1212,9 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := linediff.DiffWith(oldLines, newLines, options)
+	result, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	choices := make(map[int]merge.Side, len(req.Choices))
@@ -1271,7 +1277,7 @@ func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, 
 	return base, left, right, func() { closeRight(); closeLeft(); closeBase() }, nil
 }
 
-func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
+func threeWayTextResult(ctx context.Context, req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
 	if req.Base == "" || req.Old == "" || req.New == "" {
 		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, old/left, and new/right paths are required")
 	}
@@ -1288,7 +1294,7 @@ func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Resul
 		closeLines()
 		return nil, threeway.Result{}, func() {}, err
 	}
-	result, err := threeway.Compare(base, left, right, options)
+	result, err := threeway.CompareContext(ctx, base, left, right, options)
 	if err != nil {
 		closeLines()
 		return nil, threeway.Result{}, func() {}, err
@@ -1306,7 +1312,7 @@ func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	_, result, closeLines, err := threeWayTextResult(req)
+	_, result, closeLines, err := threeWayTextResult(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1344,7 +1350,7 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
-	base, result, closeLines, err := threeWayTextResult(req)
+	base, result, closeLines, err := threeWayTextResult(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

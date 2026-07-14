@@ -2,6 +2,7 @@ package dircompare
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +31,7 @@ func BenchmarkCompareTenThousandFiles(b *testing.B) {
 	source := archiveSource{content: content}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result, err := compareSources(source, source, Options{Workers: 8})
+		result, err := compareSources(context.Background(), source, source, Options{Workers: 8})
 		if err != nil || result.Same != 10_000 {
 			b.Fatal(err)
 		}

@@ -5,6 +5,7 @@
 package dircompare
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"path"
@@ -91,7 +92,14 @@ type Result struct {
 // Compare walks oldDir and newDir and classifies every file by content. For
 // directories or archives interchangeably, use CompareAny.
 func Compare(oldDir, newDir string, opts Options) (*Result, error) {
+	return CompareContext(context.Background(), oldDir, newDir, opts)
+}
+
+// CompareContext is Compare that aborts the content comparison early when ctx is
+// cancelled (#169).
+func CompareContext(ctx context.Context, oldDir, newDir string, opts Options) (*Result, error) {
 	return compareSources(
+		ctx,
 		dirSource{root: oldDir, opts: opts},
 		dirSource{root: newDir, opts: opts},
 		opts,

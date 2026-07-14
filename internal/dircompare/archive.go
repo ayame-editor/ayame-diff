@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -211,6 +212,13 @@ func archiveLimitError(name, kind string, size int64, opts Options) error {
 // (.zip / .tar / .tar.gz / .tgz), so archives compare like folders. Archive
 // selected contents are held in memory within Options' expansion limits.
 func CompareAny(oldPath, newPath string, opts Options) (*Result, error) {
+	return CompareAnyContext(context.Background(), oldPath, newPath, opts)
+}
+
+// CompareAnyContext is CompareAny that aborts the (up to 64-worker) content
+// comparison early when ctx is cancelled, so a large tree/archive diff stops on
+// a client disconnect instead of running to completion (#169).
+func CompareAnyContext(ctx context.Context, oldPath, newPath string, opts Options) (*Result, error) {
 	oldSrc, err := makeSource(oldPath, opts)
 	if err != nil {
 		return nil, err
@@ -219,11 +227,11 @@ func CompareAny(oldPath, newPath string, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compareSources(oldSrc, newSrc, opts)
+	return compareSources(ctx, oldSrc, newSrc, opts)
 }
 
 // compareSources classifies every file across the two sources by content.
-func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
+func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*Result, error) {
 	oldFiles, err := oldSrc.files()
 	if err != nil {
 		return nil, err
@@ -283,7 +291,10 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for index := range jobs {
-				equal, err := contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
+				equal, err := false, ctx.Err()
+				if err == nil {
+					equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
+				}
 				results <- struct {
 					index int
 					equal bool
@@ -297,7 +308,12 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 			e := res.Entries[index]
 			comparableSize := e.OldSize == e.NewSize || strings.HasSuffix(strings.ToLower(e.Path), ".gz")
 			if e.OldSize >= 0 && e.NewSize >= 0 && comparableSize && !(opts.Quick && e.OldSize == e.NewSize && !e.OldModTime.IsZero() && e.OldModTime.Equal(e.NewModTime)) {
-				jobs <- index
+				// Stop dispatching once cancelled; in-flight workers see ctx.Err()
+				// and drain quickly (#169).
+				select {
+				case jobs <- index:
+				case <-ctx.Done():
+				}
 			}
 		}
 		close(jobs)
@@ -318,6 +334,9 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 	}
 	if compareErr != nil {
 		return nil, compareErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	for _, e := range res.Entries {
 		switch e.Status {
