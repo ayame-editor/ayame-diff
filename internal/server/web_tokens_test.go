@@ -125,6 +125,45 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
+func TestChangeCellSyntaxAndWordHighlightRemainReadable(t *testing.T) {
+	t.Parallel()
+	style := readWebAsset(t, "style.css")
+
+	// Every syntax token that shares a change cell's wash hue must be pulled
+	// toward the body text colour on that cell so it stays legible (#150).
+	for _, rule := range []string{
+		".cell.add .syn-string { color: color-mix(in srgb, var(--add-fg)",
+		".cell.chg .syn-literal { color: color-mix(in srgb, var(--chg-fg)",
+		".cell.chg .syn-function,",
+		".cell.chg .syn-level-warn { color: color-mix(in srgb, var(--gold)",
+		".cell.del .syn-level-error { color: color-mix(in srgb, var(--del-fg)",
+	} {
+		if !strings.Contains(style, rule) {
+			t.Errorf("change-cell syntax contrast rule missing %q", rule)
+		}
+	}
+	// Each override must mix toward --fg (theme-adaptive contrast), not a fixed
+	// colour, so it holds in light, dark, and colourblind schemes.
+	for _, token := range []string{"--add-fg", "--chg-fg", "--gold", "--del-fg"} {
+		if !regexp.MustCompile(`\.cell\.[a-z]+ \.syn-[a-z-]+[^}]*var\(` + token + `\) \d+%, var\(--fg\)\)`).MatchString(style) {
+			t.Errorf("change-cell override for %s must mix toward var(--fg)", token)
+		}
+	}
+	// Word highlights need horizontal breathing room and a defining edge so the
+	// coloured pills are not cramped against the glyphs (#150).
+	for _, want := range []string{
+		".w-add, .w-del {",
+		"padding-inline: 0.2em;",
+		"box-decoration-break: clone;",
+		".w-add { background: var(--word-add); box-shadow: inset 0 0 0 1px",
+		".w-del { background: var(--word-del); box-shadow: inset 0 0 0 1px",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("word-highlight readability style missing %q", want)
+		}
+	}
+}
+
 func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")

@@ -225,8 +225,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.del { background: var(--del-bg); }
 .cell.chg { background: var(--chg-bg); }
 .cell.empty { background: transparent; }
-.w-add { background: var(--word-add); border-radius: calc(var(--radius-control) - 3px); }
-.w-del { background: var(--word-del); border-radius: calc(var(--radius-control) - 3px); }
+.w-add, .w-del {
+  padding-inline: 0.2em; border-radius: calc(var(--radius-control) - 3px);
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.w-add { background: var(--word-add); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--add-fg) 34%, transparent); }
+.w-del { background: var(--word-del); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--del-fg) 34%, transparent); }
 .syn-comment { color: var(--muted); font-style: italic; }
 .syn-keyword, .syn-heading { color: var(--accent-bright); font-weight: 600; }
 .syn-string { color: var(--add-fg); }
@@ -237,6 +241,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 .syn-op, .syn-level-debug { color: var(--muted); }
 .syn-link { text-decoration: underline; }
 .syn-level-error { color: var(--danger); font-weight: 600; }
+/* On a change cell the syntax tokens that share its background-wash hue lose
+   contrast (green string on the add wash, gold function/literal on the chg
+   wash, red error on the del wash). Mix each toward the body text colour: the
+   wash is only a light tint of --bg and --fg contrasts --bg by construction, so
+   this restores legibility in light, dark, and colourblind themes while keeping
+   the token's hue for at-a-glance meaning (#150). */
+.cell.add .syn-string { color: color-mix(in srgb, var(--add-fg) 68%, var(--fg)); }
+.cell.chg .syn-literal { color: color-mix(in srgb, var(--chg-fg) 68%, var(--fg)); }
+.cell.chg .syn-function,
+.cell.chg .syn-level-warn { color: color-mix(in srgb, var(--gold) 52%, var(--fg)); font-weight: 600; }
+.cell.del .syn-level-error { color: color-mix(in srgb, var(--del-fg) 68%, var(--fg)); }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .result-empty { border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .result-empty strong { display: block; color: var(--fg); font-size: 1.1rem; }
