@@ -38,12 +38,32 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Server-side resource caps bound what an (unauthenticated, #108) client can
+// demand, so a single request cannot exhaust the host (#170).
+const (
+	// serverMaxMemoryText caps the resident-memory budget a CSV request may ask
+	// for; larger values are clamped down — the engine just spills more, so the
+	// result is unchanged.
+	serverMaxMemoryText = "8GiB"
+	// serverMaxArchiveEntryBytes / serverMaxArchiveBytes cap the uncompressed
+	// archive expansion a dir request may request, so a client cannot raise the
+	// zip-bomb guard (#70) back toward unbounded.
+	serverMaxArchiveEntryBytes int64 = 2 << 30 // 2 GiB
+	serverMaxArchiveBytes      int64 = 8 << 30 // 8 GiB
+)
+
+// maxConcurrentComparisons bounds how many expensive comparisons run at once, so
+// N parallel requests cannot multiply memory / temp-dir / goroutine use without
+// limit (#170). A var so tests can shrink it before New.
+var maxConcurrentComparisons = max(2, runtime.NumCPU())
+
 // Server serves the UI and diff API.
 type Server struct {
-	version string
-	mux     *http.ServeMux
-	dropMu  sync.Mutex
-	drops   map[string]string
+	version    string
+	mux        *http.ServeMux
+	dropMu     sync.Mutex
+	drops      map[string]string
+	compareSem chan struct{} // bounds concurrent expensive comparisons (#170)
 }
 
 // New returns a Server. version is reported by /api/health.
@@ -52,27 +72,49 @@ func New(version string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{version: version, mux: http.NewServeMux(), drops: make(map[string]string)}
+	s := &Server{
+		version: version, mux: http.NewServeMux(), drops: make(map[string]string),
+		compareSem: make(chan struct{}, maxConcurrentComparisons),
+	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
-	s.mux.HandleFunc("/api/diff", s.handleDiff)
-	s.mux.HandleFunc("/api/patch", s.handlePatch)
-	s.mux.HandleFunc("/api/merge/text", s.handleTextMerge)
-	s.mux.HandleFunc("/api/three-way/text", s.handleThreeWayText)
-	s.mux.HandleFunc("/api/merge/three-way/text", s.handleThreeWayTextMerge)
+	// Compute-heavy comparison / merge / export handlers run under the
+	// concurrency gate (#170); cheap metadata handlers (health, files,
+	// path-info, drop, project, csv/inspect) do not.
+	s.mux.HandleFunc("/api/diff", s.limited(s.handleDiff))
+	s.mux.HandleFunc("/api/patch", s.limited(s.handlePatch))
+	s.mux.HandleFunc("/api/merge/text", s.limited(s.handleTextMerge))
+	s.mux.HandleFunc("/api/three-way/text", s.limited(s.handleThreeWayText))
+	s.mux.HandleFunc("/api/merge/three-way/text", s.limited(s.handleThreeWayTextMerge))
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
-	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
-	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
-	s.mux.HandleFunc("/api/merge/csv", s.handleCSVMerge)
-	s.mux.HandleFunc("/api/three-way/csv", s.handleThreeWayCSV)
-	s.mux.HandleFunc("/api/merge/three-way/csv", s.handleThreeWayCSVMerge)
+	s.mux.HandleFunc("/api/csv/diff", s.limited(s.handleCSVDiff))
+	s.mux.HandleFunc("/api/csv/export", s.limited(s.handleCSVExport))
+	s.mux.HandleFunc("/api/merge/csv", s.limited(s.handleCSVMerge))
+	s.mux.HandleFunc("/api/three-way/csv", s.limited(s.handleThreeWayCSV))
+	s.mux.HandleFunc("/api/merge/three-way/csv", s.limited(s.handleThreeWayCSVMerge))
+	s.mux.HandleFunc("/api/dir/diff", s.limited(s.handleDirDiff))
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
 	s.mux.HandleFunc("/api/drop", s.handleDrop)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
-	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
 	return s, nil
+}
+
+// limited caps concurrency on expensive comparison handlers, returning 429 when
+// maxConcurrentComparisons are already running so parallel requests cannot
+// multiply resource use without bound (#170).
+func (s *Server) limited(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case s.compareSem <- struct{}{}:
+			defer func() { <-s.compareSem }()
+			h(w, r)
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "too many concurrent comparisons; please retry shortly")
+		}
+	}
 }
 
 // handleDrop streams browser-dropped files to a private local cache. Browsers
@@ -260,6 +302,15 @@ func parseArchiveLimits(entryText, totalText string) (int64, int64, error) {
 	if entryLimit > totalLimit {
 		return 0, 0, fmt.Errorf("maxArchiveEntryBytes cannot exceed maxArchiveBytes")
 	}
+	// Clamp to the server's absolute maxima so a client cannot raise the
+	// zip-bomb expansion guard (#70) back toward unbounded (#170). Clamping
+	// (rather than rejecting) keeps legitimate requests working, just bounded.
+	if entryLimit > serverMaxArchiveEntryBytes {
+		entryLimit = serverMaxArchiveEntryBytes
+	}
+	if totalLimit > serverMaxArchiveBytes {
+		totalLimit = serverMaxArchiveBytes
+	}
 	return entryLimit, totalLimit, nil
 }
 
@@ -360,6 +411,22 @@ type csvResponse struct {
 	DifferenceCount int                    `json:"difference_count"`
 }
 
+// clampMemoryBudget lowers an over-limit resident-memory request to the server
+// cap (#170). Using a smaller budget only makes the engine spill more, so the
+// comparison result is unchanged; malformed values pass through to be rejected
+// by engine.Validate with a clear error.
+func clampMemoryBudget(text string) string {
+	limit, err := engine.ParseByteSize(serverMaxMemoryText)
+	if err != nil {
+		return text
+	}
+	value, err := engine.ParseByteSize(strings.TrimSpace(text))
+	if err != nil || value <= limit {
+		return text
+	}
+	return serverMaxMemoryText
+}
+
 func csvConfig(req csvRequest, output string) engine.Config {
 	workers := min(runtime.NumCPU(), 8)
 	if req.ParseWorkers <= 0 {
@@ -377,6 +444,7 @@ func csvConfig(req csvRequest, output string) engine.Config {
 	if req.Memory == "" {
 		req.Memory = "512MiB"
 	}
+	req.Memory = clampMemoryBudget(req.Memory)
 	if req.PartitionBuffer == "" {
 		req.PartitionBuffer = "64KiB"
 	}
