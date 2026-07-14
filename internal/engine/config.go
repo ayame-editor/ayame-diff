@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -28,6 +29,11 @@ type Config struct {
 	KeepTemp, Progress                                     bool
 	SummaryJSON                                            string
 	DiffExitCode, OutputHeader                             bool
+	// Log receives progress lines and informational messages. The engine
+	// never writes to os.Stderr directly; the CLI passes os.Stderr here,
+	// embedders (wizard, future GUI server) may capture or silence it.
+	// nil means discard.
+	Log io.Writer
 }
 
 type Summary struct {
@@ -153,6 +159,9 @@ func (c Config) resolved() (Config, error) {
 	out.PartitionBufferBytes = int(partitionBuffer)
 	if out.MaxRecordBytes, err = parseBytes(c.MaxRecordText); err != nil {
 		return Config{}, fmt.Errorf("--max-record-bytes: %w", err)
+	}
+	if out.Log == nil {
+		out.Log = io.Discard
 	}
 	return out, nil
 }

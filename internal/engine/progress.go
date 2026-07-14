@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +12,7 @@ import (
 type progressCounter struct {
 	label       string
 	enabled     bool
+	out         io.Writer
 	rows, bytes atomic.Uint64
 	start       time.Time
 	cancel      context.CancelFunc
@@ -19,8 +20,11 @@ type progressCounter struct {
 	once        sync.Once
 }
 
-func startProgress(parent context.Context, label string, enabled bool) *progressCounter {
-	p := &progressCounter{label: label, enabled: enabled, start: time.Now()}
+func startProgress(parent context.Context, label string, enabled bool, out io.Writer) *progressCounter {
+	if out == nil {
+		out = io.Discard
+	}
+	p := &progressCounter{label: label, enabled: enabled, out: out, start: time.Now()}
 	if !enabled {
 		return p
 	}
@@ -64,10 +68,10 @@ func (p *progressCounter) print(final bool) {
 		prefix = "stage done"
 	}
 	if b > 0 {
-		fmt.Fprintf(os.Stderr, "%s: %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.label, rows, formatBytes(b), float64(rows)/elapsed, float64(b)/(1024*1024)/elapsed, time.Since(p.start).Round(time.Second))
+		fmt.Fprintf(p.out, "%s: %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.label, rows, formatBytes(b), float64(rows)/elapsed, float64(b)/(1024*1024)/elapsed, time.Since(p.start).Round(time.Second))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%s: %s rows=%d rows/s=%.0f elapsed=%s\n", prefix, p.label, rows, float64(rows)/elapsed, time.Since(p.start).Round(time.Second))
+	fmt.Fprintf(p.out, "%s: %s rows=%d rows/s=%.0f elapsed=%s\n", prefix, p.label, rows, float64(rows)/elapsed, time.Since(p.start).Round(time.Second))
 }
 func formatBytes(v uint64) string {
 	const unit = 1024

@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,6 +177,33 @@ func TestUserWorkDirIsPreserved(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("work dir still contains %d entries after cleanup", len(entries))
+	}
+}
+
+// Regression for issue #44: the engine writes progress and informational
+// messages only to the injected Config.Log, never to os.Stderr, so
+// embedders (wizard, GUI server) can capture or silence them.
+func TestProgressWritesToInjectedLog(t *testing.T) {
+	dir := t.TempDir()
+	left := filepath.Join(dir, "left.csv")
+	right := filepath.Join(dir, "right.csv")
+	mustWriteFile(t, left, "id,value\n1,a\n2,b\n")
+	mustWriteFile(t, right, "id,value\n1,a\n2,b\n")
+	var log bytes.Buffer
+	cfg := testConfig(left, right, filepath.Join(dir, "out.tsv"))
+	cfg.Progress = true
+	cfg.Log = &log
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	output := log.String()
+	if !strings.Contains(output, "stage done: partition left") {
+		t.Fatalf("injected log did not receive progress output:\n%s", output)
+	}
+	// The RFC4180 path must report raw input bytes (issue #44): both files
+	// are 17 bytes of data after the 9-byte header.
+	if !strings.Contains(output, "bytes=") {
+		t.Fatalf("progress output has no byte throughput:\n%s", output)
 	}
 }
 

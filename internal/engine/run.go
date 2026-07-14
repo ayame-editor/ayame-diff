@@ -84,7 +84,7 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 			defer func() { _ = removeDirContents(workRoot) }()
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, "work directory:", workRoot)
+		fmt.Fprintln(cfg.Log, "work directory:", workRoot)
 	}
 
 	leftParts, leftRows, err := partitionInput(ctx, leftSpec, leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, cfg, filepath.Join(workRoot, "partitions-left"))

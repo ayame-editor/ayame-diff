@@ -69,7 +69,7 @@ func partitionInput(ctx context.Context, spec inputSpec, info inspectedInput, ma
 	if err != nil {
 		return nil, 0, err
 	}
-	progress := startProgress(ctx, "partition "+spec.Label, cfg.Progress)
+	progress := startProgress(ctx, "partition "+spec.Label, cfg.Progress, cfg.Log)
 	defer progress.stop()
 	var rows uint64
 	if spec.Parser == parserSimple {
@@ -118,6 +118,7 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 	}
 	var rows uint64
 	var key, row, stored []byte
+	previousOffset := reader.InputOffset()
 	for {
 		record, e := reader.Read()
 		if errors.Is(e, io.EOF) {
@@ -142,7 +143,11 @@ func partitionRFC4180(ctx context.Context, spec inputSpec, info inspectedInput, 
 			return rows, err
 		}
 		rows++
-		p.add(1, uint64(len(stored)))
+		// Report raw input bytes so the MiB/s figure matches the simple
+		// parser paths (which report bytes read, not encoded bytes).
+		offset := reader.InputOffset()
+		p.add(1, uint64(offset-previousOffset))
+		previousOffset = offset
 		if rows&0x3fff == 0 {
 			if err := ctx.Err(); err != nil {
 				return rows, err

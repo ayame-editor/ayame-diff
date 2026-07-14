@@ -83,6 +83,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	cfg.Log = os.Stderr // the engine itself never writes to stderr directly
 	summary, err := engine.Run(ctx, cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
