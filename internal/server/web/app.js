@@ -37,6 +37,9 @@ const I18N = {
     // summary labels shared by the CSV / folder / 3-way renderers (#125)
     changed: "変更", removed: "削除", same: "一致", left: "左", right: "右",
     leftOnly: "左のみ", rightOnly: "右のみ", equalRows: "一致", bytes: "バイト",
+    // detected encoding surfaced on file diffs (#130)
+    encodingDetected: (v) => `文字コード: OLD=${v.old} / NEW=${v.new}`,
+    encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -110,6 +113,8 @@ const I18N = {
     statusDifferent: "different", statusAll: "all",
     changed: "changed", removed: "removed", same: "same", left: "left", right: "right",
     leftOnly: "left only", rightOnly: "right only", equalRows: "equal", bytes: "bytes",
+    encodingDetected: (v) => `encoding: OLD=${v.old} / NEW=${v.new}`,
+    encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     comparing: "Comparing…", noDiff: "No differences.",
@@ -463,6 +468,17 @@ function renderSummary(res) {
     n.className = "note";
     n.textContent = t("omitted", res.omitted_hunks.toLocaleString());
     el.append(n);
+  }
+  // Show what `encoding: auto` decoded each file as, and flag a left/right
+  // mismatch — the material clue when output looks garbled (#130). Present only
+  // for file inputs; inline text carries no detected encoding.
+  if (res.old_encoding || res.new_encoding) {
+    const mismatch = res.old_encoding && res.new_encoding && res.old_encoding !== res.new_encoding;
+    const enc = document.createElement("span");
+    enc.className = mismatch ? "note encoding-mismatch" : "note";
+    enc.textContent = t("encodingDetected", { old: res.old_encoding || "—", new: res.new_encoding || "—" });
+    if (mismatch) enc.textContent += ` — ${t("encodingMismatch")}`;
+    el.append(enc);
   }
   el.hidden = false;
 }

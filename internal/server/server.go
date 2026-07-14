@@ -940,7 +940,18 @@ type diffResponse struct {
 	MovedLines           uint64    `json:"moved_lines,omitempty"`
 	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
 	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
+	// OldEncoding/NewEncoding report the concrete encoding each side was decoded
+	// from (#130). Populated for file inputs — where `encoding: auto` may have
+	// guessed shift_jis/euc-jp/utf-16 — so the UI can show what was detected and
+	// flag a left/right mismatch. Empty for inline (scratch) text, which is
+	// already UTF-8.
+	OldEncoding string `json:"old_encoding,omitempty"`
+	NewEncoding string `json:"new_encoding,omitempty"`
 }
+
+// encodingReporter is implemented by line sources that decoded from a detected
+// or forced encoding (linesrc.FileLines). Inline and sorted sources do not.
+type encodingReporter interface{ Encoding() string }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1465,7 +1476,7 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 			hunks[i].MovePeer = &peer
 		}
 	}
-	return diffResponse{
+	resp := diffResponse{
 		OldLines:             res.OldLines,
 		NewLines:             res.NewLines,
 		Hunks:                hunks,
@@ -1479,6 +1490,13 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		MoveDetectionSkipped: res.MoveDetectionSkipped,
 		IgnoredHunks:         res.IgnoredHunks,
 	}
+	if er, ok := old.(encodingReporter); ok {
+		resp.OldEncoding = er.Encoding()
+	}
+	if er, ok := new.(encodingReporter); ok {
+		resp.NewEncoding = er.Encoding()
+	}
+	return resp
 }
 
 // sliceLines returns up to maxLines line strings starting at start.
