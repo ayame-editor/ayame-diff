@@ -23,6 +23,9 @@ func TestHandleDropGuards(t *testing.T) {
 		h.ServeHTTP(rec, httptest.NewRequest(method, "/api/drop?"+query, strings.NewReader("x")))
 		return rec.Code
 	}
+	// t.TempDir() is absolute on every OS (unlike a hardcoded "/etc/passwd",
+	// which filepath.IsAbs rejects on Windows for lacking a drive letter).
+	absolute := t.TempDir()
 	for _, c := range []struct {
 		name   string
 		method string
@@ -36,7 +39,7 @@ func TestHandleDropGuards(t *testing.T) {
 		{"empty relative", http.MethodPost, "session=s&relative=", http.StatusBadRequest},
 		{"dotdot relative", http.MethodPost, "session=s&relative=..", http.StatusBadRequest},
 		{"escaping relative", http.MethodPost, "session=s&relative=" + url.QueryEscape("../secret"), http.StatusBadRequest},
-		{"absolute relative", http.MethodPost, "session=s&relative=" + url.QueryEscape("/etc/passwd"), http.StatusBadRequest},
+		{"absolute relative", http.MethodPost, "session=s&relative=" + url.QueryEscape(absolute), http.StatusBadRequest},
 		{"cleans to escape", http.MethodPost, "session=s&relative=" + url.QueryEscape("a/../../x"), http.StatusBadRequest},
 	} {
 		if got := do(c.method, c.query); got != c.want {
