@@ -74,7 +74,7 @@ const I18N = {
 	previousPage: "前のページ", nextPage: "次のページ", pageInput: (v) => `ページ番号（全 ${v.total} ページ）`,
 	pageTotal: (v) => `/ ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
-	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
+	mergeMode: "マージモード", mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
 	threeWay: "3-way 比較", conflicts: "競合",
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
@@ -149,7 +149,7 @@ const I18N = {
 	previousPage: "Previous page", nextPage: "Next page", pageInput: (v) => `Page number (${v.total} pages total)`,
 	pageTotal: (v) => `of ${v.total} pages`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
-	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
+	mergeMode: "Merge mode", mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
 	threeWay: "3-way comparison", conflicts: "conflicts",
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
@@ -268,6 +268,16 @@ const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
 let directoryData = null, directoryBody = null;
 let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
+// Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
+// so the per-hunk adopt buttons and the merge panel stay hidden until the user
+// enters merge mode. setMergeMode syncs the body class the CSS keys off and the
+// toggle's aria-pressed; updateMergeUI decides when the toggle is offered (#100).
+let mergeMode = false;
+function setMergeMode(on) {
+  mergeMode = on;
+  document.body.classList.toggle("merge-mode", on);
+  $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
+}
 let threeWayData = null;
 
 // ---- rendering ----
@@ -531,11 +541,15 @@ function mutateMerge(mutator) {
 }
 function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
 function updateMergeUI() {
+	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
 	$("allBase").hidden = true;
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
   const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
-  $("mergePanel").hidden = !mergeable;
+  // Offer the toggle whenever a text diff can be merged, but keep the adopt
+  // buttons (CSS) and the merge panel hidden until the user opts into merge mode.
+  $("mergeMode").hidden = !mergeable;
+  $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
   lastData.hunks.forEach((_, index) => {
     const box = $(`hunk-${index}`), side = mergeChoices.get(index);
@@ -1204,6 +1218,7 @@ async function compare() {
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
     mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    setMergeMode(false); // every fresh diff opens in reading mode (#100)
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
       $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.txt";
@@ -1525,6 +1540,7 @@ $("clearSync").addEventListener("click", clearSyncPoints);
 $("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
 $("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
 $("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
+$("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);

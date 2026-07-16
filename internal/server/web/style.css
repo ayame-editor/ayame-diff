@@ -168,7 +168,10 @@ button:active:not(:disabled) {
 .merge-panel button { margin: 0; padding: 0.3rem 0.65rem; }
 .merge-panel input[type="text"] { flex: 1 1 18rem; }
 .merge-panel .opt { display: flex; }
-.hunk-merge { float: right; display: inline-flex; gap: 0.25rem; margin-left: 0.35rem; }
+/* Adopt buttons are noise for read-only sessions: hidden until merge mode (#100). */
+.hunk-merge { float: right; display: none; gap: 0.25rem; margin-left: 0.35rem; }
+.merge-mode .hunk-merge { display: inline-flex; }
+.merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: var(--fs-caption); }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }
