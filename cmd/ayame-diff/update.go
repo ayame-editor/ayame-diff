@@ -31,10 +31,10 @@ Verifies the release's SHA-256 checksum before installing.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -45,26 +45,26 @@ Verifies the release's SHA-256 checksum before installing.`)
 		if err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			if errors.Is(err, context.Canceled) {
-				return 130
+				return exitInterrupt
 			}
-			return 1
+			return exitError
 		}
 		if selfupdate.NeedsUpdate(version, rel.TagName) {
 			fmt.Fprintf(stdout, "update available: %s -> %s\n%s\n", version, rel.TagName, rel.HTMLURL)
 		} else {
 			fmt.Fprintf(stdout, "up to date (%s)\n", version)
 		}
-		return 0
+		return exitOK
 	}
 
 	if err := selfupdate.Update(ctx, version, stdout); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		if errors.Is(err, context.Canceled) {
-			return 130
+			return exitInterrupt
 		}
-		return 1
+		return exitError
 	}
-	return 0
+	return exitOK
 }
 
 // runRemove implements: ayame-diff remove [--yes]
@@ -83,29 +83,29 @@ detected and left to their package manager.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 
 	if mgr := selfupdate.ManagedInstall(); mgr != "" {
 		fmt.Fprintf(stderr, "this install is managed by %s; use %s to remove it\n", mgr, strings.ToLower(mgr))
-		return 1
+		return exitError
 	}
 	if !yes {
 		exe, _ := os.Executable()
 		fmt.Fprintf(stderr, "remove %s? [y/N] ", exe)
 		if !confirm() {
 			fmt.Fprintln(stderr, "cancelled")
-			return 130
+			return exitInterrupt
 		}
 	}
 	if err := selfupdate.Remove(stdout); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
-	return 0
+	return exitOK
 }
 
 func confirm() bool {

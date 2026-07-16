@@ -65,20 +65,20 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 3 {
 		fmt.Fprintln(stderr, "error: 3way text needs BASE LEFT RIGHT")
-		return 2
+		return exitUsage
 	}
 	if format == "json" {
 		jsonOut = true
 	} else if format != "unified" {
 		fmt.Fprintln(stderr, "error: --format must be unified or json")
-		return 2
+		return exitUsage
 	}
 	if output != "" {
 		outAbs, _ := filepath.Abs(output)
@@ -86,48 +86,48 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 			inputAbs, _ := filepath.Abs(input)
 			if outAbs == inputAbs {
 				fmt.Fprintln(stderr, "error: merge output must differ from every input")
-				return 2
+				return exitUsage
 			}
 		}
 	}
 	base, err := linesrc.OpenEncoding(fs.Arg(0), enc)
 	if err != nil {
 		fmt.Fprintln(stderr, "error: base:", err)
-		return 2
+		return exitError
 	}
 	defer base.Close()
 	left, err := linesrc.OpenEncoding(fs.Arg(1), enc)
 	if err != nil {
 		fmt.Fprintln(stderr, "error: left:", err)
-		return 2
+		return exitError
 	}
 	defer left.Close()
 	right, err := linesrc.OpenEncoding(fs.Arg(2), enc)
 	if err != nil {
 		fmt.Fprintln(stderr, "error: right:", err)
-		return 2
+		return exitError
 	}
 	defer right.Close()
 	compiled, err := linediff.CompileLineFilters(filters.values)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if whitespace != "none" && whitespace != "change" && whitespace != "all" {
 		fmt.Fprintln(stderr, "error: --ignore-whitespace must be none, change, or all")
-		return 2
+		return exitUsage
 	}
 	result, err := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: whitespaceMode(whitespace), LineFilters: compiled})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 	} else {
 		writeThreeWayText(stdout, result)
@@ -136,20 +136,20 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		lines, unresolved, err := threeway.MergeLines(base, result, choices, allowConflicts)
 		if err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		if err := threeway.WriteMerged(output, lines); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		fmt.Fprintf(stderr, "merged: %s (conflicts=%d unresolved=%d)\n", output, result.Conflicts, unresolved)
 	} else {
 		fmt.Fprintf(stderr, "%d events, %d conflicts\n", len(result.Events), result.Conflicts)
 	}
 	if diffExit && len(result.Events) > 0 {
-		return 1
+		return exitDiff
 	}
-	return 0
+	return exitOK
 }
 
 func writeThreeWayText(w io.Writer, result threeway.Result) {

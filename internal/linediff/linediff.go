@@ -1,11 +1,17 @@
 package linediff
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
 )
+
+// cancelCheckInterval is how often the diff walk polls ctx for cancellation.
+// A power of two keeps the mask cheap; 1024 lines is frequent enough to abort
+// promptly on a client disconnect (#169) without measurable overhead.
+const cancelCheckInterval = 1 << 10
 
 // Lines is a random-access, count-known source of text lines. Implementations
 // back it however they like — an in-memory slice ([StringLines]) or a batched,
@@ -113,7 +119,8 @@ type Options struct {
 // stats). window bounds how far the resync scan looks ahead when it hits a
 // difference. It is Diff­With with no ignore options.
 func Diff(old, new Lines, maxHunks int, window uint64) Result {
-	return diffWithOptions(old, new, Options{MaxHunks: maxHunks, Window: window})
+	res, _ := diffWithOptions(context.Background(), old, new, Options{MaxHunks: maxHunks, Window: window})
+	return res
 }
 
 // DiffWith is Diff with comparison options. When any ignore option is set, the
@@ -121,16 +128,23 @@ func Diff(old, new Lines, maxHunks int, window uint64) Result {
 // the output, rendered from the caller's originals) are unchanged. Invalid sync
 // points are returned to the caller instead of being silently ignored.
 func DiffWith(old, new Lines, opts Options) (Result, error) {
+	return DiffWithContext(context.Background(), old, new, opts)
+}
+
+// DiffWithContext is DiffWith that aborts early when ctx is cancelled (e.g. the
+// browser disconnected), returning ctx.Err() so a runaway server-side diff of a
+// huge input stops instead of running to completion (#169).
+func DiffWithContext(ctx context.Context, old, new Lines, opts Options) (Result, error) {
 	if err := ValidateSyncPoints(opts.SyncPoints, old.Count(), new.Count()); err != nil {
 		return Result{}, err
 	}
 	if len(opts.SyncPoints) > 0 {
-		return diffWithSyncPoints(old, new, opts), nil
+		return diffWithSyncPoints(ctx, old, new, opts)
 	}
-	return diffWithOptions(old, new, opts), nil
+	return diffWithOptions(ctx, old, new, opts)
 }
 
-func diffWithOptions(old, new Lines, opts Options) Result {
+func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result, error) {
 	window := opts.Window
 	if window < 1 {
 		window = 1
@@ -142,7 +156,13 @@ func diffWithOptions(old, new Lines, opts Options) Result {
 	res := Result{OldLines: oldTotal, NewLines: newTotal}
 
 	var i, j uint64
+	var steps uint64
 	for i < oldTotal || j < newTotal {
+		if steps++; steps&(cancelCheckInterval-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				return res, err
+			}
+		}
 		if i < oldTotal && j < newTotal {
 			if comparison.equal(i, j) {
 				i++
@@ -162,7 +182,7 @@ func diffWithOptions(old, new Lines, opts Options) Result {
 		i += h.OldLen
 		j += h.NewLen
 	}
-	return res
+	return res, nil
 }
 
 func nextDiffHunk(comparison lineComparator, i, j, window uint64) Hunk {

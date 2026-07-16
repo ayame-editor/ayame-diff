@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -147,17 +148,31 @@ func OpenEncoding(path, encHint string) (*FileLines, error) {
 // Encoding reports the concrete encoding the file was decoded from.
 func (f *FileLines) Encoding() string { return f.encoding }
 
+// ErrIsDirectory and ErrBinaryContent report inputs the text/line path cannot
+// meaningfully compare, so callers can steer users to the folder (dir) or
+// binary (bin) modes instead of surfacing a raw "is a directory" syscall error
+// or a mojibake "diff" of decoded binary (#166).
+var (
+	ErrIsDirectory   = errors.New("this path is a folder; use folder (dir) mode to compare directories")
+	ErrBinaryContent = errors.New("this file looks binary; use binary (bin) mode to compare non-text files")
+)
+
 // detectSample bounds how many bytes are read to detect the encoding.
 const detectSample = 8 * 1024
 
 // detectEncoding reads a decompressed sample from path and resolves its
-// encoding, honoring an explicit hint.
+// encoding, honoring an explicit hint. It rejects directories and binary
+// content up front (#166) so the caller never streams a folder or decodes
+// non-text bytes into a garbled diff.
 func detectEncoding(path string, gzipped bool, hint string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
+	if info, statErr := file.Stat(); statErr == nil && info.IsDir() {
+		return "", ErrIsDirectory
+	}
 	var r io.Reader = file
 	if gzipped {
 		gz, err := gzip.NewReader(file)
@@ -172,7 +187,21 @@ func detectEncoding(path string, gzipped bool, hint string) (string, error) {
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return "", err
 	}
-	return encoding.Detect(sample[:n], hint), nil
+	enc := encoding.Detect(sample[:n], hint)
+	if looksBinary(sample[:n], enc) {
+		return "", ErrBinaryContent
+	}
+	return enc, nil
+}
+
+// looksBinary reports whether sample is non-text. A NUL byte is the classic
+// signal — text never contains one — but UTF-16 legitimately encodes ASCII with
+// NUL bytes, so a detected UTF-16 encoding is exempt.
+func looksBinary(sample []byte, enc string) bool {
+	if enc == encoding.UTF16LE || enc == encoding.UTF16BE {
+		return false
+	}
+	return bytes.IndexByte(sample, 0) >= 0
 }
 
 // Count returns the pre-counted number of lines.

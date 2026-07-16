@@ -3,21 +3,40 @@
 
 # 使用方法
 
-`ayame-diff`には、比較用のサブコマンドが3つと、Web GUIを起動するための2つのコマンドがあります。
+`ayame-diff` はファイル、構造化データ、フォルダ、アーカイブ、バイナリ、
+3-way の比較と、Web GUI、ファイルマネージャー統合を1つのコマンドで扱います。
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSVキー比較（デフォルト）
 ayame-diff text   [flags] OLD NEW                      # 行指向のテキスト差分
 ayame-diff sorted [flags] OLD NEW                      # 両方のソート後に差分を比較
+ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ比較
+ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比較
+ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
 ayame-diff serve  [--addr host:port]                   # ローカルWeb GUI
-ayame-diff gui    [--addr host:port] [--no-open]       # 空きポートでサーブし、ブラウザを開く
+ayame-diff gui    [flags] [OLD [NEW]]                  # GUIを開き、必要なら入力を事前設定
+ayame-diff shell-install                               # ファイルマネージャー統合
+ayame-diff shell-uninstall                             # 統合を削除
 ```
 
-`--left ... --right ...`を指定してサブコマンドなしで`ayame-diff`を呼び出すと、後方互換性のために`csv`として動作します。`serve`と`gui`のサブコマンドについては[GUI](gui.md)を参照してください。
+`--left ... --right ...`を指定してサブコマンドなしで`ayame-diff`を呼び出すと、後方互換性のために`csv`として動作します。`serve`と`gui`のサブコマンドについては[GUI](gui.ja.md)を参照してください。
+
+2つのパスだけを渡す短縮形では、ファイルなら `text`、ディレクトリなら `dir` が
+選ばれます。`--gui` を加えるとブラウザ GUI を開いてすぐ比較します。詳しくは
+[ファイルマネージャーとクイック起動](shell-integration.ja.md)を参照してください。
+
+<div class="doc-jump-grid">
+  <a class="doc-jump" href="#csv">CSV / TSV を比較</a>
+  <a class="doc-jump" href="#text">テキストを比較</a>
+  <a class="doc-jump" href="#sorted">ソートして比較</a>
+  <a class="doc-jump" href="#dir">フォルダを比較</a>
+  <a class="doc-jump" href="#exit-codes">スクリプト / CI で使う</a>
+  <a class="doc-jump" href="../gui.ja/">GUI を使う</a>
+</div>
 
 ---
 
-## `csv` — CSV/TSVキー比較（デフォルト）
+## `csv` — CSV/TSVキー比較（デフォルト） { #csv }
 
 2つのCSV/TSVファイル（`.csv.gz`や`.tsv.gz`も含む）をキーで比較し、行の順序が異なっていても差異のある行をTSV形式で出力します。左と右は異なるフォーマットを使用しても構いません。ヘッダー名が一致すれば、異なる列の順序は自動的に揃えられます。
 
@@ -122,7 +141,7 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 
 ---
 
-## `text` — 行指向のテキスト差分
+## `text` — 行指向のテキスト差分 { #text }
 
 2つのテキストファイル（プレーンまたは`.gz`）を行単位で比較します。差分は**挿入**、**削除**、**置換**のハンクとして報告されます。比較範囲はバウンダリウムウィンドウによって制限され、大きな入力でもメモリ使用量を抑えつつ線形に動作します。
 
@@ -186,7 +205,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 
 ---
 
-## `sorted` — ソートしてから差分比較
+## `sorted` — ソートしてから差分比較 { #sorted }
 
 順序が異なる同じ行を持つファイルに対して、`sorted`は両方の入力を行単位でソートし、その後`text`と同じ差分比較を行います。`text`と同じ表示フラグに加え、ソート制御も可能です。ソート済みのビューのパッチは元のファイルに安全に適用できないため、パッチ形式は拒否されます。
 
@@ -208,7 +227,7 @@ ayame-diff sorted --reverse a.txt b.txt
 
 ---
 
-## `dir` — 再帰的なフォルダ/アーカイブ比較
+## `dir` — 再帰的なフォルダ/アーカイブ比較 { #dir }
 
 `dir OLD NEW`はスラッシュ区切りの相対パスを正規化してペアにします。まずサイズを比較し、同じサイズの候補は並列でストリーミングしながらバイト単位で比較します。`--quick`を指定すると、サイズとmtimeだけを信頼します。`.gz`ファイルは解凍内容を比較し、zip/tar/tar.gzアーカイブはフォルダソースとして比較します。
 
@@ -280,7 +299,7 @@ size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
 
 ---
 
-## 終了コード
+## 終了コード { #exit-codes }
 
 通常：
 

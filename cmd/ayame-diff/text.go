@@ -312,26 +312,26 @@ inputs. OLD or NEW may be - for standard input, or clip: for the OS clipboard.`)
 	}
 	if _, _, _, err := d.outputFormat(); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	defer closeOld()
 	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	defer closeNew()
 	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
-	return 0
+	return exitOK
 }
 
 // runSorted implements: ayame-diff sorted [flags] OLD NEW
@@ -365,31 +365,31 @@ Note: v1 sorts in memory.`)
 	}
 	if _, _, patch, err := d.outputFormat(); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	} else if patch {
 		fmt.Fprintln(stderr, "error: patch formats require text mode; sorted output cannot be applied to the original file")
-		return 2
+		return exitUsage
 	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	defer closeOld()
 	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	defer closeNew()
 	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
 	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
 	if err := emitDiff(oldLines, newLines, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
-	return 0
+	return exitOK
 }
 
 // parseDiffArgs parses fs and validates the two positional OLD NEW paths.
@@ -405,10 +405,10 @@ func parseDiffArgs(fs *flag.FlagSet, args []string) error {
 
 func reportFlagError(err error, stderr io.Writer) int {
 	if errors.Is(err, flag.ErrHelp) {
-		return 0
+		return exitOK
 	}
 	fmt.Fprintln(stderr, "error:", err)
-	return 2
+	return exitUsage
 }
 
 // openSource returns a line source for path plus a close func. A path of "-"

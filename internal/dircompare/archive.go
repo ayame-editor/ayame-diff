@@ -6,7 +6,9 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -218,6 +220,13 @@ func archiveLimitError(name, kind string, size int64, opts Options) error {
 // (.zip / .tar / .tar.gz / .tgz), so archives compare like folders. Archive
 // selected contents are held in memory within Options' expansion limits.
 func CompareAny(oldPath, newPath string, opts Options) (*Result, error) {
+	return CompareAnyContext(context.Background(), oldPath, newPath, opts)
+}
+
+// CompareAnyContext is CompareAny that aborts the (up to 64-worker) content
+// comparison early when ctx is cancelled, so a large tree/archive diff stops on
+// a client disconnect instead of running to completion (#169).
+func CompareAnyContext(ctx context.Context, oldPath, newPath string, opts Options) (*Result, error) {
 	oldSrc, err := makeSource(oldPath, opts)
 	if err != nil {
 		return nil, err
@@ -226,7 +235,7 @@ func CompareAny(oldPath, newPath string, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compareSources(oldSrc, newSrc, opts)
+	return compareSources(ctx, oldSrc, newSrc, opts)
 }
 
 // Preview summarizes the paths selected by folder filters before content
@@ -279,7 +288,7 @@ func PreviewAny(oldPath, newPath string, opts Options, maxSample int) (Preview, 
 }
 
 // compareSources classifies every file across the two sources by content.
-func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
+func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*Result, error) {
 	oldFiles, err := oldSrc.files()
 	if err != nil {
 		return nil, err
@@ -361,12 +370,13 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for index := range jobs {
-				var equal bool
-				var err error
-				if method == CompareHash {
-					equal, err = hashEqual(oldSrc, newSrc, res.Entries[index].Path)
-				} else {
-					equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path)
+				equal, err := false, ctx.Err()
+				if err == nil {
+					if method == CompareHash {
+						equal, err = hashEqual(ctx, oldSrc, newSrc, res.Entries[index].Path, opts)
+					} else {
+						equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
+					}
 				}
 				results <- struct {
 					index int
@@ -382,7 +392,12 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 			comparableSize := e.OldSize == e.NewSize || strings.HasSuffix(strings.ToLower(e.Path), ".gz")
 			needsContent := method == CompareContents || method == CompareHash || (method == CompareQuick && e.Status != Same)
 			if needsContent && e.OldSize >= 0 && e.NewSize >= 0 && comparableSize {
-				jobs <- index
+				// Stop dispatching once cancelled; in-flight workers see ctx.Err()
+				// and drain quickly (#169).
+				select {
+				case jobs <- index:
+				case <-ctx.Done():
+				}
 			}
 		}
 		close(jobs)
@@ -404,6 +419,9 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 	if compareErr != nil {
 		return nil, compareErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	for _, e := range res.Entries {
 		switch e.Status {
 		case Added:
@@ -419,7 +437,7 @@ func compareSources(oldSrc, newSrc source, opts Options) (*Result, error) {
 	return res, nil
 }
 
-func hashEqual(oldSrc, newSrc source, rel string) (bool, error) {
+func hashEqual(ctx context.Context, oldSrc, newSrc source, rel string, opts Options) (bool, error) {
 	a, err := openCompared(oldSrc, rel)
 	if err != nil {
 		return false, err
@@ -430,14 +448,52 @@ func hashEqual(oldSrc, newSrc source, rel string) (bool, error) {
 		return false, err
 	}
 	defer b.Close()
-	left, right := sha256.New(), sha256.New()
-	if _, err := io.Copy(left, a); err != nil {
+	limit := int64(0)
+	if strings.HasSuffix(strings.ToLower(rel), ".gz") {
+		limit, _ = archiveLimits(opts)
+	}
+	left, err := hashCompared(ctx, a, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	if err != nil {
 		return false, err
 	}
-	if _, err := io.Copy(right, b); err != nil {
+	right, err := hashCompared(ctx, b, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(left.Sum(nil), right.Sum(nil)), nil
+	return bytes.Equal(left, right), nil
+}
+
+func hashCompared(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
+	hash := sha256.New()
+	buffer := make([]byte, 64*1024)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		n, err := r.Read(buffer)
+		if n > 0 {
+			total += int64(n)
+			if limit > 0 && total > limit {
+				return nil, errExpansionOverLimit
+			}
+			if _, writeErr := hash.Write(buffer[:n]); writeErr != nil {
+				return nil, writeErr
+			}
+		}
+		if err == io.EOF {
+			return hash.Sum(nil), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func openCompared(src source, rel string) (io.ReadCloser, error) {
@@ -470,8 +526,17 @@ type combinedReadCloser struct {
 
 func (c *combinedReadCloser) Close() error { return c.close() }
 
+// errExpansionOverLimit is returned internally by readersEqual when the
+// decompressed byte count passes the cap; contentEqual translates it into a
+// file-scoped ErrArchiveLimit.
+var errExpansionOverLimit = errors.New("decompressed content exceeds limit")
+
 // contentEqual streams both sources' copies of rel and compares their bytes.
-func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
+// For an on-disk .gz the comparison is bounded by the archive entry limit so a
+// small file that expands hugely cannot burn unbounded CPU/time (#147): once
+// the decompressed bytes pass the cap the compare fails with ErrArchiveLimit
+// rather than streaming forever.
+func contentEqual(oldSrc, newSrc source, rel string, opts Options) (bool, error) {
 	a, err := oldSrc.open(rel)
 	if err != nil {
 		return false, err
@@ -484,6 +549,7 @@ func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
 	defer b.Close()
 	var ar, br io.Reader = a, b
 	var ag, bg *gzip.Reader
+	var limit int64
 	if strings.HasSuffix(strings.ToLower(rel), ".gz") {
 		ag, err = gzip.NewReader(a)
 		if err != nil {
@@ -497,23 +563,37 @@ func contentEqual(oldSrc, newSrc source, rel string) (bool, error) {
 		}
 		defer bg.Close()
 		br = bg
+		limit, _ = archiveLimits(opts)
 	}
-	return readersEqual(ar, br)
+	equal, err := readersEqual(ar, br, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	return equal, err
 }
 
 // readersEqual reports whether two readers yield identical bytes, short-
-// circuiting on the first difference.
-func readersEqual(a, b io.Reader) (bool, error) {
+// circuiting on the first difference. A positive limit bounds the number of
+// bytes compared: if the readers stay equal past limit bytes, it returns
+// errExpansionOverLimit instead of consuming them unbounded (used to cap gzip
+// expansion, #147). limit <= 0 means unbounded (plain files, already bounded by
+// their on-disk size).
+func readersEqual(a, b io.Reader, limit int64) (bool, error) {
 	const bufSize = 64 * 1024
 	ra := bufio.NewReaderSize(a, bufSize)
 	rb := bufio.NewReaderSize(b, bufSize)
 	bufA := make([]byte, bufSize)
 	bufB := make([]byte, bufSize)
+	var total int64
 	for {
 		na, errA := io.ReadFull(ra, bufA)
 		nb, errB := io.ReadFull(rb, bufB)
 		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
 			return false, nil
+		}
+		total += int64(na)
+		if limit > 0 && total > limit {
+			return false, errExpansionOverLimit
 		}
 		aDone := errA == io.EOF || errA == io.ErrUnexpectedEOF
 		bDone := errB == io.EOF || errB == io.ErrUnexpectedEOF

@@ -115,3 +115,62 @@ func TestExplicitHintForcesEncoding(t *testing.T) {
 		t.Fatalf("explicit euc-jp = %q", got)
 	}
 }
+
+// TestDetectISO2022JP covers #158: ISO-2022-JP is 7-bit so it used to be
+// misreported as UTF-8 (rendering raw ESC sequences); auto-detect must now
+// recognize its charset-designation escapes and round-trip.
+func TestDetectISO2022JP(t *testing.T) {
+	t.Parallel()
+	const jp = "こんにちは、世界"
+	raw := encodeTo(t, jp, japanese.ISO2022JP)
+	if got := Detect(raw, Auto); got != ISO2022JP {
+		t.Fatalf("Detect(ISO-2022-JP bytes) = %q, want %q", got, ISO2022JP)
+	}
+	if got := decodeAll(t, raw, Detect(raw, Auto)); got != jp {
+		t.Errorf("round-trip = %q, want %q", got, jp)
+	}
+}
+
+// TestDetectBOMlessUTF16 covers #158: without a BOM, ASCII-heavy UTF-16 used to
+// fall through to the Shift_JIS/EUC-JP tie-breaker and decode as garbage. It is
+// now recognized from the NUL byte parity, both little- and big-endian.
+func TestDetectBOMlessUTF16(t *testing.T) {
+	t.Parallel()
+	const s = "Hello, world 123\nsecond line"
+	for _, c := range []struct {
+		name string
+		enc  xencoding.Encoding
+		want string
+	}{
+		{"LE", unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), UTF16LE},
+		{"BE", unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), UTF16BE},
+	} {
+		raw := encodeTo(t, s, c.enc)
+		if got := Detect(raw, Auto); got != c.want {
+			t.Errorf("%s: Detect(BOM-less UTF-16) = %q, want %q", c.name, got, c.want)
+		}
+		if got := decodeAll(t, raw, Detect(raw, Auto)); got != s {
+			t.Errorf("%s: round-trip = %q, want %q", c.name, got, s)
+		}
+	}
+}
+
+// TestJapaneseNotMisdetectedAsUTF16 guards the heuristic's precision: Shift_JIS
+// and EUC-JP text carries essentially no NUL bytes, so the BOM-less UTF-16
+// detector must never fire on it.
+func TestJapaneseNotMisdetectedAsUTF16(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		enc  xencoding.Encoding
+		want string
+	}{
+		{"shift_jis", japanese.ShiftJIS, ShiftJIS},
+		{"euc-jp", japanese.EUCJP, EUCJP},
+	} {
+		raw := encodeTo(t, "日本語のテキスト表示", c.enc)
+		if got := Detect(raw, Auto); got != c.want {
+			t.Errorf("%s misdetected as %q, want %q", c.name, got, c.want)
+		}
+	}
+}

@@ -98,6 +98,33 @@ func TestSharedResourceValidators(t *testing.T) {
 	}
 }
 
+// TestConfigRejectsExcessiveWorkers covers #171: worker counts have an upper
+// bound so a crafted request can't spawn workers without limit. MaxWorkers must
+// still be accepted (given enough memory for the per-worker minimum).
+func TestConfigRejectsExcessiveWorkers(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name        string
+		parse, work int
+		wantErr     bool
+	}{
+		{"at max", MaxWorkers, MaxWorkers, false},
+		{"parse over max", MaxWorkers + 1, 1, true},
+		{"workers over max", 1, MaxWorkers + 1, true},
+	} {
+		cfg := validConfigForValidation()
+		cfg.ParseWorkers, cfg.Workers = c.parse, c.work
+		cfg.MemoryText = "64GiB" // enough for MaxWorkers * MinMemoryBytesPerWorker
+		err := cfg.Validate()
+		if c.wantErr && (err == nil || !strings.Contains(err.Error(), "at most")) {
+			t.Errorf("%s: Validate() = %v, want an 'at most' error", c.name, err)
+		}
+		if !c.wantErr && err != nil {
+			t.Errorf("%s: Validate() = %v, want nil", c.name, err)
+		}
+	}
+}
+
 func validConfigForValidation() Config {
 	return Config{
 		LeftPath: "left.tsv", RightPath: "right.tsv", OutputPath: "diff.tsv",

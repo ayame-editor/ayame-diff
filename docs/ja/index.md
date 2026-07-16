@@ -1,125 +1,61 @@
-<!-- i18n: language-switcher -->
-[English](../index.md) | [日本語](index.md)
+<div class="doc-family">
+  <span>巨大なファイルを開いて編集したいですか？</span>
+  <a href="https://hjosugi.github.io/ayame-editor/ja/">Ayame Editor へ移動 →</a>
+</div>
 
-# ayame-diff
+<section class="doc-hero">
+  <div class="doc-hero-copy">
+    <p class="doc-eyebrow">ayame-diff Docs</p>
+    <h1>ayame-diff</h1>
+    <p>巨大なファイルでも、変更点がすぐ分かる。テキスト、CSV / TSV、フォルダ、アーカイブ、3-way を比較します。</p>
+    <div class="doc-actions">
+      <a class="doc-action doc-action-primary" href="../gui.ja/">GUI を使う</a>
+      <a class="doc-action" href="../usage.ja/">CLI の使い方</a>
+    </div>
+  </div>
+  <figure class="doc-preview">
+    <img src="../assets/screenshot-folder.png" alt="ayame-diff のフォルダ比較結果" loading="eager">
+    <figcaption>追加・削除・変更されたファイルを、フォルダ比較で一覧できます。</figcaption>
+  </figure>
+</section>
 
-**巨大な** CSV / TSV とテキストファイルを比較するネイティブ CLI ツールです。
+## 比較方法を選ぶ
 
-`ayame-diff` は 2 つのファイルを比較し、差分を出力します。数十億行規模の入力
-を想定しており、全行をメモリに載せません。入力をキーのハッシュで分割し、各
-パーティションをメモリ上限付きの外部マージソートで整列してから、複数ワーカーで
-比較します。依存は `golang.org/x/text` のみで、データベースも CGO も追加ランタイム
-も不要な、単一のスタティックバイナリとして配布します。
-
-!!! note "English documentation"
-    このページは日本語のホームです。詳細な英語ドキュメントは
-    [English site](../index.md) を参照してください。
-
-## 主な特長
-
-- **CSV/TSV キー比較**（`csv`、既定）に加え、行単位のテキスト diff（`text`）と、
-  ソートしてから diff する `sorted`。
-- **エンコーディング自動判定** — UTF-8、UTF-16（LE/BE）、Shift_JIS、EUC-JP、
-  ISO-2022-JP — と `--encoding` による明示指定。
-- **WinMerge 風の比較オプション** — `--ignore-case`、`--ignore-whitespace`、
-  `--word` によるワード単位ハイライト、`--window` / `--max-hunks` によるリシンク
-  制御。
-- **ローカル Web GUI** — `serve` と `gui` で埋め込みのシングルページアプリを起動し、
-  ブラウザ上でファイルを比較。一般的なソース、データ、マークアップ、ログ形式は、
-  表示中の差分行だけを軽量にシンタックスハイライトできます。
-- **単一バイナリ** — Linux、macOS、Windows 向けにクロスコンパイル。
-
-## インストール
-
-### GitHub Releases から
-
-Go を入れたくない場合は、[最新リリース](https://github.com/hjosugi/ayame-diff/releases/latest)
-から OS と CPU に合うアーカイブをダウンロードしてください。
-
-- Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
-- Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
-- macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
-
-各リリースには `SHA256SUMS` が同梱されており、ダウンロードの完全性を検証できます。
-
-### `go install` で
-
-Go 1.23 以降なら、ソースから直接ビルドできます。
-
-```bash
-go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
-```
+<div class="doc-card-grid">
+  <a class="doc-card" href="../gui.ja/">
+    <strong>画面でファイルを比較</strong>
+    <span>ローカル Web UI で2つのファイルを選び、差分を移動してパッチを書き出します。</span>
+  </a>
+  <a class="doc-card" href="../usage.ja/">
+    <strong>テキスト・構造化データ</strong>
+    <span>行、ソート済みテキスト、CSV / TSV のキー付き行を CLI から比較します。</span>
+  </a>
+  <a class="doc-card" href="../shell-integration.ja/">
+    <strong>フォルダ・アーカイブ</strong>
+    <span>ディレクトリツリーや圧縮入力を比較し、ファイルマネージャーからも起動できます。</span>
+  </a>
+  <a class="doc-card" href="../three-way.ja/">
+    <strong>3-way マージ</strong>
+    <span>BASE / LEFT / RIGHT を確認し、競合を解決してマージ結果を保存します。</span>
+  </a>
+</div>
 
 ## クイックスタート
 
-2 つのテキストファイルを既定の unified フォーマットで行 diff します。
+[最新リリース](https://github.com/hjosugi/ayame-diff/releases/latest)から OS に合うバイナリをインストールし、目的に合う最短のコマンドを実行します。
 
 ```bash
-ayame-diff text old.txt new.txt
+ayame-diff gui                              # ブラウザでファイルを選ぶ
+ayame-diff text old.txt new.txt             # テキストを比較
+ayame-diff csv --left old.csv --right new.csv --key id --out diff.tsv
+ayame-diff dir old-folder new-folder        # フォルダを比較
 ```
 
-`clip:`（または`clipboard:`）を入力に指定すると、OSクリップボードをファイルと
-直接比較できます。macOSでは`pbpaste`、WindowsではPowerShell、Linuxでは
-`wl-paste`または`xclip`を使用します。
+空白・大文字小文字・行フィルター・単語ハイライト・再同期は[比較オプション](../comparison-options.ja.md)を参照してください。繰り返す処理は設定全体を[比較プロジェクト](../projects.ja.md)として保存できます。
 
-```bash
-ayame-diff text clip: saved.txt
-```
-
-2 つの CSV/TSV ファイルをキーで比較し、差分行を TSV に書き出します。
-
-```bash
-ayame-diff csv --left old.tsv --right new.csv --key id --out diff.tsv
-```
-
-空きポートを自動で選んでブラウザ GUI を開きます。
-
-```bash
-ayame-diff gui
-```
-
-!!! tip "サブコマンドなしは `csv`"
-    サブコマンドを付けずに `ayame-diff --left A --right B --out D` と実行すると、
-    後方互換のため `ayame-diff csv ...` と同じ動作になります。引数を一切付けずに
-    `ayame-diff` を実行した場合は、ヘルプを表示して正常終了します。portable package
-    manager によるインストール済み command alias の起動確認にも対応する動作です。
-
-## サブコマンド一覧
-
-```text
-ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（既定）
-ayame-diff text   [flags] OLD NEW                      # 行単位のテキスト diff
-ayame-diff sorted [flags] OLD NEW                      # 両側をソートしてから diff
-ayame-diff serve  [--addr host:port]                   # ローカル Web GUI
-ayame-diff gui    [--addr host:port] [--no-open]       # 空きポートで起動しブラウザを開く
-```
-
-各サブコマンドは自身のヘルプも表示します。
-
-```bash
-ayame-diff --help
-ayame-diff text --help
-```
-
-## 差分の種類
-
-- `csv`: `LEFT_ONLY` / `RIGHT_ONLY` / `CHANGED`。
-- `text` / `sorted`: Insert / Delete / Replace のハンク。
-
-## 対象範囲
-
-本プロジェクトは巨大な CSV / TSV / テキストなど、構造化データの比較に集中します。
-画像のピクセル比較と Web ページのレンダリング比較は対象外です。これらには画像
-デコーダやブラウザエンジンが必要となり、単一バイナリ・小さな依存関係という方針と
-合わないため、WinMerge や専用のビジュアルリグレッションツールを推奨します。
-
-画像などの非テキストファイルも `dir` ではバイナリ内容の同一性を比較でき、差異の
-バイト位置は `ayame-diff bin LEFT RIGHT` で確認できます。ただし画像ビューアや
-DOM / スクリーンショット比較は提供しません。
-
-## リンク
-
-- [GitHub repository](https://github.com/hjosugi/ayame-diff)
-- [Latest release](https://github.com/hjosugi/ayame-diff/releases/latest)
-- [Changelog](https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md)
-- [Contributing](https://github.com/hjosugi/ayame-diff/blob/main/CONTRIBUTING.md)
+<div class="doc-link-row">
+  <a href="https://github.com/hjosugi/ayame-diff">GitHub</a>
+  <a href="https://github.com/hjosugi/ayame-diff/releases/latest">最新リリース</a>
+  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md">変更履歴</a>
+  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CONTRIBUTING.md">コントリビューション</a>
+</div>

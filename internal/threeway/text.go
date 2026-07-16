@@ -4,6 +4,7 @@ package threeway
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -50,12 +51,18 @@ type edit struct {
 // Compare performs a three-way text comparison using the bounded-window
 // two-way engine. Memory is proportional to changed regions, not file size.
 func Compare(base, left, right linediff.Lines, options linediff.Options) (Result, error) {
+	return CompareContext(context.Background(), base, left, right, options)
+}
+
+// CompareContext is Compare that aborts early when ctx is cancelled, so a
+// server-side three-way diff of huge inputs stops on a client disconnect (#169).
+func CompareContext(ctx context.Context, base, left, right linediff.Lines, options linediff.Options) (Result, error) {
 	options.MaxHunks = int(^uint(0) >> 1)
-	leftDiff, err := linediff.DiffWith(base, left, options)
+	leftDiff, err := linediff.DiffWithContext(ctx, base, left, options)
 	if err != nil {
 		return Result{}, err
 	}
-	rightDiff, err := linediff.DiffWith(base, right, options)
+	rightDiff, err := linediff.DiffWithContext(ctx, base, right, options)
 	if err != nil {
 		return Result{}, err
 	}

@@ -20,6 +20,12 @@ const code = syntax.highlightSpans('export function run() { return true } // don
 if (!code.some((span) => span.kind === 'keyword' && span.text === 'export')) process.exit(13);
 if (!code.some((span) => span.kind === 'function' && span.text === 'run')) process.exit(14);
 if (code.at(-1).kind !== 'comment') process.exit(15);
+// Cover the number / string / hex / block-comment tokenizer paths (#152).
+const code2 = syntax.highlightSpans('let x = 0xFF; const s = "hi"; /* c */ f(3.5)', 'app.js');
+if (!code2.some((span) => span.kind === 'number' && span.text === '0xFF')) process.exit(16);
+if (!code2.some((span) => span.kind === 'string' && span.text === '"hi"')) process.exit(17);
+if (!code2.some((span) => span.kind === 'comment' && span.text === '/* c */')) process.exit(18);
+if (!code2.some((span) => span.kind === 'number' && span.text === '3.5')) process.exit(19);
 `
 	cmd := exec.Command(node, "-e", script)
 	cmd.Dir = "."
@@ -33,7 +39,7 @@ func TestEmbeddedJavaScriptSyntax(t *testing.T) {
 	if err != nil {
 		t.Skip("node is unavailable")
 	}
-	for _, path := range []string{"web/syntax.js", "web/app.js"} {
+	for _, path := range []string{"web/syntax.js", "web/modes.js", "web/app.js"} {
 		cmd := exec.Command(node, "--check", path)
 		cmd.Dir = "."
 		if output, err := cmd.CombinedOutput(); err != nil {

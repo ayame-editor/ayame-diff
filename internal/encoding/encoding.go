@@ -92,10 +92,77 @@ func Detect(sample []byte, hint string) string {
 	if h := Normalize(hint); h != Auto {
 		return h
 	}
+	// ISO-2022-JP is 7-bit (all bytes < 0x80), so it passes utf8.Valid and would
+	// otherwise be misreported as UTF-8, showing raw escape sequences. Catch its
+	// charset-designation escapes first.
+	if looksISO2022JP(sample) {
+		return ISO2022JP
+	}
+	// A BOM-less UTF-16 file has no byte-order mark to key on and its embedded
+	// NUL bytes make utf8.Valid fail, so without this it would fall through to
+	// the Shift_JIS/EUC-JP tie-breaker and decode as garbage. Recognize it from
+	// the NUL byte parity instead.
+	if enc := looksUTF16NoBOM(sample); enc != "" {
+		return enc
+	}
 	if utf8.Valid(sample) {
 		return UTF8
 	}
 	return detectJapanese(sample)
+}
+
+// looksISO2022JP reports whether sample contains an ISO-2022-JP escape that
+// designates a JIS multi-byte set (ESC $ @ / ESC $ B / ESC $ ( ...). Those
+// three-byte designators are the hallmark of Japanese ISO-2022-JP content and
+// are vanishingly unlikely to appear by accident in UTF-8/ASCII text, so this
+// avoids false positives on a stray ESC used for terminal control.
+func looksISO2022JP(b []byte) bool {
+	for i := 0; i+2 < len(b); i++ {
+		if b[i] == 0x1B && b[i+1] == '$' {
+			switch b[i+2] {
+			case '@', 'B', '(': // JIS X 0208 (1978/1983) or JIS X 0212 via ESC $ (
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// looksUTF16NoBOM detects BOM-less UTF-16 from its NUL byte pattern: ASCII code
+// units encode as (byte, 0x00) in little-endian and (0x00, byte) in big-endian,
+// so NUL bytes cluster strongly on one parity. It requires NULs to be a
+// substantial share of the sample (≥25%) and almost entirely single-parity, so
+// Shift_JIS/EUC-JP text — which contains essentially no NUL bytes — never
+// matches. Predominantly-CJK UTF-16 has few NULs and is not detected here; an
+// explicit --encoding still forces it. Returns "" when the pattern is absent.
+func looksUTF16NoBOM(b []byte) string {
+	// Ignore a trailing odd byte so parity counts stay aligned to code units.
+	n := len(b) &^ 1
+	if n < 4 {
+		return ""
+	}
+	var nul, nulEven, nulOdd int
+	for i := 0; i < n; i++ {
+		if b[i] == 0x00 {
+			nul++
+			if i%2 == 0 {
+				nulEven++
+			} else {
+				nulOdd++
+			}
+		}
+	}
+	if nul*4 < n { // fewer than a quarter NUL bytes: not ASCII-heavy UTF-16
+		return ""
+	}
+	switch {
+	case nulOdd >= nul*9/10: // NULs on odd offsets -> (ascii, 00) -> little-endian
+		return UTF16LE
+	case nulEven >= nul*9/10: // NULs on even offsets -> (00, ascii) -> big-endian
+		return UTF16BE
+	default:
+		return ""
+	}
 }
 
 // detectJapanese chooses between Shift_JIS and EUC-JP by counting how many

@@ -30,6 +30,16 @@ const I18N = {
     syncSelect: "左右から対応させる行を1行ずつ選択してください。",
     syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
+    // mode select + folder status-filter options, translated so JA follows (#125)
+    modeText: "テキスト", modeSorted: "ソート済み", modeCsv: "CSV / TSV",
+    modeFolder: "フォルダ", modeThreeway: "3-way テキスト", modeThreewayCsv: "3-way CSV",
+    statusDifferent: "差分あり", statusAll: "すべて",
+    // summary labels shared by the CSV / folder / 3-way renderers (#125)
+    changed: "変更", removed: "削除", same: "一致", left: "左", right: "右",
+    leftOnly: "左のみ", rightOnly: "右のみ", equalRows: "一致", bytes: "バイト",
+    // detected encoding surfaced on file diffs (#130)
+    encodingDetected: (v) => `文字コード: OLD=${v.old} / NEW=${v.new}`,
+    encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     comparing: "比較中…", noDiff: "差分はありません。",
@@ -64,7 +74,7 @@ const I18N = {
 	previousPage: "前のページ", nextPage: "次のページ", pageInput: (v) => `ページ番号（全 ${v.total} ページ）`,
 	pageTotal: (v) => `/ ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
-	mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
+	mergeMode: "マージモード", mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
 	threeWay: "3-way 比較", conflicts: "競合",
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
@@ -99,6 +109,13 @@ const I18N = {
     syncSelect: "Select one corresponding line on each side.",
     syncOrderError: "Sync points must increase on both sides.",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
+    modeText: "text", modeSorted: "sorted", modeCsv: "csv / tsv",
+    modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
+    statusDifferent: "different", statusAll: "all",
+    changed: "changed", removed: "removed", same: "same", left: "left", right: "right",
+    leftOnly: "left only", rightOnly: "right only", equalRows: "equal", bytes: "bytes",
+    encodingDetected: (v) => `encoding: OLD=${v.old} / NEW=${v.new}`,
+    encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     comparing: "Comparing…", noDiff: "No differences.",
@@ -133,7 +150,7 @@ const I18N = {
 	previousPage: "Previous page", nextPage: "Next page", pageInput: (v) => `Page number (${v.total} pages total)`,
 	pageTotal: (v) => `of ${v.total} pages`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
-	mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
+	mergeMode: "Merge mode", mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
 	threeWay: "3-way comparison", conflicts: "conflicts",
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
@@ -170,12 +187,33 @@ function applyLang(next) {
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 const INLINE_MAX_CHARS = 2000;
 const INLINE_MAX_TOKENS = 260;
-const TOKEN_RE = /(\s+|[\p{Letter}\p{Number}_]+|[^\s\p{Letter}\p{Number}_]+)/gu;
+// Word class includes combining marks (\p{Mark}) so a base letter keeps its
+// accent (e.g. "e"+U+0301) instead of stranding the mark as a separate token.
+const TOKEN_RE = /(\s+|[\p{Letter}\p{Mark}\p{Number}_]+|[^\s\p{Letter}\p{Mark}\p{Number}_]+)/gu;
+// CJK is written without spaces, so a whole run would be one token and the diff
+// could only mark it all changed; split each such character out so "日本語" vs
+// "日本国" highlights just the last character. Mirrors worddiff.go's cjkScripts.
+const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function inlineTokens(text) {
   const tokens = [];
-  for (const m of String(text || "").matchAll(TOKEN_RE)) tokens.push(m[0]);
+  for (const m of String(text || "").matchAll(TOKEN_RE)) appendSplitCJK(tokens, m[0]);
   return tokens;
+}
+// appendSplitCJK pushes tok, emitting each CJK character as its own token while
+// keeping maximal non-CJK runs intact. Non-CJK tokens take a fast path.
+function appendSplitCJK(tokens, tok) {
+  if (!CJK_RE.test(tok)) { tokens.push(tok); return; }
+  let buf = "";
+  for (const ch of tok) { // iterates by code point
+    if (CJK_RE.test(ch)) {
+      if (buf) { tokens.push(buf); buf = ""; }
+      tokens.push(ch);
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) tokens.push(buf);
 }
 function pushPart(parts, text, changed) {
   if (!text) return;
@@ -232,6 +270,16 @@ const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
 let directoryData = null, directoryBody = null;
 let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
+// Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
+// so the per-hunk adopt buttons and the merge panel stay hidden until the user
+// enters merge mode. setMergeMode syncs the body class the CSS keys off and the
+// toggle's aria-pressed; updateMergeUI decides when the toggle is offered (#100).
+let mergeMode = false;
+function setMergeMode(on) {
+  mergeMode = on;
+  document.body.classList.toggle("merge-mode", on);
+  $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
+}
 let threeWayData = null;
 
 // ---- rendering ----
@@ -433,6 +481,17 @@ function renderSummary(res) {
     n.textContent = t("omitted", res.omitted_hunks.toLocaleString());
     el.append(n);
   }
+  // Show what `encoding: auto` decoded each file as, and flag a left/right
+  // mismatch — the material clue when output looks garbled (#130). Present only
+  // for file inputs; inline text carries no detected encoding.
+  if (res.old_encoding || res.new_encoding) {
+    const mismatch = res.old_encoding && res.new_encoding && res.old_encoding !== res.new_encoding;
+    const enc = document.createElement("span");
+    enc.className = mismatch ? "note encoding-mismatch" : "note";
+    enc.textContent = t("encodingDetected", { old: res.old_encoding || "—", new: res.new_encoding || "—" });
+    if (mismatch) enc.textContent += ` — ${t("encodingMismatch")}`;
+    el.append(enc);
+  }
   el.hidden = false;
 }
 
@@ -484,11 +543,15 @@ function mutateMerge(mutator) {
 }
 function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
 function updateMergeUI() {
+	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
 	$("allBase").hidden = true;
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
   const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
-  $("mergePanel").hidden = !mergeable;
+  // Offer the toggle whenever a text diff can be merged, but keep the adopt
+  // buttons (CSS) and the merge panel hidden until the user opts into merge mode.
+  $("mergeMode").hidden = !mergeable;
+  $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
   lastData.hunks.forEach((_, index) => {
     const box = $(`hunk-${index}`), side = mergeChoices.get(index);
@@ -562,7 +625,7 @@ function renderThreeWay(data, csvMode) {
   lastComparedRequest = null;
   const summary = $("summary"); summary.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
-  add(t("conflicts"), data.conflicts, "del"); add("left", data.left_only); add("right", data.right_only); add("same", data.same_change); summary.hidden = false;
+  add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
@@ -924,8 +987,8 @@ function renderCSVSummary(data) {
   const summary = data.summary, el = $("summary");
   el.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = Number(value || 0).toLocaleString(); item.append(b, ` ${label}`); el.append(item); };
-  add("left only", summary.left_only, "del"); add("right only", summary.right_only, "add");
-  add("changed", Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add("equal", summary.equal_rows);
+  add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
+  add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
   if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
   el.hidden = false;
@@ -1126,7 +1189,7 @@ function renderDirectory(data, body) {
   syncExportPatchVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
-  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${name}`); summary.append(item); } summary.hidden = false;
+  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${t(name)}`); summary.append(item); } summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
   const filter = $("dirStatus").value;
   for (const entry of data.entries) {
@@ -1134,7 +1197,7 @@ function renderDirectory(data, body) {
     const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
     const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
     const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
-    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} bytes\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
+    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
     if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
     else row.disabled = true;
     tree.append(row);
@@ -1186,6 +1249,7 @@ async function compare() {
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
     mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    setMergeMode(false); // every fresh diff opens in reading mode (#100)
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
       $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.txt";
@@ -1304,8 +1368,26 @@ function syncModeOpts() {
 		if (holder) holder.hidden = structured;
 	}
 	for (const id of ["patchFormat", "patchContext", "detectMoves", "moveMinLines", "word"]) { const node = $(id), holder = node?.closest("label") || node; if (holder && threeway) holder.hidden = true; }
+	// Hide comparison-condition controls the active mode never reads, so a
+	// visible toggle always affects the result (#124). Recomputed every call, so
+	// switching back to a mode that honors a condition restores its control.
+	const dead = new Set(globalThis.AyameModes?.deadCompareConditions($("mode").value) || []);
+	for (const id of globalThis.AyameModes?.COMPARE_CONDITIONS || []) {
+		const node = $(id), holder = node?.closest("label") || node;
+		if (holder) holder.hidden = dead.has(id);
+	}
+	syncMoveMinLines();
 	syncExportPatchVisibility();
 	if (csv) updateCSVReview();
+}
+
+// syncMoveMinLines disables the "move min lines" input while move detection is
+// off: the value is meaningless — and ignored by the server — unless
+// detectMoves is checked, so a live-looking control there is a false affordance
+// (#124).
+function syncMoveMinLines() {
+	const node = $("moveMinLines");
+	if (node) node.disabled = !$("detectMoves").checked;
 }
 
 function syncExportPatchVisibility() {
@@ -1456,6 +1538,7 @@ $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
+$("detectMoves").addEventListener("change", syncMoveMinLines);
 $("setup").addEventListener("input", syncExportPatchVisibility);
 $("setup").addEventListener("change", syncExportPatchVisibility);
 $("keyMode").addEventListener("change", syncKeyMode);
@@ -1491,6 +1574,7 @@ $("clearSync").addEventListener("click", clearSyncPoints);
 $("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
 $("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
 $("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
+$("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);

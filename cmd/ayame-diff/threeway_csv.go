@@ -54,14 +54,14 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 0 || base == "" || left == "" || right == "" {
 		fmt.Fprintln(stderr, "error: --base, --left, and --right are required")
-		return 2
+		return exitUsage
 	}
 	if output != "" {
 		outAbs, _ := filepath.Abs(output)
@@ -69,7 +69,7 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 			inputAbs, _ := filepath.Abs(input)
 			if outAbs == inputAbs {
 				fmt.Fprintln(stderr, "error: merge output must differ from every input")
-				return 2
+				return exitUsage
 			}
 		}
 	}
@@ -80,14 +80,14 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 	result, err := threeway.CompareCSV(context.Background(), base, left, right, cfg)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 	} else {
 		for _, event := range result.Events {
@@ -98,14 +98,14 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 		unresolved, err := threeway.WriteCSVMerge(base, output, result, choices, allowConflicts)
 		if err != nil {
 			fmt.Fprintln(stderr, "error:", err)
-			return 2
+			return exitError
 		}
 		fmt.Fprintf(stderr, "merged: %s (conflicts=%d unresolved=%d)\n", output, result.Conflicts, unresolved)
 	} else {
 		fmt.Fprintf(stderr, "%d key groups, %d conflicts\n", len(result.Events), result.Conflicts)
 	}
 	if diffExit && len(result.Events) > 0 {
-		return 1
+		return exitDiff
 	}
-	return 0
+	return exitOK
 }

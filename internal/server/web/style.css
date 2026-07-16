@@ -77,6 +77,10 @@ input[type="text"] {
   background: var(--bg); color: var(--fg); width: 6.5rem;
 }
 .opt.check { display: flex; align-items: center; gap: 0.35rem; }
+/* Dim a whole option when its control is disabled (e.g. move-min-lines while
+   move detection is off, #124) so the dependency reads as inactive, matching
+   button:disabled below. */
+.opt:has(input:disabled, select:disabled) { opacity: 0.5; }
 button {
   margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;
@@ -92,6 +96,33 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: var(--on-accent); border-color: var(--accent); font-weight: 700;
 }
 #cancel[hidden] + #compare { margin-left: auto; }
+
+/* --- Interaction states (#149) --- */
+/* Every clickable control is a <button>, so one base rule makes them all feel
+   responsive: a hover tint over whatever the control's own background is (an
+   inset overlay, so #compare stays accent and .cancel stays transparent) plus
+   an accent border, and an active press that sinks. Selectable diff lines get a
+   hover preview of the row that a click would select. All motion here is turned
+   off under prefers-reduced-motion below. */
+button, .cell.selectable-line {
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease,
+    box-shadow 0.12s ease, transform 0.06s ease;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+#compare:hover:not(:disabled) { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--on-accent) 16%, transparent); }
+.cancel:hover:not(:disabled) { border-color: var(--del-fg); box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--del-fg) 14%, transparent); }
+.cell.selectable-line:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 8%, transparent); }
+.hunk, .status {
+  transition: background-color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease,
+    color 0.14s ease, opacity 0.14s ease;
+}
 
 .status { margin-top: 0.9rem; padding: 0.6rem 0.8rem; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--border); }
 .status.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }
@@ -112,6 +143,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .summary .del b { color: var(--del-fg); }
 .summary .move b { color: var(--move-fg); }
 .summary .note { color: var(--muted); }
+/* A left/right encoding mismatch is a likely cause of garbled output (#130). */
+.summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
 
 .diff-nav {
   position: sticky; top: 0; z-index: 4; margin-top: 0.8rem; padding: 0.35rem 0.5rem;
@@ -135,7 +168,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .merge-panel button { margin: 0; padding: 0.3rem 0.65rem; }
 .merge-panel input[type="text"] { flex: 1 1 18rem; }
 .merge-panel .opt { display: flex; }
-.hunk-merge { float: right; display: inline-flex; gap: 0.25rem; margin-left: 0.35rem; }
+/* Adopt buttons are noise for read-only sessions: hidden until merge mode (#100). */
+.hunk-merge { float: right; display: none; gap: 0.25rem; margin-left: 0.35rem; }
+.merge-mode .hunk-merge { display: inline-flex; }
+.merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: var(--fs-caption); }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }
@@ -219,8 +255,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.del { background: var(--del-bg); }
 .cell.chg { background: var(--chg-bg); }
 .cell.empty { background: transparent; }
-.w-add { background: var(--word-add); border-radius: calc(var(--radius-control) - 3px); }
-.w-del { background: var(--word-del); border-radius: calc(var(--radius-control) - 3px); }
+.w-add, .w-del {
+  padding-inline: 0.2em; border-radius: calc(var(--radius-control) - 3px);
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.w-add { background: var(--word-add); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--add-fg) 34%, transparent); }
+.w-del { background: var(--word-del); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--del-fg) 34%, transparent); }
 .syn-comment { color: var(--muted); font-style: italic; }
 .syn-keyword, .syn-heading { color: var(--accent-bright); font-weight: 600; }
 .syn-string { color: var(--add-fg); }
@@ -231,6 +271,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 .syn-op, .syn-level-debug { color: var(--muted); }
 .syn-link { text-decoration: underline; }
 .syn-level-error { color: var(--danger); font-weight: 600; }
+/* On a change cell the syntax tokens that share its background-wash hue lose
+   contrast (green string on the add wash, gold function/literal on the chg
+   wash, red error on the del wash). Mix each toward the body text colour: the
+   wash is only a light tint of --bg and --fg contrasts --bg by construction, so
+   this restores legibility in light, dark, and colourblind themes while keeping
+   the token's hue for at-a-glance meaning (#150). */
+.cell.add .syn-string { color: color-mix(in srgb, var(--add-fg) 68%, var(--fg)); }
+.cell.chg .syn-literal { color: color-mix(in srgb, var(--chg-fg) 68%, var(--fg)); }
+.cell.chg .syn-function,
+.cell.chg .syn-level-warn { color: color-mix(in srgb, var(--gold) 52%, var(--fg)); font-weight: 600; }
+.cell.del .syn-level-error { color: color-mix(in srgb, var(--del-fg) 68%, var(--fg)); }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .result-empty { border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .result-empty strong { display: block; color: var(--fg); font-size: 1.1rem; }
@@ -275,6 +326,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
+  button, .cell.selectable-line, .hunk, .status { transition: none; }
+  button:active:not(:disabled) { transform: none; }
 }
 
 @media (max-width: 720px) {

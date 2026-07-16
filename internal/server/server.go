@@ -13,7 +13,9 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,12 +38,37 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Server-side resource caps bound what an (unauthenticated, #108) client can
+// demand, so a single request cannot exhaust the host (#170).
+const (
+	// serverMaxMemoryText caps the resident-memory budget a CSV request may ask
+	// for; larger values are clamped down — the engine just spills more, so the
+	// result is unchanged.
+	serverMaxMemoryText = "8GiB"
+	// serverMaxArchiveEntryBytes / serverMaxArchiveBytes cap the uncompressed
+	// archive expansion a dir request may request, so a client cannot raise the
+	// zip-bomb guard (#70) back toward unbounded.
+	serverMaxArchiveEntryBytes int64 = 2 << 30 // 2 GiB
+	serverMaxArchiveBytes      int64 = 8 << 30 // 8 GiB
+)
+
+// maxConcurrentComparisons bounds how many expensive comparisons run at once, so
+// N parallel requests cannot multiply memory / temp-dir / goroutine use without
+// limit (#170). A var so tests can shrink it before New.
+var maxConcurrentComparisons = max(2, runtime.NumCPU())
+
+// dropSessionTTL is how long an unowned (previous-run) drop directory may sit
+// before opportunistic cleanup removes it. Live sessions are excluded from
+// cleanup regardless of age (#168). A var so tests can shrink it.
+var dropSessionTTL = 24 * time.Hour
+
 // Server serves the UI and diff API.
 type Server struct {
-	version string
-	mux     *http.ServeMux
-	dropMu  sync.Mutex
-	drops   map[string]string
+	version    string
+	mux        *http.ServeMux
+	dropMu     sync.Mutex
+	drops      map[string]string
+	compareSem chan struct{} // bounds concurrent expensive comparisons (#170)
 }
 
 // New returns a Server. version is reported by /api/health.
@@ -50,28 +77,50 @@ func New(version string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{version: version, mux: http.NewServeMux(), drops: make(map[string]string)}
+	s := &Server{
+		version: version, mux: http.NewServeMux(), drops: make(map[string]string),
+		compareSem: make(chan struct{}, maxConcurrentComparisons),
+	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
-	s.mux.HandleFunc("/api/diff", s.handleDiff)
-	s.mux.HandleFunc("/api/patch", s.handlePatch)
-	s.mux.HandleFunc("/api/merge/text", s.handleTextMerge)
-	s.mux.HandleFunc("/api/three-way/text", s.handleThreeWayText)
-	s.mux.HandleFunc("/api/merge/three-way/text", s.handleThreeWayTextMerge)
+	// Compute-heavy comparison / merge / export handlers run under the
+	// concurrency gate (#170); cheap metadata handlers (health, files,
+	// path-info, drop, project, csv/inspect) do not.
+	s.mux.HandleFunc("/api/diff", s.limited(s.handleDiff))
+	s.mux.HandleFunc("/api/patch", s.limited(s.handlePatch))
+	s.mux.HandleFunc("/api/merge/text", s.limited(s.handleTextMerge))
+	s.mux.HandleFunc("/api/three-way/text", s.limited(s.handleThreeWayText))
+	s.mux.HandleFunc("/api/merge/three-way/text", s.limited(s.handleThreeWayTextMerge))
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
-	s.mux.HandleFunc("/api/csv/diff", s.handleCSVDiff)
-	s.mux.HandleFunc("/api/csv/export", s.handleCSVExport)
-	s.mux.HandleFunc("/api/merge/csv", s.handleCSVMerge)
-	s.mux.HandleFunc("/api/three-way/csv", s.handleThreeWayCSV)
-	s.mux.HandleFunc("/api/merge/three-way/csv", s.handleThreeWayCSVMerge)
+	s.mux.HandleFunc("/api/csv/diff", s.limited(s.handleCSVDiff))
+	s.mux.HandleFunc("/api/csv/export", s.limited(s.handleCSVExport))
+	s.mux.HandleFunc("/api/merge/csv", s.limited(s.handleCSVMerge))
+	s.mux.HandleFunc("/api/three-way/csv", s.limited(s.handleThreeWayCSV))
+	s.mux.HandleFunc("/api/merge/three-way/csv", s.limited(s.handleThreeWayCSVMerge))
+	s.mux.HandleFunc("/api/dir/diff", s.limited(s.handleDirDiff))
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
 	s.mux.HandleFunc("/api/drop", s.handleDrop)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
-	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
-	s.mux.HandleFunc("/api/dir/preview", s.handleDirPreview)
+	s.mux.HandleFunc("/api/dir/preview", s.limited(s.handleDirPreview))
 	return s, nil
+}
+
+// limited caps concurrency on expensive comparison handlers, returning 429 when
+// maxConcurrentComparisons are already running so parallel requests cannot
+// multiply resource use without bound (#170).
+func (s *Server) limited(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case s.compareSem <- struct{}{}:
+			defer func() { <-s.compareSem }()
+			h(w, r)
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "too many concurrent comparisons; please retry shortly")
+		}
+	}
 }
 
 // handleDrop streams browser-dropped files to a private local cache. Browsers
@@ -123,10 +172,12 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) dropRoot(session string) (string, error) {
 	s.dropMu.Lock()
-	defer s.dropMu.Unlock()
-	if root := s.drops[session]; root != "" {
+	root := s.drops[session]
+	s.dropMu.Unlock()
+	if root != "" {
 		return root, nil
 	}
+
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
@@ -135,19 +186,54 @@ func (s *Server) dropRoot(session string) (string, error) {
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", err
 	}
-	// Clear stale browser drop sessions opportunistically.
-	if entries, readErr := os.ReadDir(base); readErr == nil {
-		for _, entry := range entries {
-			if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > 24*time.Hour {
-				_ = os.RemoveAll(filepath.Join(base, entry.Name()))
-			}
+
+	s.dropMu.Lock()
+	// A concurrent call for the same session may have registered a root while we
+	// prepared the base directory; keep the first one.
+	if existing := s.drops[session]; existing != "" {
+		s.dropMu.Unlock()
+		return existing, nil
+	}
+	root, err = os.MkdirTemp(base, "session-")
+	if err != nil {
+		s.dropMu.Unlock()
+		return "", err
+	}
+	s.drops[session] = root
+	s.dropMu.Unlock()
+
+	// Reclaim orphaned directories from previous runs, but never a live one, and
+	// never while holding the lock (#168).
+	s.cleanupStaleDrops(base)
+	return root, nil
+}
+
+// cleanupStaleDrops removes drop directories older than dropSessionTTL that no
+// live session owns. The live-root set is snapshotted under the lock; the
+// directory scan and each RemoveAll run without it, so a first drop never blocks
+// other sessions behind filesystem work and an active session's directory (which
+// handleDrop may be writing to) is never deleted (#168).
+func (s *Server) cleanupStaleDrops(base string) {
+	s.dropMu.Lock()
+	live := make(map[string]struct{}, len(s.drops))
+	for _, root := range s.drops {
+		live[root] = struct{}{}
+	}
+	s.dropMu.Unlock()
+
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		full := filepath.Join(base, entry.Name())
+		if _, active := live[full]; active {
+			continue
+		}
+		if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > dropSessionTTL {
+			_ = os.RemoveAll(full)
 		}
 	}
-	root, err := os.MkdirTemp(base, "session-")
-	if err == nil {
-		s.drops[session] = root
-	}
-	return root, err
 }
 
 func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +303,7 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := dircompare.CompareAny(req.Old, req.New, opts)
+	result, err := dircompare.CompareAnyContext(r.Context(), req.Old, req.New, opts)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
@@ -334,6 +420,15 @@ func parseArchiveLimits(entryText, totalText string) (int64, int64, error) {
 	if entryLimit > totalLimit {
 		return 0, 0, fmt.Errorf("maxArchiveEntryBytes cannot exceed maxArchiveBytes")
 	}
+	// Clamp to the server's absolute maxima so a client cannot raise the
+	// zip-bomb expansion guard (#70) back toward unbounded (#170). Clamping
+	// (rather than rejecting) keeps legitimate requests working, just bounded.
+	if entryLimit > serverMaxArchiveEntryBytes {
+		entryLimit = serverMaxArchiveEntryBytes
+	}
+	if totalLimit > serverMaxArchiveBytes {
+		totalLimit = serverMaxArchiveBytes
+	}
 	return entryLimit, totalLimit, nil
 }
 
@@ -434,6 +529,22 @@ type csvResponse struct {
 	DifferenceCount int                    `json:"difference_count"`
 }
 
+// clampMemoryBudget lowers an over-limit resident-memory request to the server
+// cap (#170). Using a smaller budget only makes the engine spill more, so the
+// comparison result is unchanged; malformed values pass through to be rejected
+// by engine.Validate with a clear error.
+func clampMemoryBudget(text string) string {
+	limit, err := engine.ParseByteSize(serverMaxMemoryText)
+	if err != nil {
+		return text
+	}
+	value, err := engine.ParseByteSize(strings.TrimSpace(text))
+	if err != nil || value <= limit {
+		return text
+	}
+	return serverMaxMemoryText
+}
+
 func csvConfig(req csvRequest, output string) engine.Config {
 	workers := min(runtime.NumCPU(), 8)
 	if req.ParseWorkers <= 0 {
@@ -451,6 +562,7 @@ func csvConfig(req csvRequest, output string) engine.Config {
 	if req.Memory == "" {
 		req.Memory = "512MiB"
 	}
+	req.Memory = clampMemoryBudget(req.Memory)
 	if req.PartitionBuffer == "" {
 		req.PartitionBuffer = "64KiB"
 	}
@@ -687,12 +799,11 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if overwriteInput {
-		if runtime.GOOS == "windows" {
-			if err := os.Remove(req.Output); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
+		// os.Rename atomically replaces an existing destination on every
+		// platform (Windows uses MoveFileEx with MOVEFILE_REPLACE_EXISTING), so
+		// the staged merge output swaps into place in one step. The previous
+		// Windows-only os.Remove(req.Output) before the rename opened a window
+		// where a failing rename left the input gone with no staged copy. (#171)
 		if err := os.Rename(target, req.Output); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -866,7 +977,93 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handler exposes the routes for http.ListenAndServe (and tests).
-func (s *Server) Handler() http.Handler { return s.mux }
+// contentSecurityPolicy locks the embedded single-page UI to its own origin:
+// scripts and styles load only from us (runtime layout styles set via the
+// CSSOM still work; inline <style>/style="" are covered by 'unsafe-inline'),
+// images allow local data: URIs, and framing, objects, workers, foreign
+// connections, and form posts are denied. Mirrors the sibling ayame-editor
+// policy so the family stays consistent. (#146)
+const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'"
+
+// Handler returns the HTTP handler wrapped in the security middleware, so every
+// route (the embedded UI and the JSON API) gets hardening headers and CSRF
+// protection whether it is served by `serve` or `gui`.
+func (s *Server) Handler() http.Handler { return secure(s.mux) }
+
+// maxJSONBodyBytes caps every JSON request body so a huge or slow POST cannot
+// exhaust memory (#147). It is deliberately generous — real diff/merge requests
+// carry paths, options, and merge choices (kilobytes), and even pasted "scratch"
+// text is well under this — while still bounding worst-case allocation. File
+// contents travel via /api/drop, which streams to disk and is exempt below. A
+// var (not const) so tests can shrink it without allocating the full ceiling.
+var maxJSONBodyBytes int64 = 64 << 20 // 64 MiB
+
+// secure adds response-hardening headers to every reply (#146) and rejects
+// cross-origin state-changing requests (#145). Without an Origin check a page
+// on any other website can, while the user has this local server running, POST
+// to e.g. /api/csv/export or /api/merge/* and write attacker-chosen files: the
+// request targets 127.0.0.1 with a valid Host, `text/plain` dodges the CORS
+// preflight, and the response being unreadable cross-origin does not stop the
+// write side effect. Only an Origin check closes that hole.
+func secure(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		if !safeMethod(r.Method) && !sameOriginRequest(r) {
+			writeError(w, http.StatusForbidden, "cross-origin request rejected")
+			return
+		}
+		// Bound JSON request bodies so a crafted or slow POST can't exhaust
+		// memory (#147). /api/drop streams uploads to disk in bounded memory and
+		// carries file contents, so it keeps its own handling and is exempt.
+		if !safeMethod(r.Method) && r.URL.Path != "/api/drop" {
+			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// safeMethod reports whether the method only reads state. Cross-origin reads
+// are already blocked from being *read back* by the same-origin policy, so the
+// CSRF gate only needs to guard the state-changing verbs.
+func safeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+// sameOriginRequest is the CSRF gate. A browser always attaches an Origin on a
+// cross-site request, so an absent Origin marks a non-browser client (curl, the
+// native GUI shell) that a malicious page cannot drive — allow it. When present,
+// the Origin's host:port must equal the request's own Host (true same-origin,
+// which also holds when the user bound `--addr` to a LAN address), with
+// loopback origins accepted as a fallback for proxy/port quirks on a local tool.
+func sameOriginRequest(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -988,7 +1185,18 @@ type diffResponse struct {
 	MovedLines           uint64    `json:"moved_lines,omitempty"`
 	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
 	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
+	// OldEncoding/NewEncoding report the concrete encoding each side was decoded
+	// from (#130). Populated for file inputs — where `encoding: auto` may have
+	// guessed shift_jis/euc-jp/utf-16 — so the UI can show what was detected and
+	// flag a left/right mismatch. Empty for inline (scratch) text, which is
+	// already UTF-8.
+	OldEncoding string `json:"old_encoding,omitempty"`
+	NewEncoding string `json:"new_encoding,omitempty"`
 }
+
+// encodingReporter is implemented by line sources that decoded from a detected
+// or forced encoding (linesrc.FileLines). Inline and sorted sources do not.
+type encodingReporter interface{ Encoding() string }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1033,15 +1241,18 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	if req.DetectMoves {
-		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+		if _, err := linediff.DetectMovesContext(r.Context(), oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
-		})
+		}); err != nil {
+			writeClassifiedError(w, err, http.StatusBadRequest)
+			return
+		}
 	}
 	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
@@ -1107,15 +1318,18 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := linediff.DiffWith(oldLines, newLines, options)
+	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	if req.DetectMoves {
-		linediff.DetectMoves(oldLines, newLines, &res, linediff.MoveOptions{
+		if _, err := linediff.DetectMovesContext(r.Context(), oldLines, newLines, &res, linediff.MoveOptions{
 			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
-		})
+		}); err != nil {
+			writeClassifiedError(w, err, http.StatusBadRequest)
+			return
+		}
 	}
 	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	oldLabel, newLabel := req.Old, req.New
@@ -1175,9 +1389,9 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := linediff.DiffWith(oldLines, newLines, options)
+	result, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	choices := make(map[int]merge.Side, len(req.Choices))
@@ -1240,7 +1454,7 @@ func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, 
 	return base, left, right, func() { closeRight(); closeLeft(); closeBase() }, nil
 }
 
-func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
+func threeWayTextResult(ctx context.Context, req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
 	if req.Base == "" || req.Old == "" || req.New == "" {
 		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, old/left, and new/right paths are required")
 	}
@@ -1257,7 +1471,7 @@ func threeWayTextResult(req threeWayTextRequest) (linediff.Lines, threeway.Resul
 		closeLines()
 		return nil, threeway.Result{}, func() {}, err
 	}
-	result, err := threeway.Compare(base, left, right, options)
+	result, err := threeway.CompareContext(ctx, base, left, right, options)
 	if err != nil {
 		closeLines()
 		return nil, threeway.Result{}, func() {}, err
@@ -1275,7 +1489,7 @@ func (s *Server) handleThreeWayText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	_, result, closeLines, err := threeWayTextResult(req)
+	_, result, closeLines, err := threeWayTextResult(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1313,7 +1527,7 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
-	base, result, closeLines, err := threeWayTextResult(req)
+	base, result, closeLines, err := threeWayTextResult(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1513,7 +1727,7 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 			hunks[i].MovePeer = &peer
 		}
 	}
-	return diffResponse{
+	resp := diffResponse{
 		OldLines:             res.OldLines,
 		NewLines:             res.NewLines,
 		Hunks:                hunks,
@@ -1527,6 +1741,13 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		MoveDetectionSkipped: res.MoveDetectionSkipped,
 		IgnoredHunks:         res.IgnoredHunks,
 	}
+	if er, ok := old.(encodingReporter); ok {
+		resp.OldEncoding = er.Encoding()
+	}
+	if er, ok := new.(encodingReporter); ok {
+		resp.NewEncoding = er.Encoding()
+	}
+	return resp
 }
 
 // sliceLines returns up to maxLines line strings starting at start.

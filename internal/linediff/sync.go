@@ -1,6 +1,9 @@
 package linediff
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // SyncPoint forces the old/new lines at these 0-based indexes to correspond.
 // Diff is computed independently before, at, and after every point.
@@ -46,30 +49,39 @@ func (r rangeLines) LineEnding(index uint64) string {
 	return ""
 }
 
-func diffWithSyncPoints(old, new Lines, opts Options) Result {
+func diffWithSyncPoints(ctx context.Context, old, new Lines, opts Options) (Result, error) {
 	result := Result{OldLines: old.Count(), NewLines: new.Count()}
 	points := opts.SyncPoints
 	opts.SyncPoints = nil
 	oldStart, newStart := uint64(0), uint64(0)
 	for _, point := range points {
-		mergeSyncSegment(&result, diffWithOptions(
+		segment, err := diffWithOptions(ctx,
 			rangeLines{Lines: old, start: oldStart, end: point.Old},
-			rangeLines{Lines: new, start: newStart, end: point.New}, opts,
-		), oldStart, newStart, opts.MaxHunks)
+			rangeLines{Lines: new, start: newStart, end: point.New}, opts)
+		if err != nil {
+			return result, err
+		}
+		mergeSyncSegment(&result, segment, oldStart, newStart, opts.MaxHunks)
 		// Diff the forced pair alone: differing anchor text remains a Replace,
 		// but the resync search cannot cross this user-specified boundary.
-		mergeSyncSegment(&result, diffWithOptions(
+		anchor, err := diffWithOptions(ctx,
 			rangeLines{Lines: old, start: point.Old, end: point.Old + 1},
-			rangeLines{Lines: new, start: point.New, end: point.New + 1}, opts,
-		), point.Old, point.New, opts.MaxHunks)
+			rangeLines{Lines: new, start: point.New, end: point.New + 1}, opts)
+		if err != nil {
+			return result, err
+		}
+		mergeSyncSegment(&result, anchor, point.Old, point.New, opts.MaxHunks)
 		oldStart, newStart = point.Old+1, point.New+1
 	}
-	mergeSyncSegment(&result, diffWithOptions(
+	tail, err := diffWithOptions(ctx,
 		rangeLines{Lines: old, start: oldStart, end: old.Count()},
-		rangeLines{Lines: new, start: newStart, end: new.Count()}, opts,
-	), oldStart, newStart, opts.MaxHunks)
+		rangeLines{Lines: new, start: newStart, end: new.Count()}, opts)
+	if err != nil {
+		return result, err
+	}
+	mergeSyncSegment(&result, tail, oldStart, newStart, opts.MaxHunks)
 	result.OmittedHunks = result.HunkCount - uint64(len(result.Hunks))
-	return result
+	return result, nil
 }
 
 func mergeSyncSegment(dst *Result, segment Result, oldOffset, newOffset uint64, maxHunks int) {

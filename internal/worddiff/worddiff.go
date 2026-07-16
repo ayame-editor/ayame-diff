@@ -11,6 +11,8 @@ package worddiff
 
 import (
 	"regexp"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -39,16 +41,69 @@ const (
 	MaxTokens = 260
 )
 
-// tokenRE splits text into runs of (1) whitespace, (2) Unicode word characters
-// (letters, numbers, or underscore), or (3) any other characters. Splitting on
-// these boundaries keeps whole words and whole whitespace gaps as single tokens
-// so the diff aligns on word boundaries rather than individual runes. Compiled
-// once here to match the reference's single shared RegExp.
-var tokenRE = regexp.MustCompile(`(\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]+)`)
+// tokenRE splits text into coarse runs of (1) whitespace, (2) Unicode word
+// characters — letters, combining marks, numbers, or underscore — or (3) any
+// other characters. Including combining marks (\p{M}) in the word class keeps a
+// base letter and its mark together (e.g. "e"+U+0301 stays one token) instead
+// of stranding the mark as its own "other" run. CJK word runs are broken down
+// further by Tokenize. Compiled once here to match the reference's single
+// shared RegExp.
+var tokenRE = regexp.MustCompile(`(\s+|[\p{L}\p{M}\p{N}_]+|[^\s\p{L}\p{M}\p{N}_]+)`)
 
-// Tokenize splits s into diff tokens. An empty string yields no tokens.
+// cjkScripts lists the scripts written without spaces between words. A whole
+// run of them would otherwise be a single token, so the inline diff could only
+// mark the entire run changed — useless for Japanese, where "日本語" vs "日本国"
+// should highlight just the last character. Splitting each such character into
+// its own token lets the diff align character by character.
+var cjkScripts = []*unicode.RangeTable{
+	unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul,
+}
+
+func isCJK(r rune) bool { return unicode.IsOneOf(cjkScripts, r) }
+
+// Tokenize splits s into diff tokens. An empty string yields no tokens. Word
+// runs are emitted whole, except that each CJK character becomes its own token
+// so spaceless CJK text aligns per character rather than as one block.
 func Tokenize(s string) []string {
-	return tokenRE.FindAllString(s, -1)
+	coarse := tokenRE.FindAllString(s, -1)
+	tokens := make([]string, 0, len(coarse))
+	for _, tok := range coarse {
+		tokens = appendSplitCJK(tokens, tok)
+	}
+	return tokens
+}
+
+// appendSplitCJK appends tok to out, emitting every CJK character as its own
+// token while keeping maximal non-CJK runs intact. Tokens with no CJK character
+// (the common case — ASCII words, numbers, punctuation) take a fast path and
+// are appended unchanged.
+func appendSplitCJK(out []string, tok string) []string {
+	hasCJK := false
+	for _, r := range tok {
+		if isCJK(r) {
+			hasCJK = true
+			break
+		}
+	}
+	if !hasCJK {
+		return append(out, tok)
+	}
+	var buf strings.Builder
+	for _, r := range tok {
+		if isCJK(r) {
+			if buf.Len() > 0 {
+				out = append(out, buf.String())
+				buf.Reset()
+			}
+			out = append(out, string(r))
+		} else {
+			buf.WriteRune(r)
+		}
+	}
+	if buf.Len() > 0 {
+		out = append(out, buf.String())
+	}
+	return out
 }
 
 // Diff returns the word-level diff of oldText vs newText, or (nil, false) when

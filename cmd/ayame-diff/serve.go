@@ -30,21 +30,21 @@ default; it opens the paths you type, so run it only for your own local use.`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitOK
 		}
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitUsage
 	}
 
 	srv, err := server.New(version)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 2
+		return exitError
 	}
 	fmt.Fprintf(stderr, "ayame-diff serving on http://%s  (Ctrl+C to stop)\n", addr)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
-		return 1
+		return exitError
 	}
-	return 0
+	return exitOK
 }

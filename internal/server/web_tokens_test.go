@@ -125,6 +125,89 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
+func TestInteractiveControlsHaveHoverActiveAndTransitions(t *testing.T) {
+	t.Parallel()
+	// Normalize CRLF: git may check style.css out with CRLF on Windows
+	// (autocrlf), but the multi-line matchers below are written with LF.
+	style := strings.ReplaceAll(readWebAsset(t, "style.css"), "\r\n", "\n")
+
+	// Hover feedback, an active press, and a selectable-line hover preview so no
+	// control feels dead (#149). All clickables are <button>s, so the base rule
+	// covers them; the primary/cancel keep their own identity on hover.
+	for _, want := range []string{
+		"button:hover:not(:disabled)",
+		"button:active:not(:disabled)",
+		"transform: translateY(1px)",
+		".cell.selectable-line:hover",
+		"#compare:hover:not(:disabled)",
+		".cancel:hover:not(:disabled)",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("interaction state missing %q", want)
+		}
+	}
+	// State changes ease rather than snap: buttons/lines and hunk/status carry a
+	// transition.
+	for _, want := range []string{
+		"button, .cell.selectable-line {\n  transition:",
+		".hunk, .status {\n  transition:",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("transition rule missing %q", want)
+		}
+	}
+	// Motion must be respectful of prefers-reduced-motion: transitions and the
+	// active-press transform are disabled there.
+	rm := style[strings.Index(style, "@media (prefers-reduced-motion: reduce)")+1:]
+	if next := strings.Index(rm, "@media"); next >= 0 {
+		rm = rm[:next]
+	}
+	for _, want := range []string{"transition: none", "transform: none"} {
+		if !strings.Contains(rm, want) {
+			t.Errorf("reduced-motion block must include %q", want)
+		}
+	}
+}
+
+func TestChangeCellSyntaxAndWordHighlightRemainReadable(t *testing.T) {
+	t.Parallel()
+	style := readWebAsset(t, "style.css")
+
+	// Every syntax token that shares a change cell's wash hue must be pulled
+	// toward the body text colour on that cell so it stays legible (#150).
+	for _, rule := range []string{
+		".cell.add .syn-string { color: color-mix(in srgb, var(--add-fg)",
+		".cell.chg .syn-literal { color: color-mix(in srgb, var(--chg-fg)",
+		".cell.chg .syn-function,",
+		".cell.chg .syn-level-warn { color: color-mix(in srgb, var(--gold)",
+		".cell.del .syn-level-error { color: color-mix(in srgb, var(--del-fg)",
+	} {
+		if !strings.Contains(style, rule) {
+			t.Errorf("change-cell syntax contrast rule missing %q", rule)
+		}
+	}
+	// Each override must mix toward --fg (theme-adaptive contrast), not a fixed
+	// colour, so it holds in light, dark, and colourblind schemes.
+	for _, token := range []string{"--add-fg", "--chg-fg", "--gold", "--del-fg"} {
+		if !regexp.MustCompile(`\.cell\.[a-z]+ \.syn-[a-z-]+[^}]*var\(` + token + `\) \d+%, var\(--fg\)\)`).MatchString(style) {
+			t.Errorf("change-cell override for %s must mix toward var(--fg)", token)
+		}
+	}
+	// Word highlights need horizontal breathing room and a defining edge so the
+	// coloured pills are not cramped against the glyphs (#150).
+	for _, want := range []string{
+		".w-add, .w-del {",
+		"padding-inline: 0.2em;",
+		"box-decoration-break: clone;",
+		".w-add { background: var(--word-add); box-shadow: inset 0 0 0 1px",
+		".w-del { background: var(--word-del); box-shadow: inset 0 0 0 1px",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("word-highlight readability style missing %q", want)
+		}
+	}
+}
+
 func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")

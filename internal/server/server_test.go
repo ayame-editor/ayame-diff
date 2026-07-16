@@ -54,6 +54,66 @@ func TestHealthRejectsNonGETMethods(t *testing.T) {
 	}
 }
 
+// TestSecurityHeaders checks every response carries the hardening headers (#146).
+func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	for header, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("Content-Security-Policy = %q", csp)
+	}
+}
+
+// TestCSRFOriginGate verifies the Origin check (#145): a cross-origin
+// state-changing request is rejected before it can touch the filesystem, while
+// same-origin requests, requests with no Origin (curl / the native GUI), and
+// safe GET reads are all allowed through. httptest requests default to Host
+// "example.com".
+func TestCSRFOriginGate(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	post := func(origin string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/diff", strings.NewReader(`{}`))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post("https://evil.example.com"); code != http.StatusForbidden {
+		t.Errorf("cross-origin POST = %d, want 403", code)
+	}
+	// Same-origin and Origin-less requests clear the gate (they then fail body
+	// validation with 400, which is fine — the point is they are not 403).
+	if code := post("http://example.com"); code == http.StatusForbidden {
+		t.Errorf("same-origin POST was rejected as cross-origin")
+	}
+	if code := post(""); code == http.StatusForbidden {
+		t.Errorf("Origin-less POST was rejected as cross-origin")
+	}
+	// A loopback Origin is accepted even if it doesn't match the test Host.
+	if code := post("http://127.0.0.1:8080"); code == http.StatusForbidden {
+		t.Errorf("loopback Origin was rejected as cross-origin")
+	}
+	// GET is exempt: cross-origin reads can't be read back cross-origin anyway.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET with foreign Origin = %d, want 200", rec.Code)
+	}
+}
+
 func TestStatusForError(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
