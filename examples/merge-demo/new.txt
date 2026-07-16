@@ -1,0 +1,15 @@
+# Ayame Diff — merge-mode demo (NEW)
+name: ayame-diff
+version: 0.7.17
+mode: merge
+
+features:
+  - side-by-side view
+  - word highlighting
+  - move detection
+  - opt-in merge mode
+
+notes:
+  This is the NEW side of the sample diff.
+  Turn on "merge mode" to reveal the per-hunk adopt buttons.
+  Line endings are LF.

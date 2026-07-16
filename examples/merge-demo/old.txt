@@ -1,0 +1,14 @@
+# Ayame Diff — merge-mode demo (OLD)
+name: ayame-diff
+version: 0.7.16
+mode: reading
+
+features:
+  - side-by-side view
+  - word highlighting
+  - move detection
+
+notes:
+  This is the OLD side of the sample diff.
+  Compare it against new.txt to see several hunks.
+  Line endings are LF.
