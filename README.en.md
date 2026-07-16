@@ -32,6 +32,7 @@ The embedded local GUI also supports [folder comparison](docs/assets/screenshot-
 - Strict comparison of duplicate keys as multisets of rows
 - CSV cell-level diff (`_changed_cols` / JSON Lines), numeric tolerance, per-column change ranking
 - Web GUI for header inspection, searchable key column selection, analysis/performance settings, cell highlighting, full result export
+- Folder comparison with metadata expressions, reusable filter sets, five comparison methods, and previewable GUI filters
 - Supports RFC 4180-style CSV/TSV with quotes, commas, tabs, and newlines
 - Fast parallel parser for simple TSV/CSV
 - Memory-limited external sort

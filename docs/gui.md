@@ -129,7 +129,10 @@ See the [former TUI parity checklist](gui-setup-parity.md) for the full mapping.
 ### Folder comparison
 
 The `folder` mode accepts include/exclude globs, hidden-file policy, parallel
-worker count, and optional quick size+mtime comparison. Results form an
+worker count, a five-way comparison method, named filter files/sets, and a
+boolean metadata filter expression. **Preview filter** reports selected counts
+and exposes a path sample before any content comparison. Folder settings can be
+saved in a portable `.ayamediff.json` project. Results form an
 indented, status-colored tree with status filters. Clicking a changed file
 switches to text mode and opens the paired relative paths. Symbolic links are
 skipped and `.gz` files compare decompressed content.

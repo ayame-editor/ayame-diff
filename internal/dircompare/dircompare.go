@@ -7,6 +7,7 @@ package dircompare
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path"
 	"path/filepath"
@@ -31,6 +32,31 @@ var ErrArchiveLimit = errors.New("archive extraction limit exceeded")
 type fileMeta struct {
 	Size    int64
 	ModTime time.Time
+}
+
+// CompareMethod selects how files present on both sides are classified.
+type CompareMethod string
+
+const (
+	CompareContents CompareMethod = "contents"
+	CompareQuick    CompareMethod = "quick"
+	CompareHash     CompareMethod = "hash"
+	CompareDate     CompareMethod = "date"
+	CompareSize     CompareMethod = "size"
+)
+
+// ParseCompareMethod validates a CLI/API compare-by value.
+func ParseCompareMethod(value string) (CompareMethod, error) {
+	method := CompareMethod(strings.ToLower(strings.TrimSpace(value)))
+	if method == "" {
+		method = CompareContents
+	}
+	switch method {
+	case CompareContents, CompareQuick, CompareHash, CompareDate, CompareSize:
+		return method, nil
+	default:
+		return "", fmt.Errorf("compare method must be contents, quick, hash, date, or size")
+	}
 }
 
 // Status is a file's state between the two trees.
@@ -75,8 +101,12 @@ type Options struct {
 	Excludes      []string
 	Includes      []string
 	IncludeHidden bool
-	Quick         bool
-	Workers       int
+	Filter        *Filter
+	CompareBy     CompareMethod
+	// Quick is retained for API compatibility and selects CompareQuick when
+	// CompareBy is empty.
+	Quick   bool
+	Workers int
 	// MaxArchiveEntryBytes and MaxArchiveBytes cap uncompressed archive data
 	// retained in memory (0 selects the safe defaults above).
 	MaxArchiveEntryBytes int64
@@ -145,6 +175,9 @@ func walk(root string, opts Options) (map[string]fileMeta, error) {
 			return infoErr
 		}
 		if info.Mode().IsRegular() {
+			if opts.Filter != nil && !opts.Filter.Match(rel, info.Size(), info.ModTime()) {
+				return nil
+			}
 			files[rel] = fileMeta{Size: info.Size(), ModTime: info.ModTime()}
 		}
 		return nil

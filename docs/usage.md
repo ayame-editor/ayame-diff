@@ -288,6 +288,10 @@ ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
 ayame-diff dir --html folder-report.html old/ new/
 ayame-diff dir --csv folder-summary.csv --all old/ new/
+ayame-diff dir --compare-by hash old/ new/
+ayame-diff dir --filter "size > 1MiB and name =~ '\\.log$'" old/ new/
+ayame-diff dir --filter-set development old/ new/
+ayame-diff dir --filter-file filters.json --filter-set audit old/ new/
 ```
 
 Dotfiles/directories are skipped unless `--hidden` is set. Symbolic links are
@@ -300,6 +304,54 @@ paths, sizes, and modification times. `--csv FILE` writes the same entry fields
 as RFC 4180 CSV for downstream processing. Both write atomically; unchanged
 entries are omitted unless `--all` is set. These file outputs are mutually
 exclusive with `--json` and `--tsv`.
+
+### Comparison methods
+
+`--compare-by` accepts five explicit methods:
+
+| Method | Behavior |
+|---|---|
+| `contents` | Stream and compare bytes, short-circuiting on the first difference (default). |
+| `quick` | Trust equal size + mtime; otherwise fall back to content comparison. `--quick` is an alias. |
+| `hash` | Stream both files through SHA-256 and compare digests. |
+| `date` | Compare modification times only. |
+| `size` | Compare file sizes only. |
+
+Plain `.gz` content is decompressed for `contents` and `hash`. Metadata-only
+methods use the source/archive metadata as presented.
+
+### Filter expressions and reusable sets
+
+`--filter` supports parentheses plus case-insensitive `and`, `or`, and `not`.
+Fields are `size`, `name`, `path`, `ext`, and `mtime`. Size/mtime fields accept
+`< <= == != >= >`; string fields accept `== != =~ !~`. Sizes accept decimal or
+binary units, and mtimes accept RFC 3339 or `YYYY-MM-DD`.
+
+```text
+size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
+```
+
+Bundled sets are `development`, `vcs`, `node`, and `rust`; list them with
+`--list-filter-sets`. External JSON files provide named sets:
+
+```json
+{
+  "version": 1,
+  "default": "audit",
+  "filters": {
+    "audit": {
+      "includes": ["**/*.log", "**/*.json"],
+      "excludes": ["archive/**"],
+      "expression": "size >= 1KiB"
+    }
+  }
+}
+```
+
+`--filter-set` is repeatable. Selected sets are combined with direct
+`--include`, `--exclude`, and `--filter` arguments. A directory-mode
+`.ayamediff.json` can be passed directly as `--filter-file`; when it contains
+OLD/NEW paths, those paths may be omitted on the command line.
 
 ---
 
