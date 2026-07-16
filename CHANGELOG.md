@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.17 - 2026-07-16
+
+- Hid the per-hunk "use left / use right" merge buttons and the merge panel
+  behind an opt-in merge-mode toggle, so the default view stays focused on
+  reading diffs instead of merge controls. (#100)
+
 ## v0.7.16 - 2026-07-14
 
 - Added folder-comparison report export so directory diffs can be saved and
