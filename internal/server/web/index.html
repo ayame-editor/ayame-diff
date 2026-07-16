@@ -1,25 +1,221 @@
-// Complete code
-<!-- Update the HTML to include a toggle for merge mode -->
-<button id="merge-toggle">Toggle Merge Mode</button>
-<div id="merge-panel">
-  <!-- Merge panel content -->
-</div>
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ayame-diff</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ayame-diff</h1>
+      <span class="tag" id="version">web</span>
+      <button id="lang" class="lang" type="button" data-i18n="langButton" data-i18n-aria-label="langSwitchLabel">日本語 → EN</button>
+    </header>
 
-<script>
-  // Get the merge toggle button and panel
-  const mergeToggle = document.getElementById('merge-toggle');
-  const mergePanel = document.getElementById('merge-panel');
+    <main>
+      <section class="setup" id="setup">
+        <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
+        <div class="paths" id="paths">
+          <label id="basePathRow" hidden>
+            <span>BASE</span>
+            <span class="path-control"><input id="base" type="text" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+          </label>
+          <label>
+            <span>OLD</span>
+			<span class="path-control"><input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+          </label>
+          <label>
+            <span>NEW</span>
+			<span class="path-control"><input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+          </label>
+        </div>
+        <div class="scratch-area" id="scratchArea" hidden>
+          <label><span>OLD</span><textarea id="oldText" rows="6" spellcheck="false"></textarea></label>
+          <label><span>NEW</span><textarea id="newText" rows="6" spellcheck="false"></textarea></label>
+        </div>
+        <div class="opts">
+          <label class="opt">
+            <span data-i18n="mode">mode</span>
+            <select id="mode">
+              <option value="text" data-i18n="modeText">text</option>
+              <option value="sorted" data-i18n="modeSorted">sorted</option>
+			  <option value="csv" data-i18n="modeCsv">csv / tsv</option>
+              <option value="dir" data-i18n="modeFolder">folder</option>
+              <option value="threeway" data-i18n="modeThreeway">3-way text</option>
+              <option value="threeway-csv" data-i18n="modeThreewayCsv">3-way csv</option>
+            </select>
+          </label>
+          <label class="opt">
+            <span data-i18n="encoding">encoding</span>
+            <select id="encoding">
+              <option value="auto">auto</option>
+              <option value="utf-8">utf-8</option>
+              <option value="utf-16le">utf-16le</option>
+              <option value="utf-16be">utf-16be</option>
+              <option value="shift_jis">shift_jis</option>
+              <option value="euc-jp">euc-jp</option>
+              <option value="iso-2022-jp">iso-2022-jp</option>
+            </select>
+          </label>
+          <label class="opt"><span data-i18n="window">window</span><input id="window" type="number" value="128" min="1" /></label>
+          <label class="opt"><span data-i18n="maxHunks">max hunks</span><input id="maxHunks" type="number" value="200" min="1" /></label>
+          <label class="opt"><span data-i18n="maxLines">max lines/hunk</span><input id="maxLines" type="number" value="200" min="1" /></label>
+          <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
+          <label class="opt check"><input id="detectMoves" type="checkbox" /><span data-i18n="detectMoves">detect moves</span></label>
+          <label class="opt"><span data-i18n="moveMinLines">move min lines</span><input id="moveMinLines" type="number" value="2" min="1" /></label>
+          <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
+		  <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
+		  <label class="opt check"><input id="ignoreTrailingEOL" type="checkbox" /><span data-i18n="ignoreTrailingEOL">ignore trailing EOL</span></label>
+          <label class="opt">
+            <span data-i18n="whitespace">whitespace</span>
+            <select id="whitespace">
+              <option value="none">none</option>
+              <option value="change">change</option>
+              <option value="all">all</option>
+            </select>
+          </label>
+		  <label class="opt filter-input"><span data-i18n="lineFilters">line filters</span><textarea id="lineFilters" rows="2" data-i18n-placeholder="lineFiltersPlaceholder" placeholder="1行に1つの正規表現" spellcheck="false"></textarea></label>
+          <label class="opt">
+            <span data-i18n="scheme">colors</span>
+            <select id="scheme">
+              <option value="default">default</option>
+              <option value="colorblind">colorblind</option>
+            </select>
+          </label>
+          <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
+          <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
+          <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+          <label class="opt check" id="numericWrap" hidden><input id="numeric" type="checkbox" /><span data-i18n="numeric">numeric</span></label>
+          <label class="opt check" id="reverseWrap" hidden><input id="reverse" type="checkbox" /><span data-i18n="reverse">reverse</span></label>
+          <label class="opt">
+            <span data-i18n="patchFormat">patch format</span>
+            <select id="patchFormat">
+              <option value="unified">unified</option>
+              <option value="context">context</option>
+              <option value="normal">normal</option>
+            </select>
+          </label>
+          <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
+          <button id="cancel" type="button" class="cancel" data-i18n="cancel" hidden>Cancel</button>
+          <button id="compare" type="button" data-i18n="compare">Compare</button>
+        </div>
+		<fieldset id="csvOptions" class="csv-options" hidden>
+		  <legend data-i18n="csvSetup">CSV / TSV setup</legend>
+		  <div class="csv-actions"><button id="inspectCSV" type="button" data-i18n="inspect">Inspect headers</button><span id="inspection"></span></div>
+		  <div class="project-actions"><input id="projectPath" placeholder="compare.ayamediff.json" spellcheck="false" /><button id="loadProject" type="button" data-i18n="openProject">Open project</button><button id="saveProject" type="button" data-i18n="saveProject">Save project</button><select id="recentProjects"><option value="" data-i18n="recent">Recent comparisons</option></select></div>
+		  <div class="csv-grid">
+			<label class="opt"><span data-i18n="leftFormat">left format</span><select id="leftFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			<label class="opt"><span data-i18n="rightFormat">right format</span><select id="rightFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			<label class="opt"><span data-i18n="leftParser">left parser</span><select id="leftParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			<label class="opt"><span data-i18n="rightParser">right parser</span><select id="rightParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			<label class="opt"><span data-i18n="leftDelimiter">left delimiter</span><input id="leftDelimiter" spellcheck="false" /></label>
+			<label class="opt"><span data-i18n="rightDelimiter">right delimiter</span><input id="rightDelimiter" spellcheck="false" /></label>
+			<label class="opt check"><input id="hasHeader" type="checkbox" checked /><span data-i18n="hasHeader">header row</span></label>
+			<label class="opt check"><input id="alignColumns" type="checkbox" checked /><span data-i18n="alignColumns">align by name</span></label>
+			<label class="opt check"><input id="lazyQuotes" type="checkbox" /><span data-i18n="lazyQuotes">lazy quotes</span></label>
+			<label class="opt check"><input id="trimLeadingSpace" type="checkbox" /><span data-i18n="trimLeadingSpace">trim leading space</span></label>
+		  </div>
+		  <section id="keySetup" class="key-setup" hidden>
+			<div class="key-toolbar">
+			  <label class="opt"><span data-i18n="keyMode">key mode</span><select id="keyMode"><option value="all" data-i18n="allColumns">all columns</option><option value="include" data-i18n="includeKeys">selected keys</option><option value="exclude" data-i18n="excludeKeys">exclude selected</option></select></label>
+			  <input id="columnSearch" type="search" data-i18n-placeholder="searchColumns" placeholder="search columns" />
+			  <button id="selectAllColumns" type="button" data-i18n="selectAll">Select all</button><button id="invertColumns" type="button" data-i18n="invert">Invert</button>
+			</div>
+			<div id="columnList" class="column-list"></div>
+		  </section>
+		  <details class="csv-advanced" open>
+			<summary data-i18n="csvCompareOptions">Comparison and performance</summary>
+			<div class="csv-grid">
+			  <label class="opt"><span data-i18n="ignoreColumns">ignore columns</span><input id="ignoreColumns" placeholder="updated_at, checksum" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="tolerance">numeric tolerance</span><input id="tolerance" type="number" min="0" step="any" /></label>
+			  <label class="opt"><span data-i18n="columnTolerances">column tolerances</span><input id="columnTolerances" placeholder="price=0.01, amount=0.1" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="maxRows">max displayed rows</span><input id="csvMaxRows" type="number" value="500" min="1" max="5000" /></label>
+			  <label class="opt"><span data-i18n="memory">memory</span><input id="memory" value="512MiB" /></label>
+			  <label class="opt"><span data-i18n="tempDir">temp directory</span><input id="tempDir" /></label>
+			  <label class="opt"><span data-i18n="partitions">partitions</span><input id="partitions" type="number" value="8" min="2" max="1024" /></label>
+			  <label class="opt"><span data-i18n="parseWorkers">input readers</span><input id="parseWorkers" type="number" value="4" min="1" /></label>
+			  <label class="opt"><span data-i18n="workers">workers</span><input id="workers" type="number" value="4" min="1" /></label>
+			  <label class="opt"><span data-i18n="mergeFanIn">merge fan-in</span><input id="mergeFanIn" type="number" value="8" min="2" max="256" /></label>
+			  <label class="opt"><span data-i18n="partitionBuffer">partition buffer</span><input id="partitionBuffer" value="64KiB" /></label>
+			  <label class="opt"><span data-i18n="maxRecordBytes">max record size</span><input id="maxRecordBytes" value="256MiB" /></label>
+			  <label class="opt"><span data-i18n="outputPath">output path</span><input id="csvOutput" placeholder="/path/to/diff.tsv" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="outputFormat">output format</span><select id="csvOutputFormat"><option value="tsv">tsv</option><option value="jsonl">jsonl</option></select></label>
+			  <label class="opt check"><input id="keepTemp" type="checkbox" /><span data-i18n="keepTemp">keep temporary files</span></label>
+			  <label class="opt check"><input id="outputHeader" type="checkbox" checked /><span data-i18n="outputHeader">output header</span></label>
+			  <label class="opt check"><input id="changedColumnsOnly" type="checkbox" /><span data-i18n="changedColumnsOnly">changed columns only</span></label>
+			</div>
+		  </details>
+		  <details id="csvReview"><summary data-i18n="review">Review settings</summary><pre id="reviewText"></pre></details>
+		  <button id="exportCSV" type="button" data-i18n="runExport">Run and export</button>
+		</fieldset>
+		<fieldset id="dirOptions" class="csv-options" hidden><legend data-i18n="folderSetup">Folder setup</legend><div class="csv-grid">
+		  <label class="opt"><span data-i18n="includes">include globs</span><input id="dirIncludes" placeholder="*.csv, data/**" /></label>
+		  <label class="opt"><span data-i18n="excludes">exclude globs</span><input id="dirExcludes" placeholder=".git, *.tmp" /></label>
+		  <label class="opt check"><input id="dirHidden" type="checkbox" /><span data-i18n="hiddenFiles">hidden files</span></label>
+		  <label class="opt check"><input id="dirQuick" type="checkbox" /><span data-i18n="quickCompare">trust size + mtime</span></label>
+		  <label class="opt"><span data-i18n="workers">workers</span><input id="dirWorkers" type="number" value="8" min="1" max="64" /></label>
+		  <label class="opt"><span data-i18n="statusFilter">statuses</span><select id="dirStatus"><option value="different" data-i18n="statusDifferent">different</option><option value="all" data-i18n="statusAll">all</option><option value="changed" data-i18n="changed">changed</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option></select></label>
+		</div><small data-i18n="symlinkPolicy">Symbolic links are skipped. .gz files compare decompressed content.</small></fieldset>
+      </section>
 
-  // Add an event listener to the merge toggle button
-  mergeToggle.addEventListener('click', function() {
-    // Toggle the merge mode
-    mergeMode.setMode(!mergeMode.getMode());
+      <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
 
-    // Update the merge panel visibility
-    if (mergeMode.getMode()) {
-      mergePanel.style.display = 'block';
-    } else {
-      mergePanel.style.display = 'none';
-    }
-  });
-</script>
+      <section class="summary" id="summary" hidden></section>
+
+      <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
+        <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
+        <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff"><span aria-hidden="true">↑</span></button>
+        <span id="diffCounter" aria-live="polite"></span>
+        <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
+        <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
+        <button id="addSync" type="button" data-i18n="addSync" disabled>Add sync</button>
+        <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
+        <button id="navHelp" type="button" class="nav-help" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
+        <button id="mergeMode" type="button" class="merge-toggle" data-i18n="mergeMode" aria-pressed="false" hidden>Merge mode</button>
+        <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+      </nav>
+      <section class="sync-panel" id="syncPanel" hidden>
+        <strong data-i18n="syncPoints">Sync points</strong>
+        <span id="syncList"></span>
+      </section>
+      <section class="merge-panel" id="mergePanel" hidden>
+        <strong data-i18n="mergeResult">Merge result</strong>
+        <button id="allLeft" type="button" data-i18n="allLeft">All left</button>
+        <button id="allRight" type="button" data-i18n="allRight">All right</button>
+        <button id="allBase" type="button" data-i18n="allBase">All base</button>
+        <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
+        <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
+        <span id="mergeUnresolved" aria-live="polite"></span>
+        <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
+        <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
+      </section>
+      <div class="diff-layout">
+        <section class="result" id="result">
+          <div class="empty-state initial-empty">
+            <strong data-i18n="emptyTitle">比較を始める</strong>
+            <p data-i18n="emptySteps">1. OLDを指定 → 2. NEWを指定 → 3. 比較</p>
+            <p data-i18n="emptyDrop">ファイルをこの画面へドロップしても比較できます。</p>
+          </div>
+        </section>
+        <aside class="minimap" id="minimap" data-i18n-aria-label="differenceMap" aria-label="差分マップ" hidden>
+          <div class="minimap-viewport" id="minimapViewport"></div>
+        </aside>
+      </div>
+    </main>
+
+	<dialog id="fileBrowser" class="file-browser">
+	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
+	  <div class="browser-path"><button id="browserUp" type="button" data-i18n-title="parentFolder" data-i18n-aria-label="parentFolder" title="親フォルダ" aria-label="親フォルダ"><span aria-hidden="true">↑</span></button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
+	  <button id="chooseFolder" type="button" data-i18n="chooseFolder">Choose this folder</button>
+	  <div id="browserEntries" class="browser-entries"></div>
+	</dialog>
+
+    <script src="syntax.js"></script>
+    <script src="modes.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
