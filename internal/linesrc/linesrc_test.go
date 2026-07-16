@@ -118,6 +118,40 @@ func TestFileLinesPreservesLineEndings(t *testing.T) {
 	}
 }
 
+// TestFileLinesReportsUTF8BOM verifies HasBOM reflects a stripped leading
+// UTF-8 byte-order mark without leaking it into the first line (#159), and
+// stays correct across a rewind that re-opens the stream.
+func TestFileLinesReportsUTF8BOM(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	withBOM, err := Open(writeFile(t, dir, "bom.txt", "\uFEFFalpha\nbeta\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer withBOM.Close()
+	if !withBOM.HasBOM() {
+		t.Error("HasBOM() = false for a file with a UTF-8 BOM")
+	}
+	if line, _ := withBOM.Line(0); line != "alpha" {
+		t.Errorf("first line = %q, want %q (BOM leaked)", line, "alpha")
+	}
+	// A back-reference below the window forces a reset; HasBOM must survive it.
+	withBOM.Line(1)
+	if line, _ := withBOM.Line(0); line != "alpha" || !withBOM.HasBOM() {
+		t.Errorf("after rewind: line=%q hasBOM=%v", line, withBOM.HasBOM())
+	}
+
+	without, err := Open(writeFile(t, dir, "plain.txt", "alpha\nbeta\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer without.Close()
+	if without.HasBOM() {
+		t.Error("HasBOM() = true for a file without a BOM")
+	}
+}
+
 // TestLongLineExceedsReaderBuffer proves lines far larger than the bufio buffer
 // work (a bufio.Scanner would fail here).
 func TestLongLineExceedsReaderBuffer(t *testing.T) {

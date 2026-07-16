@@ -5,6 +5,10 @@
 - Hid the per-hunk "use left / use right" merge buttons and the merge panel
   behind an opt-in merge-mode toggle, so the default view stays focused on
   reading diffs instead of merge controls. (#100)
+- Preserved the base file's encoding, BOM, line endings, and final-newline
+  state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
+  UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
+  BOM-less UTF-8 with LF and a forced trailing newline. (#159)
 
 ## v0.7.16 - 2026-07-14
 

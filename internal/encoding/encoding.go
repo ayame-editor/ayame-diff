@@ -220,3 +220,17 @@ func Decoder(r io.Reader, name string) io.Reader {
 	}
 	return transform.NewReader(r, enc.NewDecoder())
 }
+
+// Encoder wraps w so UTF-8 writes are re-encoded to the given concrete encoding
+// name (as returned by Detect), the inverse of Decoder. UTF-8 is returned
+// unchanged. The UTF-16 encoders emit their own byte-order mark; the UTF-8
+// encoder does not, so a UTF-8 BOM must be written separately when required.
+// Runes the target cannot represent surface as a write error rather than being
+// silently replaced, so a merge never persists lossy mojibake.
+func Encoder(w io.Writer, name string) io.Writer {
+	enc := codec(name)
+	if enc == nil {
+		return w
+	}
+	return transform.NewWriter(w, enc.NewEncoder())
+}

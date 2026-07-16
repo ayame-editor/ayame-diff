@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/hjosugi/ayame-diff/internal/atomicfile"
+	"github.com/hjosugi/ayame-diff/internal/encoding"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 )
 
@@ -214,15 +215,103 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 	return output, unresolved, nil
 }
 
-// WriteMerged atomically writes UTF-8/LF output to a new path.
-func WriteMerged(path string, lines []string) error {
+// Optional capabilities a base source may expose so a merge round-trips the
+// input's byte-level conventions instead of normalizing them.
+type (
+	lineEndings   interface{ LineEnding(uint64) string }
+	encodedSource interface{ Encoding() string }
+	bomSource     interface{ HasBOM() bool }
+)
+
+// MergeProfile captures the base file's character encoding, a leading UTF-8
+// BOM, the line terminator, and whether the final line is newline-terminated,
+// so WriteMerged reproduces them rather than forcing BOM-less UTF-8 with LF and
+// a trailing newline (#159). Sources without this metadata (e.g. in-memory
+// SplitLines) yield the historical UTF-8/LF/trailing-newline defaults.
+type MergeProfile struct {
+	Encoding     string // concrete encoding name; "" or "utf-8" needs no re-encoding
+	BOM          bool   // the base began with a UTF-8 BOM
+	LineEnding   string // terminator between lines ("\n", "\r\n", or "\r")
+	FinalNewline bool   // whether to terminate the final line
+}
+
+// ProfileOf derives the output conventions from base. It reads the terminators
+// of the last and then the first base line, so for a streaming FileLines it
+// leaves the reader rewound to the start — call it immediately before
+// MergeLines, which streams forward from line 0.
+func ProfileOf(base linediff.Lines) MergeProfile {
+	profile := MergeProfile{LineEnding: "\n", FinalNewline: true}
+	if enc, ok := base.(encodedSource); ok {
+		profile.Encoding = enc.Encoding()
+	}
+	if b, ok := base.(bomSource); ok {
+		profile.BOM = b.HasBOM()
+	}
+	endings, ok := base.(lineEndings)
+	if !ok {
+		return profile
+	}
+	count := base.Count()
+	if count == 0 {
+		return profile
+	}
+	// Read the last terminator first (streams to the end), then the first
+	// (rewinds to the start) so the caller streams forward from line 0. A final
+	// line without a terminator reports "" and suppresses the trailing newline;
+	// only the last line can lack one, so the first line always carries the
+	// document's separator unless the file is a single unterminated line.
+	profile.FinalNewline = endings.LineEnding(count-1) != ""
+	if sep := endings.LineEnding(0); sep != "" {
+		profile.LineEnding = sep
+	}
+	return profile
+}
+
+// flushOnlyWriter hides an underlying io.Closer so a transform.Writer's Close
+// flushes the encoder's final bytes (e.g. ISO-2022-JP's return-to-ASCII escape)
+// without also closing the atomic temp file, which atomicfile.Write owns.
+type flushOnlyWriter struct{ w io.Writer }
+
+func (f flushOnlyWriter) Write(p []byte) (int, error) { return f.w.Write(p) }
+
+// WriteMerged atomically writes the merged lines to a new path, restoring the
+// base file's encoding, BOM, line terminator, and final-newline state from
+// profile so the output round-trips instead of being normalized to BOM-less
+// UTF-8/LF with a forced trailing newline (#159).
+func WriteMerged(path string, lines []string, profile MergeProfile) error {
+	separator := profile.LineEnding
+	if separator == "" {
+		separator = "\n"
+	}
 	return atomicfile.Write(path, atomicfile.Options{Pattern: ".ayame-three-way-*.tmp"}, func(destination io.Writer) error {
-		writer := bufio.NewWriterSize(destination, 256*1024)
-		for _, line := range lines {
-			if _, err := fmt.Fprintln(writer, line); err != nil {
+		// A UTF-8 BOM is written raw; the UTF-16 encoders emit their own.
+		if profile.BOM && isUTF8(profile.Encoding) {
+			if _, err := destination.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
 				return err
 			}
 		}
-		return writer.Flush()
+		encoded := encoding.Encoder(flushOnlyWriter{destination}, profile.Encoding)
+		writer := bufio.NewWriterSize(encoded, 256*1024)
+		for i, line := range lines {
+			if _, err := writer.WriteString(line); err != nil {
+				return err
+			}
+			if i < len(lines)-1 || profile.FinalNewline {
+				if _, err := writer.WriteString(separator); err != nil {
+					return err
+				}
+			}
+		}
+		if err := writer.Flush(); err != nil {
+			return err
+		}
+		if closer, ok := encoded.(io.Closer); ok {
+			return closer.Close()
+		}
+		return nil
 	})
 }
+
+// isUTF8 reports whether name selects UTF-8 output, for which a BOM must be
+// written explicitly (the codec does not add one).
+func isUTF8(name string) bool { return name == "" || name == encoding.UTF8 }

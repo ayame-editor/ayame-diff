@@ -133,12 +133,15 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		writeThreeWayText(stdout, result)
 	}
 	if output != "" {
+		// Capture the base file's encoding/BOM/EOL before MergeLines streams it,
+		// so the written merge round-trips them instead of BOM-less UTF-8/LF (#159).
+		profile := threeway.ProfileOf(base)
 		lines, unresolved, err := threeway.MergeLines(base, result, choices, allowConflicts)
 		if err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return exitError
 		}
-		if err := threeway.WriteMerged(output, lines); err != nil {
+		if err := threeway.WriteMerged(output, lines, profile); err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			return exitError
 		}
