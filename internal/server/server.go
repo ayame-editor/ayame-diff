@@ -70,6 +70,7 @@ func New(version string) (*Server, error) {
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	s.mux.HandleFunc("/api/dir/diff", s.handleDirDiff)
+	s.mux.HandleFunc("/api/dir/preview", s.handleDirPreview)
 	return s, nil
 }
 
@@ -176,12 +177,18 @@ func (s *Server) handlePathInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 type dirRequest struct {
+	Mode                 string   `json:"mode,omitempty"`
+	ProjectPath          string   `json:"projectPath,omitempty"`
 	Old                  string   `json:"old"`
 	New                  string   `json:"new"`
 	Includes             []string `json:"includes"`
 	Excludes             []string `json:"excludes"`
 	Hidden               bool     `json:"hidden"`
 	Quick                bool     `json:"quick"`
+	CompareBy            string   `json:"compareBy"`
+	Filter               string   `json:"filter"`
+	FilterFile           string   `json:"filterFile"`
+	FilterSets           []string `json:"filterSets"`
 	Workers              int      `json:"workers"`
 	MaxArchiveEntryBytes string   `json:"maxArchiveEntryBytes"`
 	MaxArchiveBytes      string   `json:"maxArchiveBytes"`
@@ -205,16 +212,12 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
 		return
 	}
-	entryLimit, totalLimit, err := parseArchiveLimits(req.MaxArchiveEntryBytes, req.MaxArchiveBytes)
+	opts, err := directoryOptions(req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := dircompare.CompareAny(req.Old, req.New, dircompare.Options{
-		Includes: req.Includes, Excludes: req.Excludes, IncludeHidden: req.Hidden,
-		Quick: req.Quick, Workers: req.Workers,
-		MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
-	})
+	result, err := dircompare.CompareAny(req.Old, req.New, opts)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
@@ -230,6 +233,79 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 		Same    int                `json:"same"`
 		Entries []dirEntryResponse `json:"entries"`
 	}{result.Added, result.Removed, result.Changed, result.Same, entries})
+}
+
+func (s *Server) handleDirPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	var req dirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Old == "" || req.New == "" {
+		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
+		return
+	}
+	opts, err := directoryOptions(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	preview, err := dircompare.PreviewAny(req.Old, req.New, opts, 100)
+	if err != nil {
+		writeClassifiedError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func directoryOptions(req dirRequest) (dircompare.Options, error) {
+	entryLimit, totalLimit, err := parseArchiveLimits(req.MaxArchiveEntryBytes, req.MaxArchiveBytes)
+	if err != nil {
+		return dircompare.Options{}, err
+	}
+	set, embedded, err := dircompare.ResolveFilterSets(req.FilterFile, req.FilterSets)
+	if err != nil {
+		return dircompare.Options{}, err
+	}
+	includes := append(append([]string(nil), req.Includes...), set.Includes...)
+	excludes := append(append([]string(nil), req.Excludes...), set.Excludes...)
+	expression := strings.TrimSpace(req.Filter)
+	if set.Expression != "" {
+		if expression == "" {
+			expression = set.Expression
+		} else {
+			expression = "(" + expression + ") and (" + set.Expression + ")"
+		}
+	}
+	filter, err := dircompare.ParseFilter(expression)
+	if err != nil {
+		return dircompare.Options{}, err
+	}
+	compareBy := req.CompareBy
+	workers, hidden := req.Workers, req.Hidden
+	if embedded != nil {
+		if compareBy == "" {
+			compareBy = embedded.CompareBy
+		}
+		if workers <= 0 {
+			workers = embedded.Workers
+		}
+		hidden = hidden || embedded.Hidden
+	}
+	if req.Quick {
+		if compareBy != "" && compareBy != "quick" {
+			return dircompare.Options{}, fmt.Errorf("quick cannot be combined with compareBy %q", compareBy)
+		}
+		compareBy = "quick"
+	}
+	method, err := dircompare.ParseCompareMethod(compareBy)
+	if err != nil {
+		return dircompare.Options{}, err
+	}
+	return dircompare.Options{
+		Includes: includes, Excludes: excludes, IncludeHidden: hidden, Filter: filter,
+		CompareBy: method, Workers: workers, MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+	}, nil
 }
 
 func parseArchiveLimits(entryText, totalText string) (int64, int64, error) {
@@ -635,8 +711,50 @@ func pathsEqual(a, b string) bool {
 }
 
 func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodeCSVRequest(w, r)
-	if !ok {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "use POST")
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var envelope struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if envelope.Mode == "dir" {
+		var req dirRequest
+		if err := json.Unmarshal(data, &req); err != nil || req.ProjectPath == "" || req.Old == "" || req.New == "" {
+			writeError(w, http.StatusBadRequest, "directory project, old, and new paths are required")
+			return
+		}
+		opts, err := directoryOptions(req)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		directory := &dircompare.DirectoryProject{
+			Old: req.Old, New: req.New, Includes: opts.Includes, Excludes: opts.Excludes,
+			CompareBy: string(opts.CompareBy), Hidden: opts.IncludeHidden, Workers: opts.Workers,
+		}
+		if opts.Filter != nil {
+			directory.Filter = opts.Filter.Expression()
+		}
+		if err := project.Save(req.ProjectPath, project.Project{Mode: "dir", Directory: directory}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"path": req.ProjectPath})
+		return
+	}
+	var req csvRequest
+	if err := json.Unmarshal(data, &req); err != nil || req.Old == "" || req.New == "" {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
 	if req.ProjectPath == "" || req.Output == "" {
@@ -674,6 +792,23 @@ func (s *Server) handleProjectLoad(w http.ResponseWriter, r *http.Request) {
 	loaded, err := project.Load(body.Path)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
+		return
+	}
+	if loaded.Mode == "dir" {
+		directory := loaded.Directory
+		writeJSON(w, http.StatusOK, struct {
+			Mode        string   `json:"mode"`
+			ProjectPath string   `json:"projectPath"`
+			Old         string   `json:"old"`
+			New         string   `json:"new"`
+			Includes    []string `json:"includes,omitempty"`
+			Excludes    []string `json:"excludes,omitempty"`
+			Filter      string   `json:"filter,omitempty"`
+			FilterSets  []string `json:"filterSets,omitempty"`
+			CompareBy   string   `json:"compareBy,omitempty"`
+			Hidden      bool     `json:"hidden,omitempty"`
+			Workers     int      `json:"workers,omitempty"`
+		}{"dir", body.Path, directory.Old, directory.New, directory.Includes, directory.Excludes, directory.Filter, directory.FilterSets, directory.CompareBy, directory.Hidden, directory.Workers})
 		return
 	}
 	req := requestFromConfig(loaded.CSV)

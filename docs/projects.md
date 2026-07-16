@@ -8,6 +8,28 @@ CLI use the same versioned JSON, and relative paths are resolved from the
 project file's directory. This makes projects suitable for committing beside a
 repository's test data.
 
+Folder projects use `"mode": "dir"` and a `directory` object. They preserve
+OLD/NEW paths, include/exclude globs, the filter expression, selected comparison
+method, hidden-file policy, and worker count. Named external/bundled filter sets
+are flattened into the saved project, so reopening does not depend on the
+original filter file.
+
+```json
+{
+  "version": 1,
+  "mode": "dir",
+  "directory": {
+    "old": "../snapshots/old",
+    "new": "../snapshots/new",
+    "excludes": [".git/**", "node_modules/**", "target/**"],
+    "filter": "size >= 1KiB and not name =~ '\\.tmp$'",
+    "compare_by": "hash",
+    "hidden": false,
+    "workers": 8
+  }
+}
+```
+
 ## Schema version 1
 
 ```json

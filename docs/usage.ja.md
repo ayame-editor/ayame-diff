@@ -218,6 +218,10 @@ ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
 ayame-diff dir --html folder-report.html old/ new/
 ayame-diff dir --csv folder-summary.csv --all old/ new/
+ayame-diff dir --compare-by hash old/ new/
+ayame-diff dir --filter "size > 1MiB and name =~ '\\.log$'" old/ new/
+ayame-diff dir --filter-set development old/ new/
+ayame-diff dir --filter-file filters.json --filter-set audit old/ new/
 ```
 
 ドットファイルやディレクトリは`--hidden`を指定しない限りスキップされます。シンボリックリンクも常にスキップされ、ループや不明瞭なツリー外の読み込みを防ぎます。TSVやJSONには状態、相対パス、サイズ、mtimeが含まれます。GUIでは「フォルダ」を選び、状態ツリーをフィルタし、変更された通常ファイルをクリックしてテキスト差分を確認できます。
@@ -226,6 +230,53 @@ ayame-diff dir --csv folder-summary.csv --all old/ new/
 自己完結ツリーレポートを書き出します。`--csv FILE` は同じ項目を後続処理向けの
 RFC 4180 CSV として書き出します。どちらもアトミックに保存し、`--all` がなければ
 同一項目を省略します。これらのファイル出力は `--json` / `--tsv` と同時指定できません。
+
+### 比較方法
+
+`--compare-by` は 5 種類の方法を明示的に選べます。
+
+| 方法 | 動作 |
+|---|---|
+| `contents` | バイトをストリーミングし、最初の差異で終了します（既定）。 |
+| `quick` | サイズ + mtime が同じなら同一とみなし、それ以外は内容比較します。`--quick` は別名です。 |
+| `hash` | 両ファイルを SHA-256 へストリーミングし、digest を比較します。 |
+| `date` | 更新時刻だけを比較します。 |
+| `size` | ファイルサイズだけを比較します。 |
+
+通常の `.gz` は `contents` / `hash` で展開内容を使います。メタデータだけの方法は、
+ソースまたはアーカイブが示すメタデータを使います。
+
+### フィルタ式と再利用可能なセット
+
+`--filter` は括弧と、大文字小文字を区別しない `and`、`or`、`not` を使えます。
+フィールドは `size`、`name`、`path`、`ext`、`mtime` です。size/mtime は
+`< <= == != >= >`、文字列は `== != =~ !~` に対応します。サイズは10進/2進単位、
+mtime は RFC 3339 または `YYYY-MM-DD` を受け付けます。
+
+```text
+size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
+```
+
+同梱セットは `development`、`vcs`、`node`、`rust` です。
+`--list-filter-sets` で一覧表示できます。外部 JSON では名前付きセットを定義します。
+
+```json
+{
+  "version": 1,
+  "default": "audit",
+  "filters": {
+    "audit": {
+      "includes": ["**/*.log", "**/*.json"],
+      "excludes": ["archive/**"],
+      "expression": "size >= 1KiB"
+    }
+  }
+}
+```
+
+`--filter-set` は繰り返し指定でき、直接指定した `--include`、`--exclude`、`--filter`
+と組み合わせます。ディレクトリモードの `.ayamediff.json` は `--filter-file` として
+直接渡せます。OLD/NEW パスを含む場合、コマンドライン側のパスは省略できます。
 
 ---
 

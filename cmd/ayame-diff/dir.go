@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -22,8 +23,9 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff dir", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var all, jsonOut, tsvOut, includeHidden, quick, diffExit bool
-	var htmlPath, csvPath string
-	excludes, includes := stringFlags(), stringFlags()
+	var htmlPath, csvPath, filterExpression, filterFile, compareBy string
+	var listFilterSets bool
+	excludes, includes, filterSets := stringFlags(), stringFlags(), stringFlags()
 	workers := min(runtime.NumCPU(), 8)
 	maxArchiveEntryBytes, maxArchiveBytes := "64MiB", "256MiB"
 	fs.BoolVar(&all, "all", false, "include unchanged (same) files in the output")
@@ -33,8 +35,13 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&csvPath, "csv", "", "write an RFC 4180 folder summary")
 	fs.Var(&excludes, "exclude", "glob to skip (repeatable), matched on the relative path or base name")
 	fs.Var(&includes, "include", "glob to include (repeatable), matched on the relative path or base name")
+	fs.StringVar(&filterExpression, "filter", "", "filter expression (size/name/path/ext/mtime with and/or/not)")
+	fs.StringVar(&filterFile, "filter-file", "", "JSON named-filter set or .ayamediff.json project")
+	fs.Var(&filterSets, "filter-set", "built-in or file-defined filter set (repeatable)")
+	fs.BoolVar(&listFilterSets, "list-filter-sets", false, "list bundled filter-set names and exit")
 	fs.BoolVar(&includeHidden, "hidden", false, "include dotfiles and hidden dot-directories (symlinks are always skipped)")
-	fs.BoolVar(&quick, "quick", false, "trust equal size+mtime without reading content")
+	fs.StringVar(&compareBy, "compare-by", "", "comparison method: contents, quick, hash, date, or size (default contents)")
+	fs.BoolVar(&quick, "quick", false, "alias for --compare-by quick")
 	fs.IntVar(&workers, "workers", workers, "parallel content comparison workers (1..64)")
 	fs.StringVar(&maxArchiveEntryBytes, "max-archive-entry-bytes", maxArchiveEntryBytes, "maximum uncompressed size of one archive entry")
 	fs.StringVar(&maxArchiveBytes, "max-archive-bytes", maxArchiveBytes, "maximum total uncompressed size of one archive")
@@ -55,8 +62,61 @@ Unchanged files are hidden unless --all is given.`)
 		fmt.Fprintln(stderr, "error:", err)
 		return 2
 	}
-	if fs.NArg() != 2 {
-		fmt.Fprintln(stderr, "error: dir needs exactly two paths: OLD NEW (directories or archives)")
+	if listFilterSets {
+		for _, name := range dircompare.BuiltinFilterSetNames() {
+			fmt.Fprintln(stdout, name)
+		}
+		return 0
+	}
+	set, embedded, err := dircompare.ResolveFilterSets(filterFile, filterSets.values)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	oldPath, newPath := "", ""
+	if fs.NArg() == 2 {
+		oldPath, newPath = fs.Arg(0), fs.Arg(1)
+	} else if fs.NArg() == 0 && embedded != nil && embedded.Old != "" && embedded.New != "" {
+		oldPath, newPath = resolveDirProjectPath(filterFile, embedded.Old), resolveDirProjectPath(filterFile, embedded.New)
+	} else {
+		fmt.Fprintln(stderr, "error: dir needs exactly two paths: OLD NEW (or a directory project with both paths)")
+		return 2
+	}
+	includes.values = append(includes.values, set.Includes...)
+	excludes.values = append(excludes.values, set.Excludes...)
+	if embedded != nil {
+		if compareBy == "" {
+			compareBy = embedded.CompareBy
+		}
+		if embedded.Hidden {
+			includeHidden = true
+		}
+		if embedded.Workers > 0 {
+			workers = embedded.Workers
+		}
+	}
+	if set.Expression != "" {
+		if strings.TrimSpace(filterExpression) == "" {
+			filterExpression = set.Expression
+		} else {
+			filterExpression = "(" + filterExpression + ") and (" + set.Expression + ")"
+		}
+	}
+	filter, err := dircompare.ParseFilter(filterExpression)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 2
+	}
+	if quick {
+		if compareBy != "" && compareBy != "quick" {
+			fmt.Fprintln(stderr, "error: --quick cannot be combined with another --compare-by method")
+			return 2
+		}
+		compareBy = "quick"
+	}
+	method, err := dircompare.ParseCompareMethod(compareBy)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
 		return 2
 	}
 
@@ -88,9 +148,9 @@ Unchanged files are hidden unless --all is given.`)
 		fmt.Fprintln(stderr, "error: --max-archive-entry-bytes cannot exceed --max-archive-bytes")
 		return 2
 	}
-	res, err := dircompare.CompareAny(fs.Arg(0), fs.Arg(1), dircompare.Options{
+	res, err := dircompare.CompareAny(oldPath, newPath, dircompare.Options{
 		Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden,
-		Quick: quick, Workers: workers, MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+		Filter: filter, CompareBy: method, Workers: workers, MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -98,7 +158,7 @@ Unchanged files are hidden unless --all is given.`)
 	}
 
 	if htmlPath != "" {
-		title := fs.Arg(0) + " vs " + fs.Arg(1)
+		title := oldPath + " vs " + newPath
 		if err := atomicfile.Write(htmlPath, atomicfile.Options{}, func(w io.Writer) error {
 			return dirreport.WriteHTML(w, res, title, all)
 		}); err != nil {
@@ -135,6 +195,13 @@ Unchanged files are hidden unless --all is given.`)
 		return 1
 	}
 	return 0
+}
+
+func resolveDirProjectPath(projectPath, value string) string {
+	if value == "" || filepath.IsAbs(value) || projectPath == "" {
+		return value
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(projectPath), value))
 }
 
 func writeDirReportSummary(stderr io.Writer, res *dircompare.Result, path string) {

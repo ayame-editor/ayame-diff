@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -193,5 +194,58 @@ func TestRecursiveIncludeAndExcludeWalk(t *testing.T) {
 		if statusOf(res, unwanted) != 255 {
 			t.Fatalf("%s was not filtered: %+v", unwanted, res.Entries)
 		}
+	}
+}
+
+func TestParsedFilterAppliesToWalk(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	for _, root := range []string{oldDir, newDir} {
+		write(t, root, "logs/large.log", strings.Repeat("x", 2048))
+		write(t, root, "logs/small.log", "x")
+		write(t, root, "data/large.json", strings.Repeat("x", 2048))
+	}
+	filter, err := ParseFilter(`size >= 1KiB and name =~ '\.(log|json)$' and not path =~ '^data/'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Compare(oldDir, newDir, Options{Filter: filter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Entries) != 1 || statusOf(res, "logs/large.log") != Same {
+		t.Fatalf("entries = %+v", res.Entries)
+	}
+}
+
+func TestCompareMethods(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	write(t, oldDir, "value.txt", "aaaa")
+	write(t, newDir, "value.txt", "bbbb")
+	stamp := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(filepath.Join(oldDir, "value.txt"), stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(newDir, "value.txt"), stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		method CompareMethod
+		want   Status
+	}{
+		{CompareContents, Changed}, {CompareHash, Changed}, {CompareQuick, Same},
+		{CompareDate, Same}, {CompareSize, Same},
+	} {
+		res, err := Compare(oldDir, newDir, Options{CompareBy: test.method})
+		if err != nil {
+			t.Fatalf("%s: %v", test.method, err)
+		}
+		if got := statusOf(res, "value.txt"); got != test.want {
+			t.Errorf("%s status = %v, want %v", test.method, got, test.want)
+		}
+	}
+	if _, err := Compare(oldDir, newDir, Options{CompareBy: "invalid"}); err == nil {
+		t.Fatal("invalid compare method succeeded")
 	}
 }

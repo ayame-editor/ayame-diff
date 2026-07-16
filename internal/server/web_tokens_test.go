@@ -135,6 +135,22 @@ func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
 	}
 }
 
+func TestDirectoryFilterEditorIsWired(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	for _, want := range []string{`id="dirFilter"`, `id="dirFilterFile"`, `id="dirFilterSet"`, `id="dirCompareBy"`, `id="dirPreview"`, `id="dirProjectPath"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{`/api/dir/preview`, `compareBy: $("dirCompareBy").value`, `saveDirectoryProject`, `applyDirectoryProject`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+}
+
 func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
