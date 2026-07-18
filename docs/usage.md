@@ -272,9 +272,23 @@ ayame-diff sorted --reverse a.txt b.txt
 --reverse, -r    reverse the sort order
 ```
 
+```
+--sort-memory SIZE  line data held in memory before spilling (default 256MiB)
+--temp-dir DIR      parent directory for spill files (default: TMPDIR)
+```
+
 !!! note
-    In v1, `sorted` sorts in memory; an external, memory-bounded line sort is
-    tracked in the project's issue tracker.
+    `sorted` is memory-bounded. Input within `--sort-memory` is sorted in
+    memory; anything larger spills sorted runs to `--temp-dir` and merges them,
+    so files larger than RAM still compare. Comparing two ~370 MB files with
+    `--sort-memory 64MiB` peaks at about 114 MiB resident instead of ~1.2 GiB.
+
+!!! warning
+    On many Linux systems `TMPDIR` is `/tmp`, which is RAM-backed (tmpfs).
+    Spilling there consumes memory rather than saving it, and a large sort can
+    fail with "no space left on device" while the disk is empty. Point
+    `--temp-dir` (or `TMPDIR`) at a real filesystem when sorting very large
+    files.
 
 ---
 

@@ -1813,15 +1813,16 @@ func inlineLines(text, mode string, numeric, reverse bool) linediff.Lines {
 }
 
 // openMode builds a linediff.Lines for path in the given mode, decoded from
-// encHint ("auto" to detect). It returns a close func (a no-op for sorted,
-// whose lines are already in memory).
+// encHint ("auto" to detect). It returns a close func the caller must run: a
+// sorted comparison of a file larger than the sort budget spills to disk, and
+// those files are released here (#137).
 func openMode(path, mode, encHint string, numeric, reverse bool) (linediff.Lines, func(), error) {
 	if mode == "sorted" {
-		lines, err := linesort.Sorted(path, numeric, reverse, encHint)
+		sorted, err := linesort.Sorted(path, numeric, reverse, encHint)
 		if err != nil {
 			return nil, func() {}, err
 		}
-		return lines, func() {}, nil
+		return sorted, func() { sorted.Close() }, nil
 	}
 	f, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {

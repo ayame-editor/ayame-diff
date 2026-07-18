@@ -229,8 +229,22 @@ ayame-diff sorted --reverse a.txt b.txt
 --reverse, -r    ソート順を逆に
 ```
 
+```
+--sort-memory SIZE  spillする前にメモリ上に保持する行データ量（既定 256MiB）
+--temp-dir DIR      spillファイルの親ディレクトリ（既定：TMPDIR）
+```
+
 !!! note
-    v1では`sorted`はメモリ内でソートします。外部メモリを使った行ソートはプロジェクトの課題トラッカーで追跡中です。
+    `sorted`のメモリ使用量には上限があります。`--sort-memory`に収まる入力はメモリ内でソートし、
+    それを超える場合はソート済みランを`--temp-dir`へ書き出してマージするため、RAMより大きい
+    ファイルも比較できます。約370MBのファイル2本を`--sort-memory 64MiB`で比較した場合、
+    常駐メモリのピークは約1.2GiBではなく約114MiBです。
+
+!!! warning
+    多くのLinux環境で`TMPDIR`は`/tmp`であり、これはRAM上（tmpfs）に置かれています。そこへ
+    spillするとメモリを節約するどころか消費してしまい、ディスクが空いていても
+    「no space left on device」で失敗しえます。非常に大きいファイルをソートする際は
+    `--temp-dir`（または`TMPDIR`）を実ディスク上のファイルシステムに向けてください。
 
 ---
 

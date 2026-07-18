@@ -85,23 +85,15 @@ func TestSorted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"apple", "banana", "cherry"}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("sorted[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
+	defer got.Close()
+	assertLines(t, got, []string{"apple", "banana", "cherry"})
 
 	rev, err := Sorted(path, false, true, "auto")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rev[0] != "cherry" || rev[2] != "apple" {
-		t.Fatalf("reverse sort = %v", rev)
-	}
+	defer rev.Close()
+	assertLines(t, rev, []string{"cherry", "banana", "apple"})
 
 	num := filepath.Join(dir, "num.txt")
 	if err := os.WriteFile(num, []byte("10\n2\n33\n"), 0o644); err != nil {
@@ -111,7 +103,6 @@ func TestSorted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ns[0] != "2" || ns[1] != "10" || ns[2] != "33" {
-		t.Fatalf("numeric sort = %v", ns)
-	}
+	defer ns.Close()
+	assertLines(t, ns, []string{"2", "10", "33"})
 }

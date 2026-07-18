@@ -1,54 +1,217 @@
 // Package linesort reads a text file's lines (plain or gzip, via linesrc) and
 // returns them sorted, for the `sorted` comparison used by both the CLI and the
-// local server. v1 sorts in memory; a memory-bounded external sort is tracked
-// in hjosugi/ayame-diff#7.
+// local server.
+//
+// Sorting is memory-bounded: input that fits the budget is sorted in memory,
+// and anything larger spills sorted runs to disk and merges them with a bounded
+// fan-in, so a file far bigger than RAM sorts instead of being OOM-killed
+// (#7, #137). Unlike the other line sources, which stream, a sort must see
+// every line before it can emit the first one — that is why this is the one
+// path that needs spill rather than a window.
 package linesort
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/hjosugi/ayame-diff/internal/encoding"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
 )
 
+// DefaultMemoryBytes bounds the line data held in memory before the sort
+// spills. It is a var so callers and tests can lower it; the default is chosen
+// to keep ordinary files on the fast in-memory path.
+var DefaultMemoryBytes int64 = 256 << 20 // 256 MiB
+
+// perLineOverhead approximates the string header and slice slot that accompany
+// each retained line, so the budget reflects real footprint rather than raw
+// byte length alone.
+const perLineOverhead = 48
+
+// Options configures a sort.
+type Options struct {
+	// Numeric orders by parsed leading numeric value instead of lexically.
+	Numeric bool
+	// Reverse inverts the order.
+	Reverse bool
+	// MemoryBytes bounds resident line data; 0 selects DefaultMemoryBytes.
+	MemoryBytes int64
+	// TempDir hosts spill files; "" uses the OS temporary directory.
+	TempDir string
+}
+
+// Result is a sorted view of the input lines. Close releases the spill files;
+// it is safe to call (and a no-op) when the sort stayed in memory.
+type Result struct {
+	linediff.Lines
+	cleanup func() error
+}
+
+// Close releases any temporary files the sort created.
+func (r *Result) Close() error {
+	if r == nil || r.cleanup == nil {
+		return nil
+	}
+	cleanup := r.cleanup
+	r.cleanup = nil
+	return cleanup()
+}
+
+// Spilled reports whether the sort had to go to disk. Used by tests and by
+// callers that want to explain a slow comparison.
+func (r *Result) Spilled() bool { return r != nil && r.cleanup != nil }
+
 // Sorted reads every line of path (decoded from encHint, "auto" to detect) and
-// returns them sorted. When numeric, lines are ordered by their parsed leading
-// numeric value (falling back to lexical); when reverse, the order is inverted.
-func Sorted(path string, numeric, reverse bool, encHint string) (linediff.StringLines, error) {
+// returns them sorted within the default memory budget. The caller must Close
+// the result to release any spill files.
+func Sorted(path string, numeric, reverse bool, encHint string) (*Result, error) {
+	return SortedWithOptions(path, encHint, Options{Numeric: numeric, Reverse: reverse})
+}
+
+// SortedWithOptions is Sorted with an explicit memory budget and spill location.
+func SortedWithOptions(path, encHint string, opts Options) (*Result, error) {
 	src, err := linesrc.OpenEncoding(path, encHint)
 	if err != nil {
 		return nil, err
 	}
 	defer src.Close()
-
-	n := src.Count()
-	lines := make([]string, 0, n)
-	for i := uint64(0); i < n; i++ {
-		s, _ := src.Line(i)
-		lines = append(lines, s)
-	}
-
-	return SortLines(lines, numeric, reverse), nil
+	return SortSource(src, opts)
 }
 
-// SortLines sorts an in-memory slice of lines (used for the sorted mode over
-// already-read sources such as stdin).
+// SortSource returns src's lines in sorted order while holding at most
+// opts.MemoryBytes of line data. Lines accumulate into a chunk; each time the
+// chunk reaches the budget it is sorted and spilled as a run, and the runs are
+// merged at the end. An input that never reaches the budget never touches disk.
+//
+// The ordering is a total order on distinct lines (equal magnitudes and
+// non-numeric text both fall back to a lexical tiebreak), so identical lines
+// are indistinguishable and the merge needs no stability tiebreak to match the
+// in-memory result.
+func SortSource(src linediff.Lines, opts Options) (result *Result, resultErr error) {
+	budget := opts.MemoryBytes
+	if budget <= 0 {
+		budget = DefaultMemoryBytes
+	}
+	less := lessFunc(opts.Numeric, opts.Reverse)
+
+	var (
+		chunk      []string
+		chunkBytes int64
+		runs       []string
+		dir        string
+	)
+	defer func() {
+		if resultErr != nil && dir != "" {
+			_ = os.RemoveAll(dir)
+		}
+	}()
+	spill := func() error {
+		if len(chunk) == 0 {
+			return nil
+		}
+		if dir == "" {
+			created, err := os.MkdirTemp(opts.TempDir, "ayame-sort-")
+			if err != nil {
+				return spillError(opts.TempDir, err)
+			}
+			dir = created
+		}
+		path, err := writeRun(dir, len(runs), chunk, less)
+		if err != nil {
+			return spillError(dir, err)
+		}
+		runs = append(runs, path)
+		// Zero the slots before reusing the array so the spilled lines become
+		// collectable instead of staying pinned by the backing array.
+		clear(chunk)
+		chunk, chunkBytes = chunk[:0], 0
+		return nil
+	}
+
+	count := src.Count()
+	for i := uint64(0); i < count; i++ {
+		line, ok := src.Line(i)
+		if !ok {
+			break
+		}
+		chunk = append(chunk, line)
+		chunkBytes += int64(len(line)) + perLineOverhead
+		if chunkBytes >= budget {
+			if err := spill(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if len(runs) == 0 {
+		// Everything fit: keep the fast path, no temporary files.
+		sortChunk(chunk, less)
+		return &Result{Lines: linediff.StringLines(chunk)}, nil
+	}
+	if err := spill(); err != nil {
+		return nil, err
+	}
+	merged, err := mergeRuns(dir, runs, less)
+	if err != nil {
+		return nil, spillError(dir, err)
+	}
+	// The merged run is the UTF-8, LF-terminated file this package just wrote,
+	// so it is read back with a window rather than materialized.
+	lines, err := linesrc.OpenEncoding(merged, encoding.UTF8)
+	if err != nil {
+		return nil, err
+	}
+	spillDir := dir
+	return &Result{Lines: lines, cleanup: func() error {
+		closeErr := lines.Close()
+		if err := os.RemoveAll(spillDir); err != nil {
+			return err
+		}
+		return closeErr
+	}}, nil
+}
+
+// spillError explains a failed spill in terms the user can act on. The default
+// temporary directory is a RAM-backed tmpfs on many Linux systems, so a sort
+// large enough to spill can exhaust it while the disk sits empty — a bare
+// "no space left on device" would send the user looking in the wrong place.
+func spillError(dir string, err error) error {
+	where := dir
+	if where == "" {
+		where = os.TempDir()
+	}
+	return fmt.Errorf("the sorted comparison needed temporary space in %s and could not get it: %w\n"+
+		"Point it at a filesystem with room using --temp-dir (or the TMPDIR environment variable); "+
+		"note that %s is RAM-backed on many systems", where, err, os.TempDir())
+}
+
+func sortChunk(lines []string, less func(a, b string) bool) {
+	sort.SliceStable(lines, func(a, b int) bool { return less(lines[a], lines[b]) })
+}
+
+func lessFunc(numeric, reverse bool) func(a, b string) bool {
+	base := lexLess
+	if numeric {
+		base = numericLess
+	}
+	if reverse {
+		return func(a, b string) bool { return base(b, a) }
+	}
+	return base
+}
+
+// SortLines sorts an already-materialized slice of lines. It is for sources
+// that are in memory by nature and separately bounded — pasted scratch text,
+// which rides inside the capped JSON body — so it deliberately has no spill
+// path. File-backed inputs should use SortSource, which does.
 func SortLines(lines []string, numeric, reverse bool) linediff.StringLines {
 	out := append([]string(nil), lines...)
-	less := lexLess
-	if numeric {
-		less = numericLess
-	}
-	sort.SliceStable(out, func(a, b int) bool {
-		if reverse {
-			return less(out[b], out[a])
-		}
-		return less(out[a], out[b])
-	})
+	sortChunk(out, lessFunc(numeric, reverse))
 	return linediff.StringLines(out)
 }
 
