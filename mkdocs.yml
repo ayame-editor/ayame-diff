@@ -93,6 +93,11 @@ nav:
   - Project:
       - Packaging and Windows trust: packaging.md
       - Ayame family design: design.md
+      - Architecture decisions:
+          - Overview: adr/README.md
+          - "0001: Project name": adr/0001-naming-unification.md
+          - "0002: Diff architecture": adr/0002-diff-acceptance-architecture.md
+          - "0003: Encoding dependency": adr/0003-encoding-dependency.md
   - 日本語:
       - ホーム: ja/index.md
       - はじめる:
@@ -110,3 +115,8 @@ nav:
       - プロジェクト:
           - パッケージングと Windows の信頼: packaging.ja.md
           - Ayame ファミリーのデザイン: design.ja.md
+          - アーキテクチャ決定記録:
+              - 概要: adr/README.ja.md
+              - "0001: プロジェクト名": adr/0001-naming-unification.ja.md
+              - "0002: diff アーキテクチャ": adr/0002-diff-acceptance-architecture.ja.md
+              - "0003: 文字コード依存": adr/0003-encoding-dependency.ja.md
