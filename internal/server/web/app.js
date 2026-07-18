@@ -71,6 +71,8 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    theme: "テーマ", themeSystem: "OS に合わせる", themeLight: "ライト", themeDark: "ダーク",
+    jumpToKind: (v) => `${v.label}の差分へ移動`,
     confirmTitle: "確認", confirmProceed: "実行", cancel: "キャンセル", close: "閉じる",
     shortcutNavigate: "次/前の差分へ移動", shortcutFirstLast: "最初/最後の差分へ",
     shortcutChooseSide: "左/右を採用", shortcutChooseBase: "ベースを採用",
@@ -162,6 +164,8 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    theme: "Theme", themeSystem: "Match system", themeLight: "Light", themeDark: "Dark",
+    jumpToKind: (v) => `Jump to ${v.label}`,
     confirmTitle: "Confirm", confirmProceed: "Proceed", cancel: "Cancel", close: "Close",
     shortcutNavigate: "Next / previous difference", shortcutFirstLast: "First / last difference",
     shortcutChooseSide: "Choose left / right", shortcutChooseBase: "Choose base",
@@ -532,17 +536,28 @@ function renderHunk(h, index) {
 function renderSummary(res) {
   const el = $("summary");
   el.innerHTML = "";
-  const stat = (cls, label, n) => {
-    const s = document.createElement("span");
-    s.className = "stat " + cls;
-    s.innerHTML = `<b>${n.toLocaleString()}</b> ${label}`;
+  // A count that names differences should reach them: the numbers were inert,
+  // so finding "the deleted lines" meant scrolling (#110).
+  const stat = (cls, label, n, kind) => {
+    const jumpable = kind && n > 0;
+    const s = document.createElement(jumpable ? "button" : "span");
+    if (jumpable) {
+      s.type = "button";
+      s.dataset.jumpKind = kind;
+      s.title = t("jumpToKind", { label });
+      s.addEventListener("click", () => jumpToKind(kind));
+    }
+    s.className = "stat " + cls + (jumpable ? " stat-jump" : "");
+    const count = document.createElement("b");
+    count.textContent = n.toLocaleString();
+    s.append(count, ` ${label}`);
     return s;
   };
   el.append(
     stat("", t("hunks"), res.hunk_count),
-    stat("add", t("added"), res.added),
-    stat("del", t("deleted"), res.deleted),
-    stat("chg", t("modified"), res.modified),
+    stat("add", t("added"), res.added, "insert"),
+    stat("del", t("deleted"), res.deleted, "delete"),
+    stat("chg", t("modified"), res.modified, "replace"),
   );
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
   if (res.move_detection_skipped) {
@@ -1835,6 +1850,40 @@ function showShortcuts() {
   $("shortcutsDialog").showModal();
 }
 
+// jumpToKind moves to the next hunk of one kind, cycling through them so
+// repeated clicks walk the group rather than sticking on the first (#110).
+let lastJumpKind = "";
+let lastJumpIndex = -1;
+
+function jumpToKind(kind) {
+  const hunks = lastData?.hunks || [];
+  const matches = [];
+  for (let i = 0; i < hunks.length; i++) {
+    if (hunks[i].kind === kind && !ignoredHunks.has(i)) matches.push(i);
+  }
+  if (!matches.length) return;
+  if (kind !== lastJumpKind) lastJumpIndex = -1;
+  lastJumpKind = kind;
+  // Continue from wherever this kind was left, wrapping at the end.
+  const next = matches.find((index) => index > lastJumpIndex);
+  lastJumpIndex = next === undefined ? matches[0] : next;
+  jumpToHunk(lastJumpIndex);
+}
+
+// ---- Theme (#106) ----
+// Dark mode followed the OS only, so a user whose system is light could not
+// read a diff in a dark room, and the choice could not be made per app.
+const THEMES = ["system", "light", "dark"];
+
+function applyTheme(value) {
+  const theme = THEMES.includes(value) ? value : "system";
+  // "system" removes the attribute so the prefers-color-scheme rules apply.
+  if (theme === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("ayame-theme", theme);
+  $("theme").value = theme;
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   return {
@@ -2253,6 +2302,7 @@ for (const control of $("csvOptions").querySelectorAll("input, select")) {
   control.addEventListener("input", updateDetailsBadges);
 }
 updateDetailsBadges();
+$("theme").addEventListener("change", () => applyTheme($("theme").value));
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
@@ -2276,6 +2326,7 @@ function applyScratch() {
 $("scratch").addEventListener("change", applyScratch);
 applyScratch();
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
+applyTheme(localStorage.getItem("ayame-theme") || "system");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
