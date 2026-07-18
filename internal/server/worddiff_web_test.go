@@ -11,7 +11,9 @@ import (
 // reused across calls, measured 1.64x faster on worst-case sized pairs.
 func TestInlineWordDiffUsesAFlatReusedTable(t *testing.T) {
 	t.Parallel()
-	app := readWebAsset(t, "app.js")
+	// The algorithm moved into its own module so it could be executed in tests
+	// (#139); these structural checks follow it there.
+	app := readWebAsset(t, "worddiff.js")
 
 	body := renderFunctionBody(t, app, "function inlineWordDiff(")
 	if strings.Contains(body, "Array.from({ length: m + 1 }") {

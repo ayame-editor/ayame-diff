@@ -29,6 +29,9 @@
             # findings surface before pushing. CI pins staticcheck and stays
             # authoritative; this one tracks nixpkgs and may differ.
             go-tools
+            # The web assets are plain scripts with no build step; node is here
+            # only to run their unit tests (node --test), matching CI.
+            nodejs
           ];
         };
       });
