@@ -42,6 +42,7 @@ const I18N = {
 	lineFiltersPlaceholder: "1行に1つの正規表現",
 	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
+    view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
@@ -140,6 +141,7 @@ const I18N = {
 	lineFiltersPlaceholder: "one regular expression per line",
 	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
+    view: "view", viewSide: "side-by-side", viewUnified: "unified",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
@@ -426,6 +428,11 @@ function plainSpan(text, path) {
 function cell(cls, lineNo, node, side) {
   const c = document.createElement("div");
   c.className = "cell " + cls;
+  // The unified view prints this as the leading -/+ (#115). A changed pair is
+  // two cells that share the "chg" class, so the side is what tells the
+  // removal from the addition.
+  if (cls === "add" || (cls === "chg" && side === "new")) c.dataset.marker = "+";
+  else if (cls === "del" || (cls === "chg" && side === "old")) c.dataset.marker = "-";
   const ln = document.createElement("span");
   ln.className = "ln";
   ln.textContent = lineNo == null ? "" : String(lineNo);
@@ -2069,10 +2076,23 @@ function syncPatchSettingsVisibility() {
   if (patchSettings) patchSettings.hidden = $("exportPatch").hidden;
 }
 
+// Unified only means anything for the two-way text diff: the three-way view is
+// three panes and CSV is a table, neither built from .row. Offering the switch
+// there would be a control that visibly does nothing (#124). This rides the
+// post-render hook below because every render path already calls it.
+// Probing the DOM for a .row would be wrong here: this runs before the hunks
+// are appended, and they arrive asynchronously in slices. Go by the same state
+// updateMergeUI uses to decide a result is a two-way text diff.
+function syncViewModeVisibility() {
+  const wrap = $("viewModeWrap");
+  if (wrap) wrap.hidden = !(Boolean(lastData?.hunks?.length) && $("mode").value === "text");
+}
+
 function syncExportPatchVisibility() {
   const currentRequest = $("mode").value === "text" ? JSON.stringify(requestBody()) : null;
   $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
   syncPatchSettingsVisibility();
+  syncViewModeVisibility();
 }
 
 function syncKeyMode() {
@@ -2147,6 +2167,16 @@ function applyWrap(on) {
   localStorage.setItem("ayame-wrap", on ? "1" : "0");
   $("wrap").checked = on;
   document.querySelector(".csv-table")?.classList.toggle("wrap-cells", on);
+}
+// applyViewMode switches between side-by-side and the unified, git-style single
+// column (#115). Nothing is re-rendered: a changed row already carries both
+// cells, so the layout is entirely a CSS concern and every other feature
+// (word highlight, merge selection, the minimap, navigation) keeps working.
+function applyViewMode(mode) {
+  const unified = mode === "unified";
+  $("result").classList.toggle("unified", unified);
+  localStorage.setItem("ayame-view", unified ? "unified" : "side");
+  $("viewMode").value = unified ? "unified" : "side";
 }
 function applyDisplayPreferences() {
   const result = $("result");
@@ -2373,6 +2403,7 @@ updateDetailsBadges();
 $("theme").addEventListener("change", () => applyTheme($("theme").value));
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
+$("viewMode").addEventListener("change", () => applyViewMode($("viewMode").value));
 $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   rerenderForDisplayChange();
@@ -2396,6 +2427,7 @@ applyScratch();
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyTheme(localStorage.getItem("ayame-theme") || "system");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
+applyViewMode(localStorage.getItem("ayame-view") || "side");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();

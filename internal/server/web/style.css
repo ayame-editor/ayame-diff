@@ -248,6 +248,30 @@ button:active:not(:disabled) {
 /* Display settings live beside the result they affect (#91): changing wrap or
    whitespace is something you decide while reading, and the controls used to be
    in the form above, out of sight behind a long diff. */
+/* Unified (git-style) view (#115).
+   No separate rendering path: a changed row already holds the old and the new
+   cell, so collapsing the grid to one column stacks them in DOM order — old
+   above new, exactly the -/+ order a patch has. Word highlighting, syntax,
+   whitespace, wrap, the minimap, difference navigation and merge selection all
+   keep working because the DOM is unchanged. */
+.result.unified .row { grid-template-columns: 1fr; }
+/* The placeholder opposite an insert or delete has nothing to say in one column. */
+.result.unified .cell.empty { display: none; }
+.result.unified .cell { border-right: 0; }
+/* A cell is itself a grid (line number | text), so the marker cannot just be an
+   inline ::before — it becomes a third grid item and drops onto its own row.
+   Give it an explicit middle column instead; .ln and .tx then auto-place around
+   it into columns 1 and 3. */
+.result.unified .cell[data-marker] { grid-template-columns: 3.2rem 1ch 1fr; gap: 0 0.5rem; }
+.result.unified .cell[data-marker]::before {
+  content: attr(data-marker); grid-column: 2; grid-row: 1;
+  color: var(--muted); user-select: none;
+}
+/* A changed pair reads as a removal followed by an addition, so it colours the
+   same way a patch would rather than as one ambiguous "changed" block. */
+.result.unified .cell.chg[data-marker="-"] { background: var(--del-bg); }
+.result.unified .cell.chg[data-marker="+"] { background: var(--add-bg); }
+
 .view-settings, .patch-settings {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
   padding-left: 0.5rem; margin-left: 0.25rem; border-left: 1px solid var(--border);

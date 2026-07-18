@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a unified (git-style) view to the text diff, switchable from the result
+  toolbar and remembered across visits. The diff was side-by-side only, which
+  reads badly in a narrow window and does not match how most tools present a
+  patch — ironically, patch *output* could already be written as unified. A
+  changed line shows as a removal above an addition, prefixed `-` and `+`. Word
+  highlighting, syntax, whitespace, wrap, the minimap, difference navigation and
+  merge selection all keep working, because the two views share one rendering
+  path and differ only in layout. (#115)
 - Rebuilt the setup form around the work it supports. It was a single wrapping
   row of 24 controls mixing four unrelated kinds, so nothing indicated which
   ones change a result and which only change its appearance, and every control
