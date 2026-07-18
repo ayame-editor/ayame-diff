@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Made long GUI operations mutually exclusive, so a comparison and an export no
+  longer run at once and race their results into the same view. The lock wraps
+  the flows rather than the buttons, which is what covers the callers that never
+  touch one — drag and drop, folder-entry clicks, sync-point edits, and the
+  Enter key — and a superseded response is now discarded instead of painting
+  over a newer one. Three-way comparison gained the AbortController, elapsed
+  counter, and Cancel button the other paths already had, and folder comparison
+  gained the counter, so every comparison reports progress and can be stopped.
+  (#128)
 - Stopped a large diff from freezing the GUI. Every result was built in one
   synchronous loop, so 20,000 rows — reachable at the default caps via large
   insertion blocks — blocked the main thread for ~15.7s with a blank result

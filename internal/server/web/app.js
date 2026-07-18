@@ -281,6 +281,73 @@ function inlineWordDiff(oldText, newText) {
 
 // In-flight request controller, so the Cancel button can abort a long compare.
 let currentAbort = null;
+
+// ---- Mutual exclusion between long operations (#128) ----
+// Each flow used to disable only its own button, so a comparison and an
+// export, or two comparisons, could run at once and race each other's results
+// into the same DOM and status line. Disabling #compare was not enough on its
+// own either: drag and drop, folder-entry clicks, and sync-point edits all
+// call compare() directly, never touching the button.
+
+// busyOperation names the running operation, or null when idle.
+let busyOperation = null;
+
+// exclusiveControls are every trigger that must not fire while another
+// operation is in flight. Cancel is deliberately absent: stopping the running
+// operation is the one thing that must stay available.
+const EXCLUSIVE_CONTROLS = [
+  "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge",
+  "saveProject", "loadProject", "dirPreview", "saveDirProject", "loadDirProject",
+  "addSync", "clearSync", "allLeft", "allRight", "allBase",
+];
+
+// controlsDisabledBeforeRun remembers which controls were already disabled for
+// their own reasons (an empty selection, a mode that does not apply) so
+// releasing the lock does not enable something that should stay off.
+let controlsDisabledBeforeRun = null;
+
+function lockExclusiveControls() {
+  controlsDisabledBeforeRun = new Set();
+  for (const id of EXCLUSIVE_CONTROLS) {
+    const el = $(id);
+    if (!el) continue;
+    if (el.disabled) controlsDisabledBeforeRun.add(id);
+    el.disabled = true;
+  }
+}
+
+function unlockExclusiveControls() {
+  for (const id of EXCLUSIVE_CONTROLS) {
+    const el = $(id);
+    if (!el) continue;
+    el.disabled = controlsDisabledBeforeRun ? controlsDisabledBeforeRun.has(id) : false;
+  }
+  controlsDisabledBeforeRun = null;
+}
+
+// runExclusive runs fn with every competing trigger disabled. A second call
+// while one is running is dropped rather than queued: the user pressed
+// something that was already unavailable, and silently running it later would
+// be more surprising than ignoring it.
+async function runExclusive(name, fn) {
+  if (busyOperation) return false;
+  busyOperation = name;
+  lockExclusiveControls();
+  try {
+    await fn();
+  } finally {
+    busyOperation = null;
+    unlockExclusiveControls();
+  }
+  return true;
+}
+
+// requestGeneration invalidates the result of a superseded request. Even with
+// the lock, an operation that was already in flight when the lock was taken
+// (or one aborted and restarted) must not paint over a newer result.
+let requestGeneration = 0;
+function beginRequest() { return ++requestGeneration; }
+function isCurrentRequest(generation) { return generation === requestGeneration; }
 let lastData = null; // last diff response, retained for navigation and merge actions
 let lastComparedRequest = null;
 let currentHunk = -1;
@@ -751,7 +818,10 @@ async function saveCSVMerge() {
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-function saveMergeResult() { if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(); return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+function runSaveMergeResult() { if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(); return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+// A merge writes a file from the current inputs, so it must not run while a
+// comparison for different inputs is still in flight (#128).
+async function saveMergeResult() { return runExclusive("saveMerge", runSaveMergeResult); }
 
 function threeWayRequestBody() { return { ...requestBody(), base: $("base").value.trim() }; }
 function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) => row.join("\t")) : (value || []); }
@@ -808,15 +878,32 @@ async function compareThreeWay(csvMode) {
   let body;
   if (csvMode) { if (!csvInspection && !(await inspectCSV())) return; body = { ...csvRequestBody(), base: $("base").value.trim() }; }
   else body = threeWayRequestBody();
-  $("compare").disabled = true; setStatus(t("comparing"), "busy");
+  // Same busy contract as the other compare paths: abortable, with an elapsed
+  // counter and a working Cancel. This path had none of the three (#128).
+  const ac = new AbortController();
+  currentAbort = ac;
+  $("cancel").hidden = false;
+  const generation = beginRequest();
+  const started = Date.now();
+  const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
+  tick();
+  const timer = setInterval(tick, 100);
   try {
-    const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (!isCurrentRequest(generation)) return;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
+    clearInterval(timer);
     await renderThreeWay(data, csvMode);
-  } catch (err) { setStatus(String(err.message || err), "error"); }
-  finally { $("compare").disabled = false; }
+  } catch (err) {
+    if (err.name === "AbortError") setStatus(t("cancelled"), "");
+    else setStatus(String(err.message || err), "error");
+  } finally {
+    clearInterval(timer);
+    $("cancel").hidden = true;
+    currentAbort = null;
+  }
 }
 async function saveThreeWayMerge() {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
@@ -1226,22 +1313,24 @@ async function compareCSV() {
 	  body = csvRequestBody();
 	}
 	if (!validateInputs(body)) return;
-  const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false;
+  const ac = new AbortController(); currentAbort = ac; $("cancel").hidden = false;
+  const generation = beginRequest();
   const started = Date.now(), tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy"); tick();
   const timer = setInterval(tick, 100);
   try {
     const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    if (!isCurrentRequest(generation)) return;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
     csvPage = 0; renderCSV(data); rememberComparison(body); setStatus("");
   } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
-  finally { clearInterval(timer); $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
+  finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
 }
 
-async function exportCSV() {
+async function runExportCSV() {
 	let body = csvRequestBody();
 	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
 	if (!validateInputs(body)) return;
@@ -1290,7 +1379,7 @@ async function applyCSVProject(body) {
   syncKeyMode(); updateCSVReview();
 }
 
-async function saveProject() {
+async function runSaveProject() {
 	let body = csvRequestBody();
 	if (!csvInspection) { if (!validateInputs(body, false) || !(await inspectCSV())) return; body = csvRequestBody(); }
 	body.projectPath = $("projectPath").value.trim();
@@ -1303,7 +1392,7 @@ async function saveProject() {
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
-async function loadProject() {
+async function runLoadProject() {
   const path = $("projectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
   try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
@@ -1311,7 +1400,7 @@ async function loadProject() {
 
 function dirRequestBody() { return { mode: "dir", old: $("old").value.trim(), new: $("new").value.trim(), includes: splitList($("dirIncludes").value), excludes: splitList($("dirExcludes").value), filter: $("dirFilter").value.trim(), filterFile: $("dirFilterFile").value.trim(), filterSets: splitList($("dirFilterSet").value), compareBy: $("dirCompareBy").value, hidden: $("dirHidden").checked, workers: Number($("dirWorkers").value) || 8 }; }
 
-async function previewDirectoryFilter() {
+async function runPreviewDirectoryFilter() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
   $("dirPreview").disabled = true; $("dirPreviewResult").textContent = t("comparing");
   try { const resp = await apiFetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
@@ -1327,14 +1416,14 @@ function applyDirectoryProject(body) {
   if (body.projectPath) $("dirProjectPath").value = body.projectPath;
 }
 
-async function saveDirectoryProject() {
+async function runSaveDirectoryProject() {
   const body = dirRequestBody(); body.projectPath = $("dirProjectPath").value.trim();
   if (!validateInputs(body) || !body.projectPath) { if (!body.projectPath) setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
   try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
-async function loadDirectoryProject() {
+async function runLoadDirectoryProject() {
   const path = $("dirProjectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
   try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
@@ -1369,13 +1458,24 @@ async function renderDirectory(data, body) {
 
 async function compareDirectory() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
-  const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false; setStatus(t("comparing"), "busy");
-  try { const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); await renderDirectory(data, body); }
+  const ac = new AbortController(); currentAbort = ac; $("cancel").hidden = false;
+  const generation = beginRequest();
+  const started = Date.now();
+  const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
+  tick();
+  const timer = setInterval(tick, 100);
+  try {
+    const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
+    const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    if (!isCurrentRequest(generation)) return;
+    clearInterval(timer);
+    await renderDirectory(data, body);
+  }
   catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
-  finally { $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
+  finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
 }
 
-async function compare() {
+async function runCompare() {
   if ($("mode").value === "threeway") { await compareThreeWay(false); return; }
   if ($("mode").value === "threeway-csv") { await compareThreeWay(true); return; }
   if ($("mode").value === "csv") { await compareCSV(); return; }
@@ -1386,7 +1486,7 @@ async function compare() {
   resetSyncSelection();
   const ac = new AbortController();
   currentAbort = ac;
-  $("compare").disabled = true;
+  const generation = beginRequest();
   $("cancel").hidden = false;
   lastData = null;
   lastComparedRequest = null;
@@ -1406,6 +1506,9 @@ async function compare() {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    // Drag and drop, folder-entry clicks, and sync-point edits all call
+    // compare() directly, so a newer comparison can already be running (#128).
+    if (!isCurrentRequest(generation)) return;
     lastData = data;
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
@@ -1424,11 +1527,23 @@ async function compare() {
     else setStatus(String(err.message || err), "error");
   } finally {
     clearInterval(timer);
-    $("compare").disabled = false;
     $("cancel").hidden = true;
     currentAbort = null;
   }
 }
+
+// Public entry points take the exclusion lock; the run* functions hold the
+// actual work. Wrapping here rather than at each button covers the callers
+// that never touch a button — drag and drop, folder-entry clicks, sync-point
+// edits, and the Enter key (#128).
+async function compare() { return runExclusive("compare", runCompare); }
+async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
+async function exportCSV() { return runExclusive("exportCSV", runExportCSV); }
+async function saveProject() { return runExclusive("saveProject", runSaveProject); }
+async function loadProject() { return runExclusive("loadProject", runLoadProject); }
+async function previewDirectoryFilter() { return runExclusive("previewDirectoryFilter", runPreviewDirectoryFilter); }
+async function saveDirectoryProject() { return runExclusive("saveDirectoryProject", runSaveDirectoryProject); }
+async function loadDirectoryProject() { return runExclusive("loadDirectoryProject", runLoadDirectoryProject); }
 
 function requestBody() {
   const scratch = $("scratch").checked;
@@ -1477,7 +1592,7 @@ function validateInputs(body, validateKeys = true) {
   return true;
 }
 
-async function exportPatch() {
+async function runExportPatch() {
   const body = requestBody();
   if (!validateInputs(body)) return;
   body.patchFormat = $("patchFormat").value;
