@@ -21,12 +21,22 @@
   --move-bg: color-mix(in srgb, var(--accent) 16%, transparent); --move-fg: var(--accent-bright);
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  /* Only when no explicit theme is chosen; the attribute below wins otherwise
+     (#106), which is what lets "light" hold on a dark desktop. */
+  :root:not([data-theme]) {
     --bg: #1e1e1e; --bg-elevated: #252526; --fg: #d4d4d4; --fg-dim: #9a9a9a;
     --border: #3c3c3c; --accent: #9b82d8; --accent-bright: #b49de6;
     --danger: #f14c4c; --gold: #d9b45a; --shadow: 0 12px 34px rgb(0 0 0 / .35);
     --add-fg: #66c991; --del-fg: #ff7b7b; --chg-fg: #e4c46d;
   }
+}
+
+/* Explicit dark, independent of the OS setting (#106). */
+:root[data-theme="dark"] {
+    --bg: #1e1e1e; --bg-elevated: #252526; --fg: #d4d4d4; --fg-dim: #9a9a9a;
+    --border: #3c3c3c; --accent: #9b82d8; --accent-bright: #b49de6;
+    --danger: #f14c4c; --gold: #d9b45a; --shadow: 0 12px 34px rgb(0 0 0 / .35);
+    --add-fg: #66c991; --del-fg: #ff7b7b; --chg-fg: #e4c46d;
 }
 
 /* Colorblind-safe Ayame palette: the token structure and translucent washes
@@ -40,7 +50,10 @@
   --word-del: color-mix(in srgb, #ea580c 35%, transparent);
 }
 @media (prefers-color-scheme: dark) {
-  :root[data-scheme="colorblind"] {
+  :root:not([data-theme])[data-scheme="colorblind"] {
     --add-fg: #93b4ff; --del-fg: #ff9b62;
   }
+}
+:root[data-theme="dark"][data-scheme="colorblind"] {
+  --add-fg: #93b4ff; --del-fg: #ff9b62;
 }

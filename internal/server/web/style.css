@@ -240,6 +240,14 @@ button:active:not(:disabled) {
 /* In-app dialogs replacing window.confirm and window.alert (#98, #99). A
    native dialog cannot be styled, cannot be read alongside the UI it describes,
    and on the merge path it blocked the page while asking about a file write. */
+/* Summary counts double as jump targets (#110). They stay visually identical
+   to the inert stats beside them so the row does not become a button bar. */
+button.stat-jump {
+  margin: 0; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; cursor: pointer; border-radius: var(--radius-control);
+}
+button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 12%, transparent); }
+
 .app-dialog {
   border: 1px solid var(--border); border-radius: var(--radius); padding: 0;
   background: var(--panel); color: var(--fg); box-shadow: var(--shadow);

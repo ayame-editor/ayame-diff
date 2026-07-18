@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Made the summary counts reach the differences they name: clicking added,
+  deleted or modified jumps to the next difference of that kind and cycles
+  through the group, skipping any the user chose to ignore. A zero count stays
+  inert rather than becoming a dead button. (#110)
+- Added an explicit light/dark theme choice instead of following the operating
+  system only, so a dark diff is available on a light desktop and the reverse.
+  The choice persists, and "match system" restores the previous behaviour. (#106)
 - Replaced the native browser prompts with in-app dialogs. The merge
   confirmations no longer block the page behind a prompt that cannot show what
   is being confirmed, and the keyboard shortcut list is a readable panel rather
