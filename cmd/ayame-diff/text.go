@@ -41,6 +41,7 @@ type diffFlags struct {
 	html                           string
 	pre                            string
 	encoding                       string
+	maxLineBytes                   string
 	ignoreCase                     bool
 	whitespace                     string
 	ignoreAllSpace                 bool
@@ -111,6 +112,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&d.pre, "pre", "", "preprocess each input through this shell command before diffing (e.g. --pre 'jq -S .')")
 	fs.BoolVar(&d.word, "word", false, "highlight changed words in replace hunks (unified)")
 	fs.StringVar(&d.encoding, "encoding", "auto", "input encoding: auto, utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp")
+	fs.StringVar(&d.maxLineBytes, "max-line-bytes", "64MiB", "reject a single line longer than this (0 disables the check)")
 	fs.BoolVar(&d.ignoreCase, "ignore-case", false, "ignore case when comparing lines")
 	fs.StringVar(&d.whitespace, "ignore-whitespace", "none", "whitespace handling: none, change (collapse runs), all (remove)")
 	fs.BoolVar(&d.ignoreAllSpace, "ignore-all-space", false, "ignore all whitespace (GNU diff compatible alias)")
@@ -127,6 +129,20 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
 	fs.IntVar(&d.width, "width", 160, "total width for --side-by-side")
+}
+
+// lineLimit resolves --max-line-bytes. A single line is the one thing the
+// sliding-window reader cannot bound on its own, so a file with no line breaks
+// would otherwise be fully resident (#137). Zero disables the check.
+func (d *diffFlags) lineLimit() (int, error) {
+	value, err := engine.ParseByteSize(d.maxLineBytes)
+	if err != nil {
+		return 0, fmt.Errorf("--max-line-bytes: %w", err)
+	}
+	if value > int64(math.MaxInt) {
+		return 0, fmt.Errorf("--max-line-bytes is too large")
+	}
+	return int(value), nil
 }
 
 func (d *diffFlags) format() diffout.Format {
@@ -315,14 +331,19 @@ inputs. OLD or NEW may be - for standard input, or clip: for the OS clipboard.`)
 		fmt.Fprintln(stderr, "error:", err)
 		return exitUsage
 	}
+	maxLine, err := d.lineLimit()
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitUsage
+	}
 
-	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
+	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer closeOld()
-	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
+	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -385,14 +406,19 @@ point --temp-dir at a real disk when sorting very large files.`)
 		fmt.Fprintln(stderr, "error: patch formats require text mode; sorted output cannot be applied to the original file")
 		return exitUsage
 	}
+	maxLine, err := d.lineLimit()
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitUsage
+	}
 
-	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, stderr)
+	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer closeOld()
-	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, stderr)
+	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -440,11 +466,39 @@ func reportFlagError(err error, stderr io.Writer) int {
 	return exitUsage
 }
 
+// maxPipedInputBytes bounds the paths that cannot stream. A file is read
+// through linesrc's sliding window, but stdin and a --pre command are pipes:
+// their length is unknowable in advance and their content has to be
+// materialized before it can be split into lines. Refusing past this point
+// keeps the promise that a comparison either completes or explains itself,
+// rather than being OOM-killed (#137). A var so tests can shrink it.
+var maxPipedInputBytes int64 = 1 << 30 // 1 GiB
+
+// errPipedInputTooLarge names the way forward: a file argument streams within
+// bounded memory, so the fix is usually to compare files rather than pipes.
+func errPipedInputTooLarge(what string) error {
+	return fmt.Errorf("%s is larger than %d bytes, which cannot be compared without holding it all in memory; "+
+		"write it to a file and pass that path instead — files are streamed within bounded memory", what, maxPipedInputBytes)
+}
+
+// readAllBounded reads r, failing with an actionable error past the cap. It
+// reads one byte beyond the limit so hitting it exactly is not an error.
+func readAllBounded(r io.Reader, what string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxPipedInputBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxPipedInputBytes {
+		return nil, errPipedInputTooLarge(what)
+	}
+	return data, nil
+}
+
 // openSource returns a line source for path plus a close func. A path of "-"
-// reads standard input; a non-empty pre command preprocesses the input first
-// (both read fully into memory). Otherwise a file is streamed with bounded
-// memory.
-func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, func(), error) {
+// reads standard input; a non-empty pre command preprocesses the input first.
+// Both are pipes and must be materialized, so both are bounded by
+// maxPipedInputBytes; a plain file is streamed with bounded memory instead.
+func openSource(path, encHint, pre string, maxLine int, stderr io.Writer) (linediff.Lines, func(), error) {
 	if pre != "" {
 		lines, err := preprocessLines(path, encHint, pre, stderr)
 		return lines, func() {}, err
@@ -457,7 +511,7 @@ func openSource(path, encHint, pre string, stderr io.Writer) (linediff.Lines, fu
 		lines, err := readClipboard(encHint)
 		return lines, func() {}, err
 	}
-	f, err := linesrc.OpenEncoding(path, encHint)
+	f, err := linesrc.OpenEncodingLimit(path, encHint, maxLine)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -491,8 +545,22 @@ func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.Line
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
-	out, err := cmd.Output()
+	pipe, err := cmd.StdoutPipe()
 	if err != nil {
+		return nil, fmt.Errorf("preprocess %q on %s: %w", pre, path, err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("preprocess %q on %s: %w", pre, path, err)
+	}
+	// Read through the cap rather than cmd.Output()'s unbounded buffer, so a
+	// preprocessor that emits far more than it consumes cannot exhaust memory.
+	out, readErr := readAllBounded(pipe, fmt.Sprintf("the output of %q", pre))
+	if readErr != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("preprocess %q on %s: %w", pre, path, readErr)
+	}
+	if err := cmd.Wait(); err != nil {
 		return nil, fmt.Errorf("preprocess %q on %s: %w", pre, path, err)
 	}
 	dname := encoding.Detect(out, encHint)
@@ -507,7 +575,7 @@ func preprocessLines(path, encHint, pre string, stderr io.Writer) (linediff.Line
 // readStdin reads all of stdin, decodes it to UTF-8 (encHint, "auto" to detect),
 // strips a UTF-8 BOM, and splits into lines.
 func readStdin(encHint string) (linediff.Lines, error) {
-	data, err := io.ReadAll(os.Stdin)
+	data, err := readAllBounded(os.Stdin, "standard input")
 	if err != nil {
 		return nil, fmt.Errorf("reading stdin: %w", err)
 	}

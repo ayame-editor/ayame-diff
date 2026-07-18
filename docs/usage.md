@@ -250,6 +250,25 @@ See [Encoding](encoding.md) for `--encoding` and
 [Comparison options](comparison-options.md) for ignore filters, numeric
 tolerance, `--word`, `--window` and `--max-hunks`.
 
+### Input limits
+
+A file argument is streamed through a sliding window, so its size does not
+drive memory. Two shapes are bounded explicitly because they cannot stream:
+
+| Limit | Default | Applies to |
+| --- | --- | --- |
+| `--max-line-bytes` | 64MiB | one logical line; `0` disables the check |
+| (built in) | 1GiB | `-` (stdin) and `--pre` output |
+
+A file with no line breaks — minified JSON, a database dump — is a single line,
+so the window cannot bound it. Such a file is refused at open time with a
+pointer to `--max-line-bytes` or to `bin` mode. Peak memory while accumulating
+a long line is a small multiple of the limit, not exactly it.
+
+Standard input and a `--pre` command are pipes: their length is unknown in
+advance and their content must be materialized. Past 1GiB they are refused with
+a suggestion to write the data to a file, which streams instead.
+
 ---
 
 ## `sorted` — sort, then diff { #sorted }
@@ -302,6 +321,12 @@ Archive expansion is bounded to 64 MiB per selected entry and 256 MiB total per
 archive by default. Adjust these safeguards with `--max-archive-entry-bytes` and
 `--max-archive-bytes`; oversized or decompression-bomb inputs fail explicitly
 instead of exhausting process memory.
+
+A comparison also holds one entry per file — including unchanged ones — so the
+file count is bounded by `--max-entries` (default 2,000,000; a negative value
+disables the check). Trees past the limit are refused up front, before any file
+is read, with a suggestion to narrow the comparison using `--include` /
+`--exclude` or to compare a subdirectory.
 
 ```bash
 ayame-diff dir --include '*.csv' --exclude 'tmp/**' --workers 8 old/ new/

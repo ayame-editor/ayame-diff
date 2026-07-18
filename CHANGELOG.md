@@ -9,6 +9,13 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Bounded the remaining inputs that could not stream, so an oversized one is
+  refused with a way forward instead of exhausting memory: a single line past
+  `--max-line-bytes` (default 64MiB) is rejected at open time, since a file with
+  no line breaks defeats the sliding window; standard input and `--pre` output
+  are capped at 1GiB with a pointer to passing a file instead; and a directory
+  comparison past `--max-entries` (default 2,000,000 files) is refused before
+  any file is read, since a result holds one entry per file. (#137)
 - Made the `sorted` comparison memory-bounded: input within `--sort-memory`
   (default 256MiB) still sorts in memory, and anything larger spills sorted runs
   to `--temp-dir` and merges them with a bounded fan-in, so files far larger
