@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Removed two allocation hotspots the engine paid on every large comparison.
+  Counting a file's lines built and discarded a string per line; counting now
+  scans the decoded bytes instead, which on 200,000 lines is 90ms and 300,006
+  allocations down to 62ms and 100,006. And the CSV difference count kept every
+  difference ID in a set that nothing bounded — roughly 70MB per million
+  differing rows, sized by the input rather than by the server — replaced by an
+  exact constant-memory count, which is possible because the engine emits
+  identical rows consecutively. (#156)
 - Stopped a comparison with any ignore option from re-normalizing the same
   lines over and over. The resync scan holds one side fixed while sweeping the
   other, so each line was normalized once per candidate; a small window-sized

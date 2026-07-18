@@ -52,13 +52,21 @@ type universalLineReader struct {
 	maxLine int
 }
 
-func (u *universalLineReader) readLine() (string, string, bool, error) {
+// nextLine advances past the next line and returns its bytes together with the
+// terminator that ended it. The returned slice aliases the internal buffer and
+// is only valid until the next call — callers that keep the text must copy it.
+//
+// readLine is the copying form. The split exists so the pre-count pass, which
+// only needs the number of lines, does not allocate a string per line and
+// immediately discard it: on a 10-million-line file that was 10 million
+// allocations of pure garbage (#156).
+func (u *universalLineReader) nextLine() ([]byte, string, bool, error) {
 	for {
 		if index := bytes.IndexAny(u.pending, "\r\n"); index >= 0 {
 			// A CR at the buffer boundary needs one more byte to distinguish CRLF.
 			if u.pending[index] == '\r' && index+1 == len(u.pending) && !u.eof {
 				if err := u.fill(); err != nil {
-					return "", "", false, err
+					return nil, "", false, err
 				}
 				continue
 			}
@@ -69,22 +77,30 @@ func (u *universalLineReader) readLine() (string, string, bool, error) {
 					ending, width = "\r\n", 2
 				}
 			}
-			line := string(u.pending[:index])
+			line := u.pending[:index]
 			u.pending = u.pending[index+width:]
 			return line, ending, true, nil
 		}
 		if u.eof {
 			if len(u.pending) == 0 {
-				return "", "", false, nil
+				return nil, "", false, nil
 			}
-			line := string(u.pending)
+			line := u.pending
 			u.pending = nil
 			return line, "", true, nil
 		}
 		if err := u.fill(); err != nil {
-			return "", "", false, err
+			return nil, "", false, err
 		}
 	}
+}
+
+func (u *universalLineReader) readLine() (string, string, bool, error) {
+	line, ending, ok, err := u.nextLine()
+	if err != nil || !ok {
+		return "", "", ok, err
+	}
+	return string(line), ending, true, nil
 }
 
 func (u *universalLineReader) fill() error {
@@ -429,7 +445,8 @@ func countLines(path string, gzipped bool, enc string, maxLine int) (uint64, err
 	reader := &universalLineReader{reader: br, maxLine: maxLine}
 	var count uint64
 	for {
-		_, _, ok, err := reader.readLine()
+		// nextLine, not readLine: this pass wants the count, not the text.
+		_, _, ok, err := reader.nextLine()
 		if err != nil {
 			return 0, err
 		}

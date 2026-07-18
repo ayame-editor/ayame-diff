@@ -809,7 +809,20 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 		maxRows = 5000
 	}
 	response := csvResponse{Header: inspection.Header, Inspection: inspection, Summary: summary}
-	mergeIDs := make(map[string]struct{})
+	// Counting distinct differences with a set grew without bound: the loop
+	// keeps draining the engine's output after maxRows, so a comparison of two
+	// large, maximally divergent files sized the set by the input rather than by
+	// anything the server controls — roughly 70MB per million differing rows,
+	// with a transient doubling while the map rehashed (#156).
+	//
+	// A set is not needed. The engine sorts records within each key group and a
+	// key group never spans partitions, so identical rows — the only source of a
+	// repeated ID, which hashes kind, key, and row — are always emitted
+	// consecutively. Comparing against the previous ID is therefore exact, in
+	// constant memory. TestCSVDifferenceCountDedupesInConstantMemory pins that
+	// emission order, since it is an assumption about the engine rather than
+	// something this handler can see.
+	previousID, havePrevious := "", false
 	decoder := json.NewDecoder(file)
 	for {
 		var difference csvDifference
@@ -821,8 +834,8 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if _, seen := mergeIDs[difference.ID]; !seen {
-			mergeIDs[difference.ID] = struct{}{}
+		if !havePrevious || difference.ID != previousID {
+			previousID, havePrevious = difference.ID, true
 			response.DifferenceCount++
 		}
 		if len(response.Differences) >= maxRows {
