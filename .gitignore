@@ -7,3 +7,7 @@
 *.test
 .DS_Store
 .ayame-diff-*
+
+# Nix / direnv
+.direnv/
+result
