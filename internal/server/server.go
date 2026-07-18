@@ -6,7 +6,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,21 +88,58 @@ type dropSession struct {
 
 // Server serves the UI and diff API.
 type Server struct {
-	version    string
-	mux        *http.ServeMux
-	dropMu     sync.Mutex
-	drops      map[string]*dropSession
-	compareSem chan struct{} // bounds concurrent expensive comparisons (#170)
+	version      string
+	token        string
+	allowedHosts map[string]bool
+	mux          *http.ServeMux
+	dropMu       sync.Mutex
+	drops        map[string]*dropSession
+	compareSem   chan struct{} // bounds concurrent expensive comparisons (#170)
 }
 
-// New returns a Server. version is reported by /api/health.
+// Options configures a Server.
+type Options struct {
+	// Version is reported by /api/health.
+	Version string
+	// AllowedHosts is the exact set of Host header values the server answers
+	// to, normally the loopback names for the bound port. It is the defense
+	// against DNS rebinding: a page on any website can make the browser resolve
+	// its own hostname to 127.0.0.1 and reach this server, but the request
+	// still carries that site's name in Host, not ours (#108).
+	//
+	// Empty accepts any Host. That is only appropriate for a deliberately
+	// remote listener, whose reachable names the process cannot enumerate;
+	// there the token is the defense.
+	AllowedHosts []string
+}
+
+// New returns a Server that accepts any Host. Prefer NewWithOptions, which can
+// pin the Host header; this form suits tests and callers whose listener a
+// browser cannot reach.
 func New(version string) (*Server, error) {
+	return NewWithOptions(Options{Version: version})
+}
+
+// NewWithOptions returns a Server with a freshly generated API token. Every
+// /api route except the health probe requires that token in an X-Ayame-Token
+// header, so a website the user happens to be visiting cannot drive the local
+// GUI's read and write endpoints (#108).
+func NewWithOptions(opts Options) (*Server, error) {
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
 		return nil, err
 	}
+	token, err := newAPIToken()
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool, len(opts.AllowedHosts))
+	for _, host := range opts.AllowedHosts {
+		allowed[strings.ToLower(host)] = true
+	}
 	s := &Server{
-		version: version, mux: http.NewServeMux(), drops: make(map[string]*dropSession),
+		version: opts.Version, token: token, allowedHosts: allowed,
+		mux: http.NewServeMux(), drops: make(map[string]*dropSession),
 		compareSem: make(chan struct{}, maxConcurrentComparisons),
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
@@ -1078,7 +1118,68 @@ const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; connect-src 
 // route (the embedded UI and the JSON API) gets hardening headers and CSRF
 // protection whether it is served by `serve` or `gui`. The recovery wrapper is
 // outermost so a panic raised inside the security checks is caught too.
-func (s *Server) Handler() http.Handler { return recovered(secure(s.mux)) }
+func (s *Server) Handler() http.Handler {
+	return recovered(s.allowedHost(secure(s.authenticated(s.mux))))
+}
+
+// Token returns the API token this server requires. The command that starts the
+// server puts it in the URL it opens or prints, which is how the browser comes
+// to hold it.
+func (s *Server) Token() string { return s.token }
+
+// tokenHeader carries the API token. A header is deliberate: a page on another
+// origin cannot set one without a CORS preflight, and this server answers no
+// preflight, so the token requirement doubles as CSRF protection. A cookie
+// would be attached automatically and would not.
+const tokenHeader = "X-Ayame-Token"
+
+// newAPIToken returns a fresh 256-bit token for one server run.
+func newAPIToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate API token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// openPath reports whether a path is reachable without the token: the embedded
+// UI itself, which holds no user data and cannot send headers for its own
+// sub-resources, and the health probe, which reports only the version and is
+// what the launching command polls for readiness.
+func openPath(path string) bool {
+	return path == "/api/health" || !strings.HasPrefix(path, "/api/")
+}
+
+// authenticated rejects API requests without the token (#108). Before this,
+// any website the user visited could POST to the local server and have it read
+// or overwrite arbitrary files, and could GET /api/files to enumerate the disk.
+func (s *Server) authenticated(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if openPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Constant time so a wrong token cannot be discovered byte by byte.
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get(tokenHeader)), []byte(s.token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "missing or invalid API token; open the URL printed by ayame-diff, which carries it")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allowedHost rejects a request whose Host header is not one this server was
+// told to answer to. This is what stops DNS rebinding: the attacking page keeps
+// its own hostname in Host even once that name resolves to 127.0.0.1 (#108).
+func (s *Server) allowedHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.allowedHosts) > 0 && !s.allowedHosts[strings.ToLower(r.Host)] {
+			writeError(w, http.StatusForbidden, "unexpected Host header; reach this server at the address it printed")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // recovered turns a panic in a handler into a 500 with the same JSON error
 // shape as every other failure, instead of net/http silently closing the

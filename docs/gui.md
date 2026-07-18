@@ -19,9 +19,33 @@ Two subcommands start it:
 !!! warning "Local, single-user use only"
     The server opens the file paths you type in the browser, so it binds to
     localhost by default and is meant only for your own local use. Do not expose
-    it to a network. A non-loopback `--addr` requires `--allow-remote`, prints a
-    warning, and remains unauthenticated; place it behind trusted network access
-    controls.
+    it to a network. A non-loopback `--addr` requires `--allow-remote` and
+    prints a warning; anyone holding the URL can drive it, so place it behind
+    trusted network access controls.
+
+## Access control
+
+Every run generates an API token, and every `/api` call needs it in an
+`X-Ayame-Token` header. The token rides in the URL that `gui` opens and `serve`
+prints, and the page keeps it in `sessionStorage`, so an ordinary reload keeps
+working. Open the printed URL — a bare `http://127.0.0.1:PORT/` in a fresh tab
+has no token and the UI will say so.
+
+Two properties follow from that design:
+
+- **No CSRF.** A page on another site cannot set a custom header without a CORS
+  preflight, which this server refuses. A cookie would have been attached
+  automatically and would not have protected anything.
+- **No DNS rebinding.** A loopback server also pins the `Host` header to the
+  address it bound. A page that makes its own hostname resolve to `127.0.0.1`
+  still sends that hostname in `Host`, and is refused — even with a valid token.
+
+The embedded page, its assets, and `/api/health` stay open: the page cannot set
+headers for its own sub-resources, and the launching command polls health for
+readiness before any browser exists. Neither exposes user data.
+
+A `--allow-remote` listener does not pin `Host`, because the names it is
+reachable under cannot be known here. The token is the defense there.
 
 ## `serve`
 
@@ -40,7 +64,7 @@ ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 | Flag | Default | Meaning |
 |---|---|---|
 | `--addr` | `127.0.0.1:8080` | Listen address (`host:port`). |
-| `--allow-remote` | off | Explicitly allow a non-loopback listen address. There is no authentication. |
+| `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
 
 ## `gui`
 
@@ -60,7 +84,7 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 | Flag | Default | Meaning |
 |---|---|---|
 | `--addr` | `127.0.0.1:0` | Listen address; port `0` picks a free port. |
-| `--allow-remote` | off | Explicitly allow a non-loopback listen address. There is no authentication. |
+| `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
 | `--no-open` | off | Start the server but do not open the browser. |
 
 ## Using the web UI

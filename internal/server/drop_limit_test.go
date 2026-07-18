@@ -26,7 +26,7 @@ func TestDropLimitsAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := s.Handler()
+	h := authorizedHandler(s)
 	drop := func(relative, body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost,
@@ -103,7 +103,7 @@ func TestDropSessionLimitIsRaceSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := s.Handler()
+	h := authorizedHandler(s)
 	codes := make(chan int, 2)
 	var wg sync.WaitGroup
 	for _, relative := range []string{"a.txt", "b.txt"} {

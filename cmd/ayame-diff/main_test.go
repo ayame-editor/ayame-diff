@@ -210,7 +210,7 @@ func TestQuickLaunchArgs(t *testing.T) {
 
 func TestGUIQuickLaunchURL(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	got := guiLaunchURL("http://127.0.0.1:1/", []string{oldDir, newDir})
+	got := guiLaunchURL("http://127.0.0.1:1/", []string{oldDir, newDir}, "test-token")
 	if !strings.Contains(got, "autorun=1") || !strings.Contains(got, "mode=dir") || !strings.Contains(got, "old=") || !strings.Contains(got, "new=") {
 		t.Fatalf("url=%s", got)
 	}

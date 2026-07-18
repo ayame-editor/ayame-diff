@@ -34,7 +34,7 @@ func runGUI(args []string, stdout, stderr io.Writer) int {
 }
 
 type guiCommandDeps struct {
-	newHandler  func(string) (http.Handler, error)
+	newHandler  func(string, net.Addr, bool) (http.Handler, string, error)
 	listen      func(string, string) (net.Listener, error)
 	serve       func(net.Listener, http.Handler) error
 	openBrowser func(string) error
@@ -80,21 +80,23 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		return exitUsage
 	}
 
-	handler, err := deps.newHandler(version)
-	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
-		return exitError
-	}
+	// Listen first: the Host allowlist and the launch URL both need the port
+	// actually bound, which the default "port 0" only reveals here.
 	ln, err := deps.listen("tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer ln.Close()
+	handler, token, err := deps.newHandler(version, ln.Addr(), remote)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitError
+	}
 	if remote {
 		printRemoteWarning(stderr)
 	}
-	guiURL := guiLaunchURL(browserBaseURL(ln.Addr()), fs.Args())
+	guiURL := guiLaunchURL(browserBaseURL(ln.Addr()), fs.Args(), token)
 	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
 	if !noOpen {
 		if err := deps.openBrowser(guiURL); err != nil {
@@ -108,11 +110,20 @@ addresses require the explicit --allow-remote safety opt-in.`)
 	return exitOK
 }
 
-func guiLaunchURL(base string, paths []string) string {
-	if len(paths) == 0 {
-		return base
+// guiLaunchURL builds the URL the browser opens. The token always rides along:
+// it is how the page comes to hold the credential the API requires (#108).
+func guiLaunchURL(base string, paths []string, token string) string {
+	query := url.Values{}
+	if token != "" {
+		query.Set("token", token)
 	}
-	query := url.Values{"old": {paths[0]}}
+	if len(paths) == 0 {
+		if len(query) == 0 {
+			return base
+		}
+		return base + "?" + query.Encode()
+	}
+	query.Set("old", paths[0])
 	if len(paths) == 2 {
 		query.Set("new", paths[1])
 		query.Set("autorun", "1")

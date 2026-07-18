@@ -27,7 +27,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 }
 
 type serveCommandDeps struct {
-	newHandler func(string) (http.Handler, error)
+	newHandler func(string, net.Addr, bool) (http.Handler, string, error)
 	listen     func(string, string) (net.Listener, error)
 	serve      func(net.Listener, http.Handler) error
 }
@@ -65,21 +65,25 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 		return exitUsage
 	}
 
-	handler, err := deps.newHandler(version)
-	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
-		return exitError
-	}
+	// Listen first: the Host allowlist and the printed URL both need the port
+	// actually bound, which "port 0" only reveals here.
 	ln, err := deps.listen("tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer ln.Close()
+	handler, token, err := deps.newHandler(version, ln.Addr(), remote)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitError
+	}
 	if remote {
 		printRemoteWarning(stderr)
 	}
-	fmt.Fprintf(stderr, "ayame-diff serving on %s  (Ctrl+C to stop)\n", browserBaseURL(ln.Addr()))
+	// The URL carries the API token; without it the browser cannot call the
+	// API at all, so print the whole thing (#108).
+	fmt.Fprintf(stderr, "ayame-diff serving on %s  (Ctrl+C to stop)\n", tokenURL(browserBaseURL(ln.Addr()), token))
 	if err := deps.serve(ln, handler); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -87,10 +91,20 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 	return exitOK
 }
 
-func newServerHandler(version string) (http.Handler, error) {
-	srv, err := server.New(version)
-	if err != nil {
-		return nil, err
+// newServerHandler builds the server for a bound listener, returning its API
+// token so the caller can put it in the URL it prints or opens.
+//
+// A loopback listener gets an exact Host allowlist, which is what defeats DNS
+// rebinding. A deliberately remote listener does not: the names it is reachable
+// under are not knowable here, so the token alone guards it (#108).
+func newServerHandler(version string, addr net.Addr, remote bool) (http.Handler, string, error) {
+	opts := server.Options{Version: version}
+	if !remote {
+		opts.AllowedHosts = loopbackHosts(addr)
 	}
-	return srv.Handler(), nil
+	srv, err := server.NewWithOptions(opts)
+	if err != nil {
+		return nil, "", err
+	}
+	return srv.Handler(), srv.Token(), nil
 }
