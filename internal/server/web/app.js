@@ -71,6 +71,11 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    confirmTitle: "確認", confirmProceed: "実行", cancel: "キャンセル", close: "閉じる",
+    shortcutNavigate: "次/前の差分へ移動", shortcutFirstLast: "最初/最後の差分へ",
+    shortcutChooseSide: "左/右を採用", shortcutChooseBase: "ベースを採用",
+    shortcutSearch: "結果内を検索", shortcutSearchStep: "次/前の一致へ",
+    shortcutClose: "検索・ダイアログを閉じる", shortcutCompare: "比較を実行",
     swap: "入れ替え", swapSides: "OLD と NEW を入れ替え",
     engineTuning: "エンジン調整", engineTuningHint: "差分の計算量と表示量に効きます（何を差分と見なすかは変わりません）。結果が打ち切られたときだけ上げてください。",
     csvParsingOptions: "ファイル形式", csvProjectOptions: "保存した比較",
@@ -157,6 +162,11 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    confirmTitle: "Confirm", confirmProceed: "Proceed", cancel: "Cancel", close: "Close",
+    shortcutNavigate: "Next / previous difference", shortcutFirstLast: "First / last difference",
+    shortcutChooseSide: "Choose left / right", shortcutChooseBase: "Choose base",
+    shortcutSearch: "Search in results", shortcutSearchStep: "Next / previous match",
+    shortcutClose: "Close search or dialog", shortcutCompare: "Run the comparison",
     swap: "Swap", swapSides: "Swap OLD and NEW",
     engineTuning: "Engine tuning", engineTuningHint: "Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.",
     csvParsingOptions: "File format", csvProjectOptions: "Saved comparisons",
@@ -759,10 +769,10 @@ async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || confirm(t("overwriteWarning"));
+  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
   const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -777,10 +787,10 @@ async function saveCSVMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
-  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved));
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || confirm(t("overwriteWarning"));
+  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
   const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -883,8 +893,8 @@ async function compareThreeWay(csvMode) {
 async function saveThreeWayMerge() {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && confirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
-  const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || confirm(t("overwriteWarning")); if (!confirmOverwrite) return;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
+  const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning")); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -1771,6 +1781,60 @@ function swapSides() {
   if (lastData || csvData || threeWayData || directoryData) compare();
 }
 
+// ---- In-app dialogs (#98, #99) ----
+// window.confirm and window.alert cannot be styled or read alongside the UI
+// they describe, and the merge path used confirm to ask about writing a file —
+// blocking the page on a native prompt at the moment the user most needs to see
+// what they are confirming.
+
+// askConfirm resolves true when the user proceeds. It mirrors confirm()'s
+// shape so the call sites stay a single awaited expression.
+function askConfirm(message) {
+  const dialog = $("confirmDialog");
+  $("confirmMessage").textContent = message;
+  const opener = document.activeElement;
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      // Focus returns to whatever opened the dialog, which Escape would
+      // otherwise strand.
+      if (opener && typeof opener.focus === "function") opener.focus();
+      resolve(dialog.returnValue === "ok");
+    }, { once: true });
+    dialog.showModal();
+    $("confirmOk").focus();
+  });
+}
+
+// SHORTCUTS is the single source for the help dialog, so the list cannot drift
+// from what the handlers actually bind.
+const SHORTCUTS = [
+  ["Alt+↓ / Alt+↑", "shortcutNavigate"],
+  ["Alt+Home / Alt+End", "shortcutFirstLast"],
+  ["Alt+← / Alt+→", "shortcutChooseSide"],
+  ["Alt+B", "shortcutChooseBase"],
+  ["Ctrl+F", "shortcutSearch"],
+  ["Enter / Shift+Enter", "shortcutSearchStep"],
+  ["Esc", "shortcutClose"],
+  ["Ctrl+Enter", "shortcutCompare"],
+];
+
+function showShortcuts() {
+  const list = $("shortcutsList");
+  list.innerHTML = "";
+  for (const [keys, key] of SHORTCUTS) {
+    const term = document.createElement("dt");
+    term.textContent = keys;
+    const description = document.createElement("dd");
+    description.textContent = t(key);
+    list.append(term, description);
+  }
+  const opener = document.activeElement;
+  $("shortcutsDialog").addEventListener("close", () => {
+    if (opener && typeof opener.focus === "function") opener.focus();
+  }, { once: true });
+  $("shortcutsDialog").showModal();
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   return {
@@ -2123,7 +2187,7 @@ $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updat
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);
-$("navHelp").addEventListener("click", () => alert(t("navHelpText")));
+$("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
   let target = null;

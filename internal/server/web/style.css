@@ -237,6 +237,25 @@ button:active:not(:disabled) {
 /* Collapsed setup groups (#93). The badge reports how many controls inside
    differ from their defaults, so folding a group never hides a change. */
 /* Swap control between the two path rows (#90). */
+/* In-app dialogs replacing window.confirm and window.alert (#98, #99). A
+   native dialog cannot be styled, cannot be read alongside the UI it describes,
+   and on the merge path it blocked the page while asking about a file write. */
+.app-dialog {
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 0;
+  background: var(--panel); color: var(--fg); box-shadow: var(--shadow);
+  max-width: min(34rem, 92vw);
+}
+.app-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.app-dialog form { padding: 1rem 1.1rem; margin: 0; }
+.app-dialog h2 { margin: 0 0 0.6rem; font-size: 1.05rem; }
+.app-dialog p { margin: 0 0 1rem; white-space: pre-wrap; }
+.app-dialog menu { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0; padding: 0; }
+.app-dialog menu button { margin: 0; }
+.app-dialog menu button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.9rem; margin: 0 0 1rem; }
+.shortcuts dt { font-family: var(--mono); color: var(--accent-bright); white-space: nowrap; }
+.shortcuts dd { margin: 0; }
+
 .path-swap { display: flex; justify-content: flex-end; margin-top: -0.2rem; }
 .path-swap button { margin: 0; padding: 0.25rem 0.7rem; font-size: var(--fs-label); }
 

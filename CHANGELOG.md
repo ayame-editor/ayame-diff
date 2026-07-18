@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replaced the native browser prompts with in-app dialogs. The merge
+  confirmations no longer block the page behind a prompt that cannot show what
+  is being confirmed, and the keyboard shortcut list is a readable panel rather
+  than an alert box, generated from the same list the handlers bind so the two
+  cannot drift. Both return focus to whatever opened them. (#98, #99)
 - Added a swap control between the OLD and NEW inputs, so reversing a
   comparison no longer means retyping both paths; it swaps whichever pair is in
   use, forgets the inspection that described the old pairing, and re-runs only
