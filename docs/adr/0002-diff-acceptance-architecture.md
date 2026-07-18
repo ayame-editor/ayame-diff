@@ -1,111 +1,91 @@
 <!-- i18n: language-switcher -->
-[English](0002-diff-acceptance-architecture.en.md) | [日本語](0002-diff-acceptance-architecture.md)
+[English](0002-diff-acceptance-architecture.md) | [日本語](0002-diff-acceptance-architecture.ja.md)
 
-# ADR 0002: ayame-editor の diff / sortdiff 受け入れアーキテクチャ
+# ADR 0002: Architecture for Accepting diff / sortdiff in ayame-editor
 
-- ステータス: Accepted（2026-07-10）
-- 関連 Issue: hjosugi/ayame-diff#4
-- 実装 Issue: hjosugi/ayame-diff#5 #6 #7 #8 #9
-- 移管元 Epic: hjosugi/ayame-editor#104
+- Status: Accepted (2026-07-10)
+- Related Issue: hjosugi/ayame-diff#4
+- Implementation Issues: hjosugi/ayame-diff#5 #6 #7 #8 #9
+- Origin Epic: hjosugi/ayame-editor#104
 
-## 背景
+## Background
 
-ayame-editor（Rust）から diff 関連機能を本プロジェクト（Go・依存ゼロ方針）へ
-移管する。移管対象と参照実装：
+The diff-related features from ayame-editor (Rust) will be migrated to this project (Go, zero dependencies policy).
+Targeted reference implementation:
 
-- `crates/ayame-cli/src/diff.rs`（610 行）
-  - `cmd_diff`: **bounded resync window 方式**の行 diff。全行 LCS 行列を
-    持たず、アンカー行から前方 `window` 行だけ走査して再同期するため
-    **O(n)・メモリ有界**で巨大ファイルに耐える。出力は unified（既定）/
-    `--side-by-side` / `--json` / `--summary`。`--max-hunks` `--max-lines`
-    `--window` `--width` で制御。
-  - `cmd_sortdiff`: 両ファイルを外部ソートで UTF-8 一時ファイルへ書き出し、
-    同じ `diff_documents` に通す。`--key/-k` `--delim/-t` `--quote`
-    `--numeric/-n` `--reverse/-r` `--csv` `--budget` `--spill-dir` を持つ。
-  - データモデル: `DiffResult` / `DiffHunk` / `DiffKind{Insert,Delete,Replace}`。
-- `serve/ops.rs:968-1134`（`/api/diff`）、`web/src/search.ts:539-741`（diff ビュー）
-  → GUI 側（#10 #11）で受ける。
+- `crates/ayame-cli/src/diff.rs` (line 610)
+  - `cmd_diff`: **bounded resync window** line diff. Does not hold the full line LCS matrix, but scans only the previous `window` lines from anchor lines to resynchronize, making it **O(n) and memory-bounded**, suitable for large files. Output options include unified (default), `--side-by-side`, `--json`, `--summary`. Controlled via `--max-hunks`, `--max-lines`, `--window`, `--width`.
+  - `cmd_sortdiff`: External sorts both files into temporary UTF-8 files, then passes them to `diff_documents`. Supports `--key/-k`, `--delim/-t`, `--quote`, `--numeric/-n`, `--reverse/-r`, `--csv`, `--budget`, `--spill-dir`.
+  - Data model: `DiffResult` / `DiffHunk` / `DiffKind{Insert,Delete,Replace}`.
+- `serve/ops.rs:968-1134` (`/api/diff`), `web/src/search.ts:539-741` (diff view)
+  → To be received on the GUI side (#10 #11).
 
-## 決定
+## Decisions
 
-### 1. 移植方式: Go への再実装
+### 1. Migration approach: Re-implementation in Go
 
-Rust→Go の FFI やサブプロセス連携は採らず、**Go で純粋に再実装**する。
-依存ゼロ方針（標準ライブラリのみ）と整合し、単一バイナリ配布・`go install`・
-クロスコンパイルの容易さを維持する。参照実装のアルゴリズム（bounded resync
-window）とデータモデル（Insert/Delete/Replace ハンク）をそのまま踏襲する。
+No Rust→Go FFI or subprocess linkage; **pure re-implementation in Go**.
+Aligns with the zero-dependency (standard library only) policy, maintaining single binary distribution, `go install`, and ease of cross-compilation.
+Will directly follow the reference implementation's algorithm (bounded resync window) and data model (Hunks of Insert/Delete/Replace).
 
-### 2. CLI サーフェス: サブコマンド化（後方互換つき）
+### 2. CLI interface: Subcommand-based (with backward compatibility)
 
-```
-ayame-diff csv    [flags] --left A --right B   # 既存: CSV/TSV キー比較
-ayame-diff text   [flags] OLD NEW              # 新規(#5): 行 diff（resync window）
-ayame-diff sorted [flags] OLD NEW              # 新規(#7): 外部ソート後に text diff
-ayame-diff        [flags]                      # 無印 = csv 互換（後方互換）
+```bash
+ayame-diff csv    [flags] --left A --right B   # Existing: CSV/TSV key comparison
+ayame-diff text   [flags] OLD NEW              # New (#5): line diff (resync window)
+ayame-diff sorted [flags] OLD NEW              # New (#7): external sort + text diff
+ayame-diff        [flags]                      # Default = CSV compatibility (backward compatible)
 ```
 
-> 補足（2026-07-10）: 対話式 TUI ウィザードは #25 で撤去済み。現状の無印・引数なし
-> 起動は使い方を表示して終了する。サブコマンド実装（#5）で無印を csv に割り当てる。
+> Note (2026-07-10): Interactive TUI wizard (#25) has been removed.
+> Current default/no-argument invocation shows usage and exits.
+> The `#5` subcommand will assign the default/no-argument case to CSV.
 
-**安全なデフォルト + 上級者向け逃げ道**（Sindre Sorhus 流）:
+**Safe defaults + advanced escape hatch** (Sindre Sorhus style):
 
-- 既存ユーザーの `ayame-diff --left ... --right ...` は **無印 = csv** に
-  ディスパッチして壊さない（サブコマンド実装後）。
-- 新機能は明示的なサブコマンドの下に置き、無関係なフラグが混ざらないように
-  する（`--mode` フラグ方式を採らない理由：モードごとに有効フラグが違うため、
-  サブコマンドで名前空間を分けた方がヘルプ・検証が明快になる）。
-- 出力既定は unified（人間可読）。機械可読が要るときだけ `--json`。
+- Existing users' `ayame-diff --left ... --right ...` will **dispatch to default = csv** after subcommand implementation.
+- New features will be placed under explicit subcommands, avoiding mixing unrelated flags (no `--mode` flag approach).
+  Reason: different modes have different valid flags; separating via subcommands makes help and validation clearer.
+- Default output is unified (human-readable). Use `--json` only when machine-readable output is needed.
 
-サブコマンド・ディスパッチャの実装は #5 で行う（本 ADR では方式のみ確定）。
-将来の `serve`（#10）/ `gui`（#14）も同じ第 1 引数サブコマンドとして自然に増設できる。
+Implementation of the subcommand dispatcher will be done in #5 (only the approach is fixed in this ADR).
+Future `serve` (#10) / `gui` (#14) can naturally add their own subcommands under the same first argument.
 
-### 3. 共用エンジンの範囲（小さく焦点の絞れた部品）
+### 3. Scope of shared engine (small, focused components)
 
-参照した部品分割方針（Sindre Sorhus: Small Focused Modules）に沿い、巨大な
-単一クラスにせず境界を切る。既存 `internal/engine`（外部ソート・パーティション
-基盤）を土台に：
+Following the component division principle (Sindre Sorhus: Small Focused Modules), avoid creating a monolithic class; define clear boundaries.
+Base on existing `internal/engine` (external sort/partition foundation):
 
-| パッケージ（予定） | 責務 | 由来 |
+| Package (planned) | Responsibility | Origin |
 | --- | --- | --- |
-| `internal/engine`（既存 = fcsv） | CSV/TSV パース・キー比較・**外部ソート/パーティション** | 現行 |
-| `internal/linediff`（新 #5） | bounded resync window の行 diff・`Hunk{Insert/Delete/Replace}` | diff.rs 移植 |
-| `internal/diffout`（新 #6） | unified / side-by-side / JSON / summary の整形（linediff から分離） | diff.rs 移植 |
-| `internal/worddiff`（新 #8） | Replace ハンク内の語単位 LCS ハイライト | search.ts 移植 |
+| `internal/engine` (existing = fcsv) | CSV/TSV parsing, key comparison, **external sort/partition** | Current implementation |
+| `internal/linediff` (new #5) | line diff with bounded resync window, `Hunk{Insert/Delete/Replace}` | Port from `diff.rs` |
+| `internal/diffout` (new #6) | formatting unified/side-by-side/JSON/summary (separated from linediff) | Port from `diff.rs` |
+| `internal/worddiff` (new #8) | word-level LCS highlighting within Replace hunks | Port from `search.ts` |
 
-- **`sorted` は新規に外部ソートを書かない**。既存 `internal/engine` の
-  ソート/スピル基盤を再利用し、その出力を `linediff` に渡す（`cmd_sortdiff`
-  と同じ構図）。job-control（並列・バックプレッシャ・キャンセル）も engine 側の
-  既存機構を共用する。
-- `linediff` は I/O とアルゴリズムを分離し、出力整形（`diffout`）に依存しない
-  純粋なコアに保つ（テスト容易性・GUI からの再利用のため）。
+- **`sorted` will not perform external sort itself**. It reuses the existing `internal/engine` sort/spill infrastructure, passing output to `linediff` (similar to `cmd_sortdiff`).
+  Job control (parallelism, backpressure, cancellation) will also share existing engine mechanisms.
+- `linediff` will separate I/O and algorithm, keeping a pure core that does not depend on output formatting (`diffout`) (for testability and GUI reuse).
 
-### 4. エンコーディング対応
+### 4. Encoding support
 
-参照実装は UTF-8 / Shift_JIS / EUC-JP / UTF-16 に対応するが、これは
-**#9 に分離**する。初期移植（#5〜#8）は UTF-8 前提で進め、非 UTF-8 は #9 で
-別途受け入れる。
+The reference implementation supports UTF-8 / Shift_JIS / EUC-JP / UTF-16, but this will be **separated into #9**.
+Initial port (#5-#8) will assume UTF-8, with non-UTF-8 handling deferred to #9.
 
-### 5. 依存ゼロ方針
+### 5. Zero dependency policy
 
-**維持する。** 標準ライブラリのみ。例外を許容する基準を明文化しておく：
+**Maintain**. Only standard library.
+Exceptions are allowed under clearly documented criteria:
 
-- 追加してよいのは、標準ライブラリに存在せず自前実装が現実的でない領域に
-  限る（例: 非 UTF-8 デコード = `golang.org/x/text/encoding` は #9 で
-  可否を再検討、GUI の WebView など）。
-- 例外を入れる場合は当該 Issue で「なぜ標準ライブラリで不可能か」を記録し、
-  `THIRD_PARTY_NOTICES.md` を更新する。
-- CLI コア（csv/text/sorted）は依存ゼロを死守する。
+- Only in areas where standard library does not exist and custom implementation is practical (e.g., non-UTF-8 decoding = `golang.org/x/text/encoding` will be reconsidered in #9, or for GUI WebView, etc.).
+- When exceptions are made, record "why not possible with standard library" in the relevant Issue, and update `THIRD_PARTY_NOTICES.md`.
+- The core CLI (`csv/text/sorted`) will strictly maintain zero dependencies.
 
-## 完了条件（本 ADR で満たすもの）
+## Completion criteria (what this ADR will fulfill)
 
-移植方式（Go 再実装）・CLI 設計（サブコマンド + 後方互換）・共用範囲
-（engine 再利用、linediff/diffout/worddiff の分割）が確定し、実装 Issue
-（#5 行 diff / #6 出力 / #7 sortdiff / #8 単語 diff / #9 エンコーディング）が
-着手可能になった。
+Once the migration approach (Go re-implementation), CLI design (subcommands + backward compatibility), and shared engine scope (reuse of `linediff`, `diffout`, `worddiff`) are fixed, and implementation issues (#5 line diff, #6 output, #7 sortdiff, #8 word diff, #9 encoding) are ready to start, the work can proceed.
 
-## 却下した案
+## Rejected proposals
 
-- **`--mode=csv|text|sorted` フラグ方式**: モードごとに有効フラグ集合が
-  異なり、ヘルプと検証が複雑化するため却下（サブコマンドで名前空間分離）。
-- **Rust バイナリの同梱/サブプロセス呼び出し**: 単一バイナリ配布・依存ゼロ・
-  クロスコンパイルの利点を失うため却下。
+- **`--mode=csv|text|sorted` flag approach**: Rejected because different modes have different valid flag sets, complicating help and validation (subcommands will separate namespace).
+- **Including Rust binaries / calling subprocesses**: Rejected because it would lose the benefits of single binary distribution, zero dependencies, and cross-compilation.

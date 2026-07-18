@@ -1,49 +1,41 @@
 <!-- i18n: language-switcher -->
-[English](0003-encoding-dependency.en.md) | [日本語](0003-encoding-dependency.md)
+[English](0003-encoding-dependency.md) | [日本語](0003-encoding-dependency.ja.md)
 
-# ADR 0003: 文字コード対応と依存性の例外（golang.org/x/text）
+# ADR 0003: Example of Character Encoding Support and Dependency Exceptions (golang.org/x/text)
 
-- ステータス: Accepted（2026-07-11）
-- 関連 Issue: hjosugi/ayame-diff#9
-- 参照: ADR 0002（依存ゼロ方針と例外基準）
+- Status: Accepted (2026-07-11)
+- Related Issue: hjosugi/ayame-diff#9
+- Reference: ADR 0002 (Zero Dependency Policy and Exception Criteria)
 
-## 背景
+## Background
 
-日本語ファイルを扱うため、非 UTF-8 の文字コード（Shift_JIS / EUC-JP /
-ISO-2022-JP / UTF-16）の検出とデコードが必要（WinMerge の codepage 対応に相当）。
-Shift_JIS / EUC-JP / ISO-2022-JP は大きな変換表を要し、標準ライブラリには無い。
-自前で正確に再実装するのは非現実的でバグの温床になる。
+To handle Japanese files, detection and decoding of non-UTF-8 character encodings (Shift_JIS / EUC-JP / ISO-2022-JP / UTF-16) are necessary (corresponding to WinMerge's codepage support).
+Shift_JIS / EUC-JP / ISO-2022-JP require large conversion tables, which are not included in the standard library.
+Implementing these accurately on our own is impractical and prone to bugs.
 
-## 決定
+## Decision
 
-**`golang.org/x/text` を唯一の外部依存として許可する。** ADR 0002 の例外基準
-（「標準ライブラリに存在せず自前実装が現実的でない領域に限る」）に合致する。
+**Allow only `golang.org/x/text` as an external dependency.**
+This aligns with the exception criteria of ADR 0002 ("limited to areas not present in the standard library and not feasible to implement in-house").
 
-- `internal/encoding` パッケージにのみ依存を閉じ込める（他パッケージは
-  `internal/encoding` 経由で利用）。
-- バージョンは **v0.21.0** に固定。これは `go 1.23` 互換を維持するため（最新の
-  x/text は go 1.25+ を要求し、モジュールの最低 Go バージョンを引き上げてしまう）。
-  Japanese/Unicode コーデックは長期安定のため旧バージョンで問題ない。
-- `THIRD_PARTY_NOTICES.md` に BSD-3-Clause を記載。
-- CSV コア（`internal/engine`）・diff コア（`linediff` 等）は引き続き依存ゼロ。
+- Depend solely on the `internal/encoding` package (other packages access it via `internal/encoding`).
+- Fix the version to **v0.21.0** to maintain compatibility with `go 1.23` (latest `x/text` requires `go 1.25+`, raising the minimum Go version for the module).
+  Since Japanese/Unicode codecs are long-term stable, using an older version is acceptable.
+- Document BSD-3-Clause license in `THIRD_PARTY_NOTICES.md`.
+- Core CSV (`internal/engine`) and diff (`linediff`, etc.) remain dependency-free.
 
-## 実装
+## Implementation
 
-- `internal/encoding`: `Detect(sample, hint)`（BOM → 明示 → UTF-8 妥当性 →
-  Shift_JIS/EUC-JP ヒューリスティック）と `Decoder(r, name)`（ストリーミング
-  デコードで UTF-8 化）。
-- `internal/linesrc.OpenEncoding(path, hint)`: 先頭 8KiB のサンプルで検出し、
-  `transform.NewReader` で復号しつつ既存のメモリ有界な行読み取りに載せる
-  （巨大ファイルでもメモリ有界を維持）。
-- CLI: `text` / `sorted` に `--encoding`（既定 `auto`）。
-- GUI: エンコーディング選択ドロップダウン + `/api/diff` の `encoding`。
+- `internal/encoding`: `Detect(sample, hint)` (detects BOM → explicit encoding → UTF-8 validity → Shift_JIS/EUC-JP heuristics) and `Decoder(r, name)` (streaming decode to UTF-8).
+- `internal/linesrc.OpenEncoding(path, hint)`: detects encoding from the first 8KiB sample, decodes with `transform.NewReader`, and reads lines within memory bounds (even for large files).
+- CLI: add `--encoding` option to `text` / `sorted` commands (default `auto`).
+- GUI: encoding selection dropdown + `/api/diff`'s `encoding` parameter.
 
-対応: `auto` / `utf-8` / `utf-16le` / `utf-16be` / `shift_jis` / `euc-jp` /
-`iso-2022-jp`。UTF-8 BOM は除去、UTF-16 BOM は復号器が消費。
+Supported encodings: `auto` / `utf-8` / `utf-16le` / `utf-16be` / `shift_jis` / `euc-jp` / `iso-2022-jp`.
+UTF-8 BOM is removed; UTF-16 BOM is handled by the decoder.
 
-## 却下した案
+## Rejected Alternatives
 
-- **依存ゼロ死守（SJIS/EUC-JP 非対応）**: 「日本語も完全対応」という要件を
-  満たせないため却下。
-- **変換表の自前実装**: 保守コスト大・バグリスク大で却下。
-- **最新 x/text**: `go 1.25+` を要求しモジュールの最低 Go を上げるため v0.21.0 に固定。
+- **Zero dependency (no support for SJIS/EUC-JP)**: Rejected because it cannot fully support Japanese.
+- **Implementing conversion tables in-house**: Rejected due to high maintenance cost and bug risk.
+- **Latest `x/text`**: Fixed to v0.21.0 because newer versions require `go 1.25+`, raising the minimum Go version for the module.

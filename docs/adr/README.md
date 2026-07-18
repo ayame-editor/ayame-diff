@@ -3,12 +3,14 @@
 
 # Architecture Decision Records
 
-方針決定の記録。番号は連番、ステータスは Proposed / Accepted / Superseded。
+This directory records architectural decisions for ayame-diff. Records use sequential
+numbers and have a status of Proposed, Accepted, or Superseded.
 
-| # | タイトル | ステータス | Issue |
+| # | Title | Status | Issue |
 | --- | --- | --- | --- |
-| [0001](0001-naming-unification.md) | プロジェクト名の統一（`fcsv-diff` → `ayame-diff`） | Accepted | #3 |
-| [0002](0002-diff-acceptance-architecture.md) | diff / sortdiff 受け入れアーキテクチャ | Accepted | #4 |
-| [0003](0003-encoding-dependency.md) | 文字コード対応と依存性の例外（x/text） | Accepted | #9 |
+| [0001](0001-naming-unification.md) | Standardization of project name (`fcsv-diff` → `ayame-diff`) | Accepted | #3 |
+| [0002](0002-diff-acceptance-architecture.md) | Architecture for accepting diff / sortdiff | Accepted | #4 |
+| [0003](0003-encoding-dependency.md) | Character encoding support and dependency exception (`x/text`) | Accepted | #9 |
 
-姉妹プロジェクト ayame-editor 側の切り出し方針: hjosugi/ayame-editor#104
+The extraction strategy for the sister project ayame-editor is tracked in
+hjosugi/ayame-editor#104.
