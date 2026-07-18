@@ -43,8 +43,10 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&compareBy, "compare-by", "", "comparison method: contents, quick, hash, date, or size (default contents)")
 	fs.BoolVar(&quick, "quick", false, "alias for --compare-by quick")
 	fs.IntVar(&workers, "workers", workers, "parallel content comparison workers (1..64)")
+	var maxEntries int
 	fs.StringVar(&maxArchiveEntryBytes, "max-archive-entry-bytes", maxArchiveEntryBytes, "maximum uncompressed size of one archive entry")
 	fs.StringVar(&maxArchiveBytes, "max-archive-bytes", maxArchiveBytes, "maximum total uncompressed size of one archive")
+	fs.IntVar(&maxEntries, "max-entries", dircompare.DefaultMaxEntries, "maximum files compared across both trees (negative disables the check)")
 	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist (usage errors exit 2, runtime errors 3)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
@@ -151,6 +153,7 @@ Unchanged files are hidden unless --all is given.`)
 	res, err := dircompare.CompareAny(oldPath, newPath, dircompare.Options{
 		Excludes: excludes.values, Includes: includes.values, IncludeHidden: includeHidden,
 		Filter: filter, CompareBy: method, Workers: workers, MaxArchiveEntryBytes: entryLimit, MaxArchiveBytes: totalLimit,
+		MaxEntries: maxEntries,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)

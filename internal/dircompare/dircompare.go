@@ -23,7 +23,16 @@ const (
 	// archive. CompareAny can open two archives, so its worst-case retention is
 	// twice this value plus small comparison buffers.
 	DefaultMaxArchiveBytes int64 = 256 << 20
+	// DefaultMaxEntries bounds how many files one comparison holds. A Result
+	// carries one Entry per file including unchanged ones, and the server
+	// copies the whole set again to serialize it, so an enormous tree
+	// allocates proportionally with nothing to stop it (#137).
+	DefaultMaxEntries = 2_000_000
 )
+
+// ErrTooManyEntries identifies a comparison refused because the two trees hold
+// more files than the entry limit.
+var ErrTooManyEntries = errors.New("directory comparison entry limit exceeded")
 
 // ErrArchiveLimit identifies an archive rejected before its expanded content
 // could exceed a configured memory limit.
@@ -111,6 +120,9 @@ type Options struct {
 	// retained in memory (0 selects the safe defaults above).
 	MaxArchiveEntryBytes int64
 	MaxArchiveBytes      int64
+	// MaxEntries bounds the number of compared files (0 selects
+	// DefaultMaxEntries; negative disables the check).
+	MaxEntries int
 }
 
 // Result holds every file entry (sorted by path, including Same) plus counts.

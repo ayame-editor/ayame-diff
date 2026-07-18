@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -45,6 +46,10 @@ type universalLineReader struct {
 	reader  *bufio.Reader
 	pending []byte
 	eof     bool
+	// maxLine bounds one logical line; 0 disables the check. The sliding
+	// window bounds how many lines are resident, but nothing bounded a single
+	// line, so a file with no line breaks was fully resident (#137).
+	maxLine int
 }
 
 func (u *universalLineReader) readLine() (string, string, bool, error) {
@@ -84,7 +89,10 @@ func (u *universalLineReader) readLine() (string, string, bool, error) {
 
 func (u *universalLineReader) fill() error {
 	chunk, err := u.reader.ReadSlice('\n')
-	u.pending = append(u.pending, chunk...)
+	u.appendPending(chunk)
+	if limitErr := u.checkLineLength(); limitErr != nil {
+		return limitErr
+	}
 	switch err {
 	case nil, bufio.ErrBufferFull:
 		return nil
@@ -96,6 +104,47 @@ func (u *universalLineReader) fill() error {
 	}
 }
 
+// appendPending appends chunk, capping the growth strategy at maxLine plus one
+// read buffer. Plain append doubles, so accumulating a line up to a 64 MiB
+// limit could reserve 128 MiB and peak near 256 MiB mid-copy — several times
+// the budget the user asked for. Growth stays bounded by the limit instead, so
+// peak stays close to it.
+func (u *universalLineReader) appendPending(chunk []byte) {
+	needed := len(u.pending) + len(chunk)
+	if needed > cap(u.pending) && u.maxLine > 0 {
+		target := 2 * needed
+		if ceiling := u.maxLine + readerBufSize + 1; target > ceiling {
+			target = ceiling
+		}
+		if target > cap(u.pending) {
+			if target < needed {
+				target = needed
+			}
+			grown := make([]byte, len(u.pending), target)
+			copy(grown, u.pending)
+			u.pending = grown
+		}
+	}
+	u.pending = append(u.pending, chunk...)
+}
+
+// checkLineLength rejects a single line longer than maxLine. It measures the
+// first line in pending rather than all of pending, which can legitimately hold
+// several CR-delimited lines from one chunk.
+func (u *universalLineReader) checkLineLength() error {
+	if u.maxLine <= 0 {
+		return nil
+	}
+	length := len(u.pending)
+	if index := bytes.IndexAny(u.pending, "\r\n"); index >= 0 {
+		length = index
+	}
+	if length > u.maxLine {
+		return &LineTooLongError{Limit: u.maxLine}
+	}
+	return nil
+}
+
 // FileLines serves the lines of a file to linediff.Lines with bounded memory.
 // It is not safe for concurrent use.
 type FileLines struct {
@@ -103,6 +152,7 @@ type FileLines struct {
 	gzipped  bool
 	encoding string // concrete encoding name (as resolved by the encoding pkg)
 	hasBOM   bool   // a leading UTF-8 BOM was present (and stripped) on open
+	maxLine  int    // per-line cap carried so reset() rebuilds the same reader
 	count    uint64
 
 	// Streaming state. reader is positioned just past line index next-1.
@@ -130,16 +180,24 @@ func Open(path string) (*FileLines, error) {
 // detects from a sample). It pre-counts the lines in one pass and returns a
 // FileLines positioned to stream from the start. Close releases the file handle.
 func OpenEncoding(path, encHint string) (*FileLines, error) {
+	return OpenEncodingLimit(path, encHint, DefaultMaxLineBytes)
+}
+
+// OpenEncodingLimit is OpenEncoding with an explicit per-line byte cap; 0
+// disables the check. The cap is enforced during the pre-count pass, so an
+// input that cannot be compared within bounded memory fails at open time rather
+// than part-way through a comparison (#137).
+func OpenEncodingLimit(path, encHint string, maxLine int) (*FileLines, error) {
 	gzipped := strings.HasSuffix(strings.ToLower(path), ".gz")
 	enc, err := detectEncoding(path, gzipped, encHint)
 	if err != nil {
 		return nil, err
 	}
-	count, err := countLines(path, gzipped, enc)
+	count, err := countLines(path, gzipped, enc, maxLine)
 	if err != nil {
 		return nil, err
 	}
-	f := &FileLines{path: path, gzipped: gzipped, encoding: enc, count: count}
+	f := &FileLines{path: path, gzipped: gzipped, encoding: enc, maxLine: maxLine, count: count}
 	if err := f.reset(); err != nil {
 		return nil, err
 	}
@@ -163,6 +221,22 @@ var (
 	ErrIsDirectory   = errors.New("this path is a folder; use folder (dir) mode to compare directories")
 	ErrBinaryContent = errors.New("this file looks binary; use binary (bin) mode to compare non-text files")
 )
+
+// DefaultMaxLineBytes bounds one logical line. The sliding window bounds how
+// many lines stay resident, but a file with no line breaks is a single line, so
+// without this the "streaming" reader would hold the whole file. A var so the
+// CLI and server can raise it. (#137)
+var DefaultMaxLineBytes = 64 << 20 // 64 MiB
+
+// LineTooLongError reports a line past the limit. It names a way forward
+// rather than just refusing: such a file is usually minified data, a database
+// dump, or something that is not really line-oriented at all.
+type LineTooLongError struct{ Limit int }
+
+func (e *LineTooLongError) Error() string {
+	return fmt.Sprintf("this file has a single line longer than %d bytes, so comparing it line by line would hold the whole file in memory; "+
+		"raise --max-line-bytes to allow it, or use binary (bin) mode if the file is not line-oriented", e.Limit)
+}
 
 // detectSample bounds how many bytes are read to detect the encoding.
 const detectSample = 8 * 1024
@@ -331,7 +405,7 @@ func skipUTF8BOM(br *bufio.Reader) (bool, error) {
 
 // countLines counts lines using the same emit rule as readLine, in one pass,
 // over the decoded (UTF-8) stream.
-func countLines(path string, gzipped bool, enc string) (uint64, error) {
+func countLines(path string, gzipped bool, enc string, maxLine int) (uint64, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -352,7 +426,7 @@ func countLines(path string, gzipped bool, enc string) (uint64, error) {
 		return 0, err
 	}
 
-	reader := &universalLineReader{reader: br}
+	reader := &universalLineReader{reader: br, maxLine: maxLine}
 	var count uint64
 	for {
 		_, _, ok, err := reader.readLine()
@@ -393,7 +467,7 @@ func (f *FileLines) reset() error {
 		return err
 	}
 	f.hasBOM = hadBOM
-	f.reader = &universalLineReader{reader: reader}
+	f.reader = &universalLineReader{reader: reader, maxLine: f.maxLine}
 	f.buf = nil
 	f.endings = nil
 	f.bufStart = 0

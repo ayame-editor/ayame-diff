@@ -166,6 +166,23 @@ func loadArchive(path string, opts Options) (source, error) {
 	return archiveSource{content}, nil
 }
 
+// checkEntryBudget refuses a comparison whose file count would not fit the
+// entry limit. It is checked once the union of both trees is known and before
+// any per-file work begins, so the refusal is cheap and the message can name
+// the actual size. Filters are the way forward, so it says so.
+func checkEntryBudget(count int, opts Options) error {
+	limit := opts.MaxEntries
+	if limit == 0 {
+		limit = DefaultMaxEntries
+	}
+	if limit < 0 || count <= limit {
+		return nil
+	}
+	return fmt.Errorf("%w: these trees hold %d files, above the limit of %d; "+
+		"narrow the comparison with --include or --exclude, compare a subdirectory, or raise --max-entries",
+		ErrTooManyEntries, count, limit)
+}
+
 func archiveLimits(opts Options) (entry, total int64) {
 	entry = opts.MaxArchiveEntryBytes
 	if entry <= 0 {
@@ -315,6 +332,9 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 		}
 	}
 	sort.Strings(rels)
+	if err := checkEntryBudget(len(rels), opts); err != nil {
+		return nil, err
+	}
 
 	method, err := ParseCompareMethod(string(opts.CompareBy))
 	if err != nil {
