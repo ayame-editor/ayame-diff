@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/dircompare"
 	"github.com/hjosugi/ayame-diff/internal/engine"
@@ -52,6 +53,15 @@ const (
 	serverMaxArchiveBytes      int64 = 8 << 30 // 8 GiB
 )
 
+// Browser drops are staged on disk before the path-based comparison engines
+// open them. Bound both one request and the aggregate for one browser session
+// so a bad or accidental drop cannot grow one cache tree without limit (#109).
+// Vars let regression tests exercise the boundaries with tiny payloads.
+var (
+	maxDropUploadBytes  int64 = 2 << 30 // 2 GiB per file
+	maxDropSessionBytes int64 = 8 << 30 // 8 GiB per browser session
+)
+
 // maxConcurrentComparisons bounds how many expensive comparisons run at once, so
 // N parallel requests cannot multiply memory / temp-dir / goroutine use without
 // limit (#170). A var so tests can shrink it before New.
@@ -62,12 +72,21 @@ var maxConcurrentComparisons = max(2, runtime.NumCPU())
 // cleanup regardless of age (#168). A var so tests can shrink it.
 var dropSessionTTL = 24 * time.Hour
 
+type dropSession struct {
+	root string
+
+	// Uploads within one browser session are serialized so aggregate accounting
+	// remains exact. Different sessions can still stream concurrently.
+	mu   sync.Mutex
+	used int64
+}
+
 // Server serves the UI and diff API.
 type Server struct {
 	version    string
 	mux        *http.ServeMux
 	dropMu     sync.Mutex
-	drops      map[string]string
+	drops      map[string]*dropSession
 	compareSem chan struct{} // bounds concurrent expensive comparisons (#170)
 }
 
@@ -78,7 +97,7 @@ func New(version string) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		version: version, mux: http.NewServeMux(), drops: make(map[string]string),
+		version: version, mux: http.NewServeMux(), drops: make(map[string]*dropSession),
 		compareSem: make(chan struct{}, maxConcurrentComparisons),
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
@@ -112,6 +131,7 @@ func New(version string) (*Server, error) {
 // multiply resource use without bound (#170).
 func (s *Server) limited(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w = longOperationResponseWriter(w)
 		select {
 		case s.compareSem <- struct{}{}:
 			defer func() { <-s.compareSem }()
@@ -137,31 +157,61 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "safe session and relative path are required")
 		return
 	}
-	root, err := s.dropRoot(session)
+	extendDropDeadlines(w)
+	drop, err := s.dropState(session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	target := filepath.Join(root, relative)
+	drop.mu.Lock()
+	defer drop.mu.Unlock()
+
+	target := filepath.Join(drop.root, relative)
 	if r.URL.Query().Get("directory") == "1" {
 		err = os.MkdirAll(target, 0o700)
 	} else {
-		if err = os.MkdirAll(filepath.Dir(target), 0o700); err == nil {
-			var file *os.File
-			file, err = os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-			if err == nil {
-				_, copyErr := io.Copy(file, r.Body)
-				closeErr := file.Close()
-				if copyErr != nil {
-					err = copyErr
-				} else if closeErr != nil {
-					err = closeErr
-				}
+		oldSize, sizeErr := regularFileSize(target)
+		if sizeErr != nil {
+			writeError(w, http.StatusInternalServerError, sizeErr.Error())
+			return
+		}
+		baseUsed := drop.used - oldSize
+		sessionAvailable := maxDropSessionBytes - baseUsed
+		if sessionAvailable <= 0 {
+			writeDropLimitError(w, maxDropSessionBytes, true)
+			return
+		}
+		allowed := min(maxDropUploadBytes, sessionAvailable)
+		if r.ContentLength > allowed {
+			writeDropLimitError(w, limitForDropError(sessionAvailable), sessionAvailable < maxDropUploadBytes)
+			return
+		}
+		if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, allowed)
+		var copied int64
+		err = atomicfile.Write(target, atomicfile.Options{
+			Pattern: ".ayame-drop-*.tmp",
+			Mode:    0o600,
+		}, func(destination io.Writer) error {
+			var copyErr error
+			copied, copyErr = io.Copy(destination, r.Body)
+			return copyErr
+		})
+		if err == nil {
+			drop.used = baseUsed + copied
+		} else {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeDropLimitError(w, limitForDropError(sessionAvailable), sessionAvailable < maxDropUploadBytes)
+				return
 			}
 		}
 	}
 	if err != nil {
-		_ = os.Remove(target)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -170,12 +220,48 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 	}{target})
 }
 
+func regularFileSize(path string) (int64, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, fmt.Errorf("%s is not a regular file", path)
+	}
+	return info.Size(), nil
+}
+
+func limitForDropError(sessionAvailable int64) int64 {
+	return min(maxDropUploadBytes, sessionAvailable)
+}
+
+func writeDropLimitError(w http.ResponseWriter, limit int64, sessionLimit bool) {
+	if sessionLimit {
+		writeError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("drop session exceeds its total limit (%d bytes)", maxDropSessionBytes))
+		return
+	}
+	writeError(w, http.StatusRequestEntityTooLarge,
+		fmt.Sprintf("upload exceeds the per-file limit (%d bytes)", limit))
+}
+
 func (s *Server) dropRoot(session string) (string, error) {
+	drop, err := s.dropState(session)
+	if err != nil {
+		return "", err
+	}
+	return drop.root, nil
+}
+
+func (s *Server) dropState(session string) (*dropSession, error) {
 	s.dropMu.Lock()
-	root := s.drops[session]
+	drop := s.drops[session]
 	s.dropMu.Unlock()
-	if root != "" {
-		return root, nil
+	if drop != nil {
+		return drop, nil
 	}
 
 	base, err := os.UserCacheDir()
@@ -184,28 +270,29 @@ func (s *Server) dropRoot(session string) (string, error) {
 	}
 	base = filepath.Join(base, "ayame-diff", "drops")
 	if err := os.MkdirAll(base, 0o700); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	s.dropMu.Lock()
 	// A concurrent call for the same session may have registered a root while we
 	// prepared the base directory; keep the first one.
-	if existing := s.drops[session]; existing != "" {
+	if existing := s.drops[session]; existing != nil {
 		s.dropMu.Unlock()
 		return existing, nil
 	}
-	root, err = os.MkdirTemp(base, "session-")
+	root, err := os.MkdirTemp(base, "session-")
 	if err != nil {
 		s.dropMu.Unlock()
-		return "", err
+		return nil, err
 	}
-	s.drops[session] = root
+	drop = &dropSession{root: root}
+	s.drops[session] = drop
 	s.dropMu.Unlock()
 
 	// Reclaim orphaned directories from previous runs, but never a live one, and
 	// never while holding the lock (#168).
 	s.cleanupStaleDrops(base)
-	return root, nil
+	return drop, nil
 }
 
 // cleanupStaleDrops removes drop directories older than dropSessionTTL that no
@@ -216,8 +303,8 @@ func (s *Server) dropRoot(session string) (string, error) {
 func (s *Server) cleanupStaleDrops(base string) {
 	s.dropMu.Lock()
 	live := make(map[string]struct{}, len(s.drops))
-	for _, root := range s.drops {
-		live[root] = struct{}{}
+	for _, drop := range s.drops {
+		live[drop.root] = struct{}{}
 	}
 	s.dropMu.Unlock()
 

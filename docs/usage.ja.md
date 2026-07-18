@@ -15,7 +15,7 @@ ayame-diff sorted [flags] OLD NEW                      # 両方のソート後�
 ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ比較
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
-ayame-diff serve  [--addr host:port]                   # ローカルWeb GUI
+ayame-diff serve  [--addr host:port] [--allow-remote]  # ローカルWeb GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # GUIを開き、必要なら入力を事前設定
 ayame-diff update [--check]                            # 最新リリースの確認・導入
 ayame-diff remove [--yes]                              # スタンドアロン版を削除

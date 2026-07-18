@@ -69,11 +69,8 @@ func TestRunServeStartsHealthEndpointAndStops(t *testing.T) {
 	t.Parallel()
 	deps := serveCommandDeps{
 		newHandler: newServerHandler,
-		listenAndServe: func(addr string, handler http.Handler) error {
-			ln, err := net.Listen("tcp", addr)
-			if err != nil {
-				return err
-			}
+		listen:     net.Listen,
+		serve: func(ln net.Listener, handler http.Handler) error {
 			return healthCheckingServe(t, ln, handler)
 		},
 	}
@@ -100,10 +97,18 @@ func TestRunServeMapsStartupAndServeErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "listen and serve",
+			name: "listen",
 			deps: serveCommandDeps{
-				newHandler:     func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
-				listenAndServe: func(string, http.Handler) error { return errTest },
+				newHandler: func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+				listen:     func(string, string) (net.Listener, error) { return nil, errTest },
+			},
+		},
+		{
+			name: "serve",
+			deps: serveCommandDeps{
+				newHandler: func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+				listen:     net.Listen,
+				serve:      func(net.Listener, http.Handler) error { return errTest },
 			},
 		},
 	}
