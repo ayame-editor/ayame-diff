@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Pinned the embedded web assets to LF. They were checked out as CRLF on
+  Windows, so the server shipped different bytes there than everywhere else, and
+  the tests that assert against those assets failed on that platform alone.
 - Rebuilt the setup form around the work it supports. It was a single wrapping
   row of 24 controls mixing four unrelated kinds, so nothing indicated which
   ones change a result and which only change its appearance, and every control
