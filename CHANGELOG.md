@@ -9,6 +9,13 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Fixed three-way CSV merge correctness: non-ASCII keys no longer fail to match
+  (inputs are decoded before the byte-oriented engine, which reported raw bytes
+  through JSONL and lost them to U+FFFD), the reconciled file keeps the base's
+  encoding/BOM/line terminator instead of being rewritten as UTF-8, independent
+  edits to different rows of a duplicated key group now auto-merge as `merged`
+  rather than conflicting and dropping one side's edit, and a replacement row is
+  written where the base row it replaces sat. (#160)
 - Required `--allow-remote` before the local GUI can bind beyond loopback,
   printed usable loopback URLs for wildcard listeners, bounded browser drops
   per file and session with atomic cleanup, and added defensive HTTP transport

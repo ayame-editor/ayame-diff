@@ -2,6 +2,7 @@ package threeway
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -28,6 +29,9 @@ type CSVEvent struct {
 	Base  [][]string `json:"base,omitempty"`
 	Left  [][]string `json:"left,omitempty"`
 	Right [][]string `json:"right,omitempty"`
+	// Combined is set only for Merged groups: the result of applying both
+	// sides' row edits, which is what the merge writes (#160).
+	Combined [][]string `json:"combined,omitempty"`
 }
 
 type CSVResult struct {
@@ -39,9 +43,22 @@ type CSVResult struct {
 	LeftOnly         int        `json:"left_only"`
 	RightOnly        int        `json:"right_only"`
 	Same             int        `json:"same_change"`
+	Merged           int        `json:"merged"`
 	BaseDelimiter    rune       `json:"-"`
 	LazyQuotes       bool       `json:"-"`
 	TrimLeadingSpace bool       `json:"-"`
+	// BaseProfile carries the base file's byte-level conventions so the merge
+	// reproduces them instead of normalizing to BOM-less UTF-8/LF (#159, #160).
+	BaseProfile CSVProfile `json:"-"`
+}
+
+// CSVProfile captures the base file's character encoding, a leading UTF-8 BOM,
+// and its line terminator, so WriteCSVMerge round-trips them rather than
+// silently rewriting the merge as BOM-less UTF-8 with LF (#160).
+type CSVProfile struct {
+	Encoding string // concrete encoding name; "" or "utf-8" needs no re-encoding
+	BOM      bool   // the base began with a UTF-8 BOM
+	CRLF     bool   // rows are terminated with CRLF rather than LF
 }
 
 type csvDiffRecord struct {
@@ -49,34 +66,64 @@ type csvDiffRecord struct {
 	Old  []string `json:"old"`
 	New  []string `json:"new"`
 }
+
+// csvState accumulates one key group. Removals and additions are the row edits
+// each side made; baseRows holds every base row carrying the key, including the
+// ones no diff record mentions, so an untouched row in a duplicated key group
+// is not invisible to the merge (#160).
 type csvState struct {
 	key                       []string
-	leftBase, rightBase       [][]string
-	leftRows, rightRows       [][]string
+	leftRemoved, rightRemoved [][]string
+	leftAdded, rightAdded     [][]string
+	baseRows                  [][]string
 	leftTouched, rightTouched bool
 }
 
 // CompareCSV runs the existing external-sort diff twice and joins only the
 // changed key groups in memory. Inputs themselves remain streaming/bounded.
 func CompareCSV(ctx context.Context, basePath, leftPath, rightPath string, cfg engine.Config) (CSVResult, error) {
-	cfg.LeftPath, cfg.RightPath = basePath, leftPath
-	inspection, err := engine.InspectInputs(cfg)
-	if err != nil {
-		return CSVResult{}, err
-	}
-	indexes, err := csvKeyIndexes(inspection.Header, cfg)
-	if err != nil {
-		return CSVResult{}, err
-	}
 	dir, err := os.MkdirTemp("", "ayame-three-way-csv-")
 	if err != nil {
 		return CSVResult{}, err
 	}
 	defer os.RemoveAll(dir)
+	// The engine is byte-oriented and never decodes (internal/engine does not
+	// import internal/encoding), yet it writes its diff as JSONL — and
+	// encoding/json rewrites invalid UTF-8 as U+FFFD, so raw Shift_JIS bytes
+	// are unrecoverable once they reach that output. Feed the engine UTF-8 and
+	// keep the base's own conventions for the merge instead (#160).
+	baseProfile, err := detectCSVProfile(basePath)
+	if err != nil {
+		return CSVResult{}, err
+	}
+	enginePaths := map[string]string{}
+	for side, path := range map[string]string{"base": basePath, "left": leftPath, "right": rightPath} {
+		profile := baseProfile
+		if path != basePath {
+			if profile, err = detectCSVProfile(path); err != nil {
+				return CSVResult{}, err
+			}
+		}
+		decoded, err := transcodeToUTF8(dir, side, path, profile)
+		if err != nil {
+			return CSVResult{}, err
+		}
+		enginePaths[side] = decoded
+	}
+	cfg.LeftPath, cfg.RightPath = enginePaths["base"], enginePaths["left"]
+	inspection, err := engine.InspectInputs(cfg)
+	if err != nil {
+		return CSVResult{}, err
+	}
+	header := inspection.Header
+	indexes, err := csvKeyIndexes(header, cfg)
+	if err != nil {
+		return CSVResult{}, err
+	}
 	states := make(map[string]*csvState)
 	runSide := func(side string, path string) error {
 		pair := cfg
-		pair.LeftPath, pair.RightPath = basePath, path
+		pair.LeftPath, pair.RightPath = enginePaths["base"], path
 		pair.OutputPath = filepath.Join(dir, side+".jsonl")
 		pair.CellDiff, pair.OutputFormat, pair.OutputHeader = true, "jsonl", false
 		pair.Reconcile, pair.MergeChoices, pair.MergeDefault = false, nil, ""
@@ -97,9 +144,10 @@ func CompareCSV(ctx context.Context, basePath, leftPath, rightPath string, cfg e
 				}
 				return err
 			}
-			row := item.Old
+			removed, added := item.Old, item.New
+			row := removed
 			if len(row) == 0 {
-				row = item.New
+				row = added
 			}
 			key, encoded, err := csvKey(row, indexes)
 			if err != nil {
@@ -112,30 +160,36 @@ func CompareCSV(ctx context.Context, basePath, leftPath, rightPath string, cfg e
 			}
 			if side == "left" {
 				state.leftTouched = true
-				if len(item.Old) > 0 {
-					state.leftBase = append(state.leftBase, item.Old)
+				if len(removed) > 0 {
+					state.leftRemoved = append(state.leftRemoved, removed)
 				}
-				if len(item.New) > 0 {
-					state.leftRows = append(state.leftRows, item.New)
+				if len(added) > 0 {
+					state.leftAdded = append(state.leftAdded, added)
 				}
 			} else {
 				state.rightTouched = true
-				if len(item.Old) > 0 {
-					state.rightBase = append(state.rightBase, item.Old)
+				if len(removed) > 0 {
+					state.rightRemoved = append(state.rightRemoved, removed)
 				}
-				if len(item.New) > 0 {
-					state.rightRows = append(state.rightRows, item.New)
+				if len(added) > 0 {
+					state.rightAdded = append(state.rightAdded, added)
 				}
 			}
 		}
 	}
-	if err := runSide("left", leftPath); err != nil {
+	if err := runSide("left", enginePaths["left"]); err != nil {
 		return CSVResult{}, fmt.Errorf("base/left: %w", err)
 	}
-	if err := runSide("right", rightPath); err != nil {
+	if err := runSide("right", enginePaths["right"]); err != nil {
 		return CSVResult{}, fmt.Errorf("base/right: %w", err)
 	}
-	result := CSVResult{Header: inspection.Header, HasHeader: cfg.HasHeader, KeyIndexes: indexes, BaseDelimiter: inputDelimiter(basePath, cfg.LeftFormat, cfg.LeftDelimiter), LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace}
+	result := CSVResult{Header: header, HasHeader: cfg.HasHeader, KeyIndexes: indexes, BaseDelimiter: inputDelimiter(basePath, cfg.LeftFormat, cfg.LeftDelimiter), LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace, BaseProfile: baseProfile}
+	// Diff records only mention rows that changed, so re-read the base to pick
+	// up the untouched rows of every changed key group. Memory stays bounded by
+	// the changed groups, not by file size.
+	if err := collectBaseGroups(basePath, baseProfile, cfg, result, states); err != nil {
+		return CSVResult{}, err
+	}
 	keys := make([]string, 0, len(states))
 	for key := range states {
 		keys = append(keys, key)
@@ -143,32 +197,32 @@ func CompareCSV(ctx context.Context, basePath, leftPath, rightPath string, cfg e
 	sort.Strings(keys)
 	for _, encoded := range keys {
 		state := states[encoded]
-		baseRows := maxRowMultiset(state.leftBase, state.rightBase)
-		leftRows, rightRows := state.leftRows, state.rightRows
-		if !state.leftTouched {
-			leftRows = cloneRows(baseRows)
-		}
-		if !state.rightTouched {
-			rightRows = cloneRows(baseRows)
-		}
-		sortRows(baseRows)
-		sortRows(leftRows)
-		sortRows(rightRows)
+		baseRows := state.baseRows
+		leftRows := applyRowEdit(baseRows, state.leftRemoved, state.leftAdded)
+		rightRows := applyRowEdit(baseRows, state.rightRemoved, state.rightAdded)
+		combined, independent := combineRowEdits(baseRows, state)
 		kind := Conflict
 		switch {
 		case !state.leftTouched:
 			kind = RightOnly
 		case !state.rightTouched:
 			kind = LeftOnly
-		case equalRows(leftRows, rightRows):
+		case sameRowMultiset(leftRows, rightRows):
 			kind = Same
-		case equalRows(leftRows, baseRows):
+		case sameRowMultiset(leftRows, baseRows):
 			kind = RightOnly
-		case equalRows(rightRows, baseRows):
+		case sameRowMultiset(rightRows, baseRows):
 			kind = LeftOnly
+		case independent:
+			kind = Merged
 		}
 		hash := sha256.Sum256([]byte(encoded))
-		event := CSVEvent{ID: hex.EncodeToString(hash[:16]), Kind: kind, Key: state.key, Base: baseRows, Left: leftRows, Right: rightRows}
+		// Present every side in the base file's row positions, the same layout
+		// the merge writes, so the GUI panes line up with the result (#160).
+		event := CSVEvent{ID: hex.EncodeToString(hash[:16]), Kind: kind, Key: state.key, Base: baseRows, Left: orderLikeBase(baseRows, leftRows), Right: orderLikeBase(baseRows, rightRows)}
+		if kind == Merged {
+			event.Combined = orderLikeBase(baseRows, combined)
+		}
 		result.Events = append(result.Events, event)
 		switch kind {
 		case Conflict:
@@ -179,9 +233,137 @@ func CompareCSV(ctx context.Context, basePath, leftPath, rightPath string, cfg e
 			result.RightOnly++
 		case Same:
 			result.Same++
+		case Merged:
+			result.Merged++
 		}
 	}
 	return result, nil
+}
+
+// transcodeToUTF8 rewrites path under dir as BOM-less UTF-8 and returns the
+// path the engine should read. A file that is already BOM-less UTF-8 is passed
+// through untouched, so the common case costs nothing; gzip inputs stay
+// compressed unless they also need decoding, since the engine expands .gz
+// itself. Transcoding here is what lets a Shift_JIS, EUC-JP, UTF-16, or
+// ISO-2022-JP three-way CSV work at all: the engine splits records on raw
+// bytes and reports them through JSONL, neither of which survives a non-UTF-8
+// payload (#160).
+func transcodeToUTF8(dir, name, path string, profile CSVProfile) (string, error) {
+	if isUTF8(profile.Encoding) && !profile.BOM {
+		return path, nil
+	}
+	source, closeSource, err := openDecodedCSV(path, profile)
+	if err != nil {
+		return "", err
+	}
+	defer closeSource()
+	// Keep the extension: the engine picks its delimiter and parser from it.
+	target := filepath.Join(dir, name+filepath.Ext(strings.TrimSuffix(strings.ToLower(path), ".gz")))
+	file, err := os.Create(target)
+	if err != nil {
+		return "", err
+	}
+	buffer := bufio.NewWriterSize(file, 256*1024)
+	if _, err := io.Copy(buffer, source); err != nil {
+		file.Close()
+		return "", err
+	}
+	if err := buffer.Flush(); err != nil {
+		file.Close()
+		return "", err
+	}
+	return target, file.Close()
+}
+
+// collectBaseGroups streams the base file and records every row whose key names
+// a changed group, in base order.
+func collectBaseGroups(path string, profile CSVProfile, cfg engine.Config, result CSVResult, states map[string]*csvState) error {
+	if len(states) == 0 {
+		return nil
+	}
+	input, closeInput, err := openDecodedCSV(path, profile)
+	if err != nil {
+		return err
+	}
+	defer closeInput()
+	reader := csv.NewReader(input)
+	reader.Comma = result.BaseDelimiter
+	reader.FieldsPerRecord = -1
+	reader.ReuseRecord = true
+	reader.LazyQuotes = result.LazyQuotes
+	reader.TrimLeadingSpace = result.TrimLeadingSpace
+	if cfg.HasHeader {
+		if _, err := reader.Read(); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+	}
+	for {
+		row, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, encoded, err := csvKey(row, result.KeyIndexes)
+		if err != nil {
+			return err
+		}
+		if state := states[encoded]; state != nil {
+			// ReuseRecord hands back the same backing array each call.
+			state.baseRows = append(state.baseRows, append([]string(nil), row...))
+		}
+	}
+}
+
+// applyRowEdit returns base with one instance of each removed row taken out and
+// the added rows appended, preserving base order for the rows that survive.
+func applyRowEdit(base, removed, added [][]string) [][]string {
+	pending := make(map[string]int, len(removed))
+	for _, row := range removed {
+		pending[rowString(row)]++
+	}
+	out := make([][]string, 0, len(base)+len(added))
+	for _, row := range base {
+		key := rowString(row)
+		if pending[key] > 0 {
+			pending[key]--
+			continue
+		}
+		out = append(out, row)
+	}
+	return append(out, added...)
+}
+
+// combineRowEdits applies both sides' row edits to one key group. It reports
+// false when the two sides consume the same base row instance — that is a real
+// conflict the user must resolve. When they touch different rows the edits are
+// independent and both apply, which is the duplicated-key case that used to be
+// reported as a conflict whose every resolution dropped one side's edit (#160).
+func combineRowEdits(base [][]string, state *csvState) ([][]string, bool) {
+	if !state.leftTouched || !state.rightTouched {
+		return nil, false
+	}
+	available := make(map[string]int, len(base))
+	for _, row := range base {
+		available[rowString(row)]++
+	}
+	removed := make([][]string, 0, len(state.leftRemoved)+len(state.rightRemoved))
+	removed = append(removed, state.leftRemoved...)
+	removed = append(removed, state.rightRemoved...)
+	for _, row := range removed {
+		key := rowString(row)
+		if available[key] == 0 {
+			return nil, false
+		}
+		available[key]--
+	}
+	combined := applyRowEdit(base, removed, nil)
+	combined = append(combined, state.leftAdded...)
+	return append(combined, state.rightAdded...), true
 }
 
 func csvKeyIndexes(header []string, cfg engine.Config) ([]int, error) {
@@ -241,72 +423,108 @@ func csvKey(row []string, indexes []int) ([]string, string, error) {
 	return key, string(data), nil
 }
 func rowString(row []string) string { data, _ := json.Marshal(row); return string(data) }
-func sortRows(rows [][]string) {
-	sort.Slice(rows, func(i, j int) bool { return rowString(rows[i]) < rowString(rows[j]) })
-}
-func equalRows(a, b [][]string) bool {
+
+// sameRowMultiset compares two row groups ignoring order, without reordering
+// either argument: both are emitted to the GUI and to the merge in base order.
+func sameRowMultiset(a, b [][]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if rowString(a[i]) != rowString(b[i]) {
+	counts := make(map[string]int, len(a))
+	for _, row := range a {
+		counts[rowString(row)]++
+	}
+	for _, row := range b {
+		key := rowString(row)
+		counts[key]--
+		if counts[key] < 0 {
 			return false
 		}
 	}
 	return true
 }
-func cloneRows(rows [][]string) [][]string {
-	out := make([][]string, len(rows))
-	for i := range rows {
-		out[i] = append([]string(nil), rows[i]...)
-	}
-	return out
+
+// csvPlan maps a changed key group onto the base file's row positions: each
+// base row is kept, replaced in place, or dropped, and result rows with no base
+// row to sit in follow the group's last base row. This keeps a replacement
+// where the row it replaces was instead of hoisting the whole group to its
+// first occurrence (#160).
+type csvPlan struct {
+	emit   [][][]string
+	tail   [][]string
+	cursor int
+	done   bool
 }
-func maxRowMultiset(a, b [][]string) [][]string {
-	counts := map[string]int{}
-	values := map[string][]string{}
-	for _, rows := range [][][]string{a, b} {
-		local := map[string]int{}
-		for _, row := range rows {
-			key := rowString(row)
-			local[key]++
-			values[key] = row
-		}
-		for key, n := range local {
-			if n > counts[key] {
-				counts[key] = n
-			}
+
+func newCSVPlan(base, selected [][]string) *csvPlan {
+	remaining := make(map[string]int, len(selected))
+	for _, row := range selected {
+		remaining[rowString(row)]++
+	}
+	kept := make([]bool, len(base))
+	matched := make(map[string]int, len(base))
+	for i, row := range base {
+		key := rowString(row)
+		if remaining[key] > 0 {
+			remaining[key]--
+			kept[i] = true
+			matched[key]++
 		}
 	}
-	var out [][]string
-	for key, n := range counts {
-		for range n {
-			out = append(out, append([]string(nil), values[key]...))
+	// The selected rows that no base row hosts, in result order.
+	var extras [][]string
+	used := make(map[string]int, len(selected))
+	for _, row := range selected {
+		key := rowString(row)
+		if used[key] < matched[key] {
+			used[key]++
+			continue
+		}
+		extras = append(extras, row)
+	}
+	plan := &csvPlan{emit: make([][][]string, len(base))}
+	next := 0
+	for i, row := range base {
+		switch {
+		case kept[i]:
+			plan.emit[i] = [][]string{row}
+		case next < len(extras):
+			plan.emit[i] = [][]string{extras[next]}
+			next++
 		}
 	}
-	return out
+	plan.tail = extras[next:]
+	return plan
+}
+
+// orderLikeBase arranges rows the way WriteCSVMerge will emit them: rows the
+// base already holds keep their positions and a replacement takes the slot of
+// the row it replaces, with anything left over at the end.
+func orderLikeBase(base, rows [][]string) [][]string {
+	plan := newCSVPlan(base, rows)
+	out := make([][]string, 0, len(rows))
+	for _, emit := range plan.emit {
+		out = append(out, emit...)
+	}
+	return append(out, plan.tail...)
 }
 
 // WriteCSVMerge streams the base file, replacing only event key groups. CSV
 // conflicts default to BASE only after an explicit allowUnresolved decision.
 func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string]string, allowUnresolved bool) (unresolved int, resultErr error) {
-	selected := make(map[string][][]string, len(result.Events))
-	events := make(map[string]CSVEvent, len(result.Events))
-	removals := make(map[string]map[string]int, len(result.Events))
+	plans := make(map[string]*csvPlan, len(result.Events))
+	order := make([]string, 0, len(result.Events))
 	for _, event := range result.Events {
 		encoded, _ := json.Marshal(event.Key)
 		key := string(encoded)
-		events[key] = event
-		removals[key] = make(map[string]int)
-		for _, row := range event.Base {
-			removals[key][rowString(row)]++
-		}
 		rows := event.Left
 		switch event.Kind {
 		case RightOnly:
 			rows = event.Right
 		case Same:
 			rows = event.Left
+		case Merged:
+			rows = event.Combined
 		case Conflict:
 			switch choices[event.ID] {
 			case "left":
@@ -323,9 +541,19 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 				rows = event.Base
 			}
 		}
-		selected[key] = rows
+		plans[key] = newCSVPlan(event.Base, rows)
+		order = append(order, key)
 	}
-	input, closeInput, inputComma, err := openCSV(basePath, result.BaseDelimiter)
+	sort.Strings(order)
+	profile := result.BaseProfile
+	if profile.Encoding == "" {
+		// Defensive: a caller that built the result by hand still gets a merge
+		// in the base file's encoding rather than a silent UTF-8 rewrite.
+		if detected, err := detectCSVProfile(basePath); err == nil {
+			profile = detected
+		}
+	}
+	input, closeInput, err := openDecodedCSV(basePath, profile)
 	if err != nil {
 		return unresolved, err
 	}
@@ -346,15 +574,23 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 			gzOpen = true
 			destination = gz
 		}
-		buffer := bufio.NewWriterSize(destination, 256*1024)
+		// A UTF-8 BOM is written raw ahead of the encoder, mirroring WriteMerged.
+		if profile.BOM && isUTF8(profile.Encoding) {
+			if _, err := destination.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+				return err
+			}
+		}
+		encoded := encoding.Encoder(flushOnlyWriter{destination}, profile.Encoding)
+		buffer := bufio.NewWriterSize(encoded, 256*1024)
 		writer := csv.NewWriter(buffer)
 		outputLower := strings.TrimSuffix(strings.ToLower(output), ".gz")
 		writer.Comma = ','
 		if strings.HasSuffix(outputLower, ".tsv") {
 			writer.Comma = '\t'
 		}
+		writer.UseCRLF = profile.CRLF
 		reader := csv.NewReader(input)
-		reader.Comma = inputComma
+		reader.Comma = result.BaseDelimiter
 		reader.FieldsPerRecord = -1
 		reader.ReuseRecord = true
 		reader.LazyQuotes = result.LazyQuotes
@@ -367,7 +603,14 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 				return err
 			}
 		}
-		written := make(map[string]bool)
+		writeRows := func(rows [][]string) error {
+			for _, row := range rows {
+				if err := writer.Write(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		for {
 			row, err := reader.Read()
 			if errors.Is(err, io.EOF) {
@@ -376,46 +619,52 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 			if err != nil {
 				return err
 			}
-			_, encoded, err := csvKey(row, result.KeyIndexes)
+			_, encodedKey, err := csvKey(row, result.KeyIndexes)
 			if err != nil {
 				return err
 			}
-			if _, changed := events[encoded]; changed {
-				if !written[encoded] {
-					for _, replacement := range selected[encoded] {
-						if err := writer.Write(replacement); err != nil {
-							return err
-						}
-					}
-					written[encoded] = true
-				}
-				rowKey := rowString(row)
-				if removals[encoded][rowKey] > 0 {
-					removals[encoded][rowKey]--
-					continue
-				}
-			}
-			if err := writer.Write(row); err != nil {
-				return err
-			}
-		}
-		remaining := make([]string, 0, len(events))
-		for key := range events {
-			if !written[key] {
-				remaining = append(remaining, key)
-			}
-		}
-		sort.Strings(remaining)
-		for _, key := range remaining {
-			if written[key] {
-				continue
-			}
-			for _, row := range selected[key] {
+			plan := plans[encodedKey]
+			if plan == nil {
 				if err := writer.Write(row); err != nil {
 					return err
 				}
+				continue
 			}
-			written[key] = true
+			if plan.cursor >= len(plan.emit) {
+				// The base grew between compare and write; keep the extra row
+				// rather than dropping data.
+				if err := writer.Write(row); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := writeRows(plan.emit[plan.cursor]); err != nil {
+				return err
+			}
+			plan.cursor++
+			if plan.cursor == len(plan.emit) {
+				if err := writeRows(plan.tail); err != nil {
+					return err
+				}
+				plan.done = true
+			}
+		}
+		// Groups whose key never appears in the base (rows added on a side) and
+		// any group the stream did not reach are emitted last, in key order.
+		for _, key := range order {
+			plan := plans[key]
+			if plan.done {
+				continue
+			}
+			for ; plan.cursor < len(plan.emit); plan.cursor++ {
+				if err := writeRows(plan.emit[plan.cursor]); err != nil {
+					return err
+				}
+			}
+			if err := writeRows(plan.tail); err != nil {
+				return err
+			}
+			plan.done = true
 		}
 		writer.Flush()
 		if err := writer.Error(); err != nil {
@@ -423,6 +672,11 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 		}
 		if err := buffer.Flush(); err != nil {
 			return err
+		}
+		if closer, ok := encoded.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				return err
+			}
 		}
 		if gz != nil {
 			if err := gz.Close(); err != nil {
@@ -451,44 +705,62 @@ func inputDelimiter(path, format, explicit string) rune {
 	return ','
 }
 
-func openCSV(path string, comma rune) (io.Reader, func(), rune, error) {
-	open := func() (*os.File, io.Reader, func(), error) {
-		file, err := os.Open(path)
+// openRaw opens path, transparently decompressing a .gz, without decoding.
+func openRaw(path string) (io.Reader, func(), error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	var reader io.Reader = file
+	var gz *gzip.Reader
+	if strings.HasSuffix(strings.ToLower(path), ".gz") {
+		gz, err = gzip.NewReader(file)
 		if err != nil {
-			return nil, nil, func() {}, err
+			file.Close()
+			return nil, func() {}, err
 		}
-		var reader io.Reader = file
-		var gz *gzip.Reader
-		if strings.HasSuffix(strings.ToLower(path), ".gz") {
-			gz, err = gzip.NewReader(file)
-			if err != nil {
-				file.Close()
-				return nil, nil, func() {}, err
-			}
-			reader = gz
-		}
-		closeFn := func() {
-			if gz != nil {
-				_ = gz.Close()
-			}
-			_ = file.Close()
-		}
-		return file, reader, closeFn, nil
+		reader = gz
 	}
-	_, sampleReader, closeSample, err := open()
+	return reader, func() {
+		if gz != nil {
+			_ = gz.Close()
+		}
+		_ = file.Close()
+	}, nil
+}
+
+// detectCSVProfile samples the head of path to determine the conventions a
+// merge of it must reproduce: character encoding, a leading UTF-8 BOM, and
+// whether rows end with CRLF.
+func detectCSVProfile(path string) (CSVProfile, error) {
+	reader, closeFn, err := openRaw(path)
 	if err != nil {
-		return nil, func() {}, comma, err
+		return CSVProfile{}, err
 	}
-	sample, _ := io.ReadAll(io.LimitReader(sampleReader, 8192))
-	closeSample()
-	enc := encoding.Detect(sample, encoding.Auto)
-	_, reader, closeFn, err := open()
+	sample, err := io.ReadAll(io.LimitReader(reader, 8192))
+	closeFn()
 	if err != nil {
-		return nil, func() {}, comma, err
+		return CSVProfile{}, err
 	}
-	decoded := bufio.NewReader(encoding.Decoder(reader, enc))
-	if prefix, _ := decoded.Peek(3); len(prefix) == 3 && prefix[0] == 0xef && prefix[1] == 0xbb && prefix[2] == 0xbf {
+	profile := CSVProfile{Encoding: encoding.Detect(sample, encoding.Auto), BOM: bytes.HasPrefix(sample, []byte{0xEF, 0xBB, 0xBF})}
+	// The sample can end mid-character, so a decode failure only costs the EOL
+	// hint and leaves the LF default.
+	if decoded, err := io.ReadAll(encoding.Decoder(bytes.NewReader(sample), profile.Encoding)); err == nil {
+		profile.CRLF = bytes.Contains(decoded, []byte("\r\n"))
+	}
+	return profile, nil
+}
+
+// openDecodedCSV opens path as UTF-8 text using profile's encoding, discarding
+// a leading BOM so the first field matches the decoded engine rows.
+func openDecodedCSV(path string, profile CSVProfile) (io.Reader, func(), error) {
+	reader, closeFn, err := openRaw(path)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	decoded := bufio.NewReader(encoding.Decoder(reader, profile.Encoding))
+	if prefix, _ := decoded.Peek(3); bytes.Equal(prefix, []byte{0xEF, 0xBB, 0xBF}) {
 		_, _ = decoded.Discard(3)
 	}
-	return decoded, closeFn, comma, nil
+	return decoded, closeFn, nil
 }

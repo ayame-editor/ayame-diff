@@ -22,6 +22,10 @@ const (
 	RightOnly Kind = "right_only"
 	Same      Kind = "same_change"
 	Conflict  Kind = "conflict"
+	// Merged is CSV-only: within one key group LEFT and RIGHT edited different
+	// base rows, so both edits apply and the group resolves without asking the
+	// user to pick a side (#160).
+	Merged Kind = "merged"
 )
 
 type Event struct {
