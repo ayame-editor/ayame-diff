@@ -242,6 +242,27 @@ button:active:not(:disabled) {
    and on the merge path it blocked the page while asking about a file write. */
 /* Summary counts double as jump targets (#110). They stay visually identical
    to the inert stats beside them so the row does not become a button bar. */
+/* Display settings live beside the result they affect (#91): changing wrap or
+   whitespace is something you decide while reading, and the controls used to be
+   in the form above, out of sight behind a long diff. */
+.view-settings, .patch-settings {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
+  padding-left: 0.5rem; margin-left: 0.25rem; border-left: 1px solid var(--border);
+}
+.view-settings .opt, .patch-settings .opt { font-size: var(--fs-caption); }
+.view-settings .opt select { width: auto; min-width: 5.5rem; }
+.patch-settings .opt input[type="number"] { width: 4rem; }
+/* Setup groups sit in a grid so a control keeps its column when the window
+   resizes, instead of migrating across a flex-wrap row (#86). */
+.csv-advanced .opts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end; gap: 0.65rem;
+}
+/* The line-filter box carries a min-width for the flex layout it came from,
+   which overflows a grid cell and lands on its neighbour. In a grid it spans
+   columns instead. */
+.csv-advanced .opts .filter-input { grid-column: span 2; min-width: 0; }
+
 button.stat-jump {
   margin: 0; padding: 0; border: 0; background: none; color: inherit;
   font: inherit; cursor: pointer; border-radius: var(--radius-control);

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Rebuilt the setup form around the work it supports. It was a single wrapping
+  row of 24 controls mixing four unrelated kinds, so nothing indicated which
+  ones change a result and which only change its appearance, and every control
+  moved when the window resized. The first tier is now four controls; the
+  comparison conditions form a labelled group that stays open because they
+  change what counts as a difference; the groups lay out on a grid so a control
+  keeps its column. (#86)
+- Moved the display settings — wrap, syntax highlighting, whitespace, word
+  highlight, theme and colours — out of the setup form and into the sticky
+  result toolbar, since they are decided while reading a diff and their controls
+  used to be out of sight above it. The patch format controls followed the
+  Export patch button they configure. (#91)
 - Made the summary counts reach the differences they name: clicking added,
   deleted or modified jumps to the next difference of that kind and cycles
   through the group, skipping any the user chose to ignore. A zero count stays
