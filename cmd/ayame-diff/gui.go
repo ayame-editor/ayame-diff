@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+
+	"github.com/hjosugi/ayame-diff/internal/server"
 )
 
-// runGUI implements: ayame-diff gui [--addr host:port] [--no-open] [OLD [NEW]]
+// runGUI implements: ayame-diff gui [--addr host:port] [--allow-remote]
+// [--no-open] [OLD [NEW]]
 //
 // It starts the same local web UI as `serve` but, by default, binds an
 // ephemeral localhost port and opens the browser — the "double-click to a GUI"
@@ -21,9 +24,11 @@ import (
 // cross-compiled binary). See ADR 0002 / hjosugi/ayame-diff#14.
 func runGUI(args []string, stdout, stderr io.Writer) int {
 	return runGUIWithDeps(args, stdout, stderr, guiCommandDeps{
-		newHandler:  newServerHandler,
-		listen:      net.Listen,
-		serve:       http.Serve,
+		newHandler: newServerHandler,
+		listen:     net.Listen,
+		serve: func(ln net.Listener, handler http.Handler) error {
+			return server.NewHTTPServer("", handler).Serve(ln)
+		},
 		openBrowser: openBrowser,
 	})
 }
@@ -40,14 +45,17 @@ func runGUIWithDeps(args []string, stdout, stderr io.Writer, deps guiCommandDeps
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var addr string
 	var noOpen bool
+	var allowRemote bool
 	fs.StringVar(&addr, "addr", "127.0.0.1:0", "listen address; port 0 picks a free port")
 	fs.BoolVar(&noOpen, "no-open", false, "start the server but do not open the browser")
+	fs.BoolVar(&allowRemote, "allow-remote", false, "allow a non-loopback listen address (unsafe without network access controls)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--no-open] [OLD [NEW]]
+		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--allow-remote] [--no-open] [OLD [NEW]]
 
 Start the local web UI and open it in your browser. Same UI as `+"`serve`"+`, but
 picks a free localhost port and launches the browser for you. With two paths,
-the GUI chooses text/folder mode and starts comparing immediately.`)
+the GUI chooses text/folder mode and starts comparing immediately. Non-loopback
+addresses require the explicit --allow-remote safety opt-in.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -62,6 +70,15 @@ the GUI chooses text/folder mode and starts comparing immediately.`)
 		fmt.Fprintln(stderr, "error: gui accepts at most two paths: OLD NEW")
 		return exitUsage
 	}
+	remote, err := remoteBind(addr)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitUsage
+	}
+	if remote && !allowRemote {
+		fmt.Fprintln(stderr, "error: non-loopback listen addresses require --allow-remote")
+		return exitUsage
+	}
 
 	handler, err := deps.newHandler(version)
 	if err != nil {
@@ -74,14 +91,17 @@ the GUI chooses text/folder mode and starts comparing immediately.`)
 		return exitError
 	}
 	defer ln.Close()
-	guiURL := guiLaunchURL("http://"+ln.Addr().String()+"/", fs.Args())
+	if remote {
+		printRemoteWarning(stderr)
+	}
+	guiURL := guiLaunchURL(browserBaseURL(ln.Addr()), fs.Args())
 	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
 	if !noOpen {
 		if err := deps.openBrowser(guiURL); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, guiURL)
 		}
 	}
-	if err := deps.serve(ln, handler); err != nil {
+	if err := deps.serve(ln, handler); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}

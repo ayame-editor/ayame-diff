@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Required `--allow-remote` before the local GUI can bind beyond loopback,
+  printed usable loopback URLs for wildcard listeners, bounded browser drops
+  per file and session with atomic cleanup, and added defensive HTTP transport
+  timeouts without cutting off long comparisons or downloads. (#109)
+
 ## v0.7.16 - 2026-07-14
 
 - Added folder-comparison report export so directory diffs can be saved and

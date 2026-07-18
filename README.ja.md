@@ -67,8 +67,8 @@ ayame-diff sorted [flags] OLD NEW                      # ソートしてから�
 ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT の3-way比較
-ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
-ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
+ayame-diff serve  [--addr host:port] [--allow-remote]  # ブラウザ GUI（ローカル Web）
+ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
 ayame-diff shell-install                               # ファイルマネージャ連携を登録
 ayame-diff shell-uninstall                             # ファイルマネージャ連携を解除
 ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
@@ -142,10 +142,14 @@ ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ### `serve` — ブラウザ GUI
 
 ローカル Web アプリを起動し、ブラウザ上で 2 ファイルを比較します。既定で localhost にのみバインドします（入力したパスをそのまま開くため、ローカル利用専用）。
+loopback 以外のアドレスは、`--allow-remote`を指定しない限り拒否されます。
+リモートモードには認証がなく、ローカルファイルを読み書きできるAPIが公開されるため、
+信頼できるネットワークのアクセス制御下でのみ使用してください。
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
+ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
 OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。

@@ -14,7 +14,7 @@ ayame-diff sorted [flags] OLD NEW                      # sort both sides, then d
 ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
 ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
-ayame-diff serve  [--addr host:port]                   # local web GUI
+ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
 ayame-diff update [--check]                            # check for or install the latest release
 ayame-diff remove [--yes]                              # uninstall a standalone binary

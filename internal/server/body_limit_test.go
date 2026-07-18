@@ -9,7 +9,8 @@ import (
 )
 
 // TestSecureCapsJSONBodies covers #147: the secure() middleware bounds JSON POST
-// bodies with http.MaxBytesReader, while /api/drop (streamed uploads) is exempt.
+// bodies with http.MaxBytesReader, while /api/drop is exempt from that small
+// JSON cap and applies its own larger streaming limit in the drop handler.
 // Serial (no t.Parallel) because it temporarily shrinks the package-level cap;
 // Go runs parallel tests only after the serial phase, so the mutation is safe.
 func TestSecureCapsJSONBodies(t *testing.T) {
@@ -34,7 +35,8 @@ func TestSecureCapsJSONBodies(t *testing.T) {
 		t.Fatalf("/api/diff body was not capped: read %d bytes without error", gotN)
 	}
 
-	// /api/drop is exempt: the whole body streams through.
+	// /api/drop is exempt from the JSON cap: this middleware layer streams the
+	// whole body through to the handler-specific drop limit.
 	gotN, gotErr = 0, nil
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/drop", bytes.NewReader(over)))
 	if gotErr != nil || gotN != len(over) {
