@@ -2,6 +2,10 @@
 
 ## v0.7.17 - 2026-07-16
 
+- Stopped the diff minimap from rendering as a tall empty bar next to a diff
+  that already fits the screen: it now appears only when the result actually
+  scrolls, and its column is reclaimed when hidden so a short diff is not
+  indented by an empty gutter. (#102)
 - Hid the per-hunk "use left / use right" merge buttons and the merge panel
   behind an opt-in merge-mode toggle, so the default view stays focused on
   reading diffs instead of merge controls. (#100)

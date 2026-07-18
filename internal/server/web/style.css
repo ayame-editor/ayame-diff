@@ -193,6 +193,9 @@ button:active:not(:disabled) {
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18px; gap: 0.55rem; align-items: start; }
+/* Reclaim the map's column when it is hidden, so a short diff is not indented
+   by a gutter leading to nothing (#102). */
+.diff-layout:has(.minimap[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .result { margin-top: 1rem; display: grid; gap: 0.8rem; min-width: 0; }
 .minimap {
   position: sticky; top: 3.3rem; height: min(70vh, 560px); margin-top: 1rem;

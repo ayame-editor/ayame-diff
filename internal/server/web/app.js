@@ -765,11 +765,27 @@ function buildMinimap(data) {
   });
 }
 
+// minimapHasMarkers records whether buildMinimap produced anything, so the
+// visibility check does not have to re-inspect the DOM on every scroll frame.
+let minimapHasMarkers = false;
+
+// updateMinimapViewport decides whether the minimap is worth showing and, when
+// it is, positions the indicator over the currently visible slice.
+//
+// Visibility is decided here rather than at build time for two reasons: it
+// needs the populated DOM (setupNavigation runs before the hunks are appended),
+// and it has to be revisited whenever the result or the window resizes. Both
+// render paths, the scroll handler, and the resize handler already call this.
 function updateMinimapViewport() {
   const result = $("result");
   const map = $("minimap");
-  if (map.hidden || !result.offsetHeight) return;
   const rect = result.getBoundingClientRect();
+  // A map for content that already fits navigates nothing: it used to render as
+  // a tall empty bar beside a one-line diff (#102). The slack keeps a result
+  // only marginally taller than the window from getting one either.
+  const scrolls = rect.height > window.innerHeight * 1.15;
+  map.hidden = !(minimapHasMarkers && scrolls);
+  if (map.hidden || !rect.height) return;
   const visibleTop = Math.max(0, -rect.top);
   const visibleBottom = Math.min(rect.height, window.innerHeight - rect.top);
   const top = Math.min(1, visibleTop / rect.height);
@@ -785,7 +801,7 @@ function setupNavigation(data) {
   readHunks = new Set();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
-  $("minimap").hidden = !hasHunks;
+  minimapHasMarkers = hasHunks;
   if (hasHunks) buildMinimap(data);
   updateCounter();
   updateMinimapViewport();
@@ -999,7 +1015,7 @@ function renderCSV(data) {
   lastData = null;
   lastComparedRequest = null;
   syncExportPatchVisibility();
-  $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
+  minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
   updateCSVMergeUI();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
@@ -1185,7 +1201,7 @@ async function loadDirectoryProject() {
 
 function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
-  csvData = null; lastData = null; lastComparedRequest = null; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
   syncExportPatchVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
