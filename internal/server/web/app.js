@@ -75,7 +75,7 @@ const I18N = {
 	pageTotal: (v) => `/ ${v.total} ページ`, exportedCSV: (v) => `${v} に書き出しました`,
 	openProject: "プロジェクトを開く", saveProject: "プロジェクト保存", recent: "最近の比較", projectSaved: "プロジェクトを保存しました",
 	mergeMode: "マージモード", mergeResult: "マージ結果", chooseLeft: "左を採用", chooseRight: "右を採用", chooseBase: "ベースを採用", allLeft: "すべて左", allRight: "すべて右", allBase: "すべてベース",
-	threeWay: "3-way 比較", conflicts: "競合",
+	threeWay: "3-way 比較", conflicts: "競合", autoMerged: "自動マージ",
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
@@ -151,7 +151,7 @@ const I18N = {
 	pageTotal: (v) => `of ${v.total} pages`, exportedCSV: (v) => `Exported to ${v}`,
 	openProject: "Open project", saveProject: "Save project", recent: "Recent comparisons", projectSaved: "Project saved",
 	mergeMode: "Merge mode", mergeResult: "Merge result", chooseLeft: "Use left", chooseRight: "Use right", chooseBase: "Use base", allLeft: "All left", allRight: "All right", allBase: "All base",
-	threeWay: "3-way comparison", conflicts: "conflicts",
+	threeWay: "3-way comparison", conflicts: "conflicts", autoMerged: "auto-merged",
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
@@ -625,7 +625,7 @@ function renderThreeWay(data, csvMode) {
   lastComparedRequest = null;
   const summary = $("summary"); summary.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
-  add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); summary.hidden = false;
+  add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); if (data.merged) add(t("autoMerged"), data.merged, "add"); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
@@ -640,7 +640,7 @@ function renderThreeWay(data, csvMode) {
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
-    for (const [name, values] of [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]]) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
+    for (const [name, values] of (event.kind === "merged" ? [["BASE", event.base], ["MERGED", event.combined]] : [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]])) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
     box.append(head, grid); result.append(box);
   }
   if (!data.events.length) {

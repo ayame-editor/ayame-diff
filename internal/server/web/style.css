@@ -185,6 +185,7 @@ button:active:not(:disabled) {
 .three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); border-top: 1px solid var(--border); }
 .three-event.conflict { border-color: var(--danger); }
 .three-event.same_change { border-color: var(--accent); }
+.three-event.merged { border-color: var(--add-fg); }
 .sync-chip {
   display: inline-flex; margin: 0 0.25rem 0.2rem 0; padding: 0.12rem 0.45rem;
   border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); background: var(--bg);

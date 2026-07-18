@@ -35,14 +35,23 @@ ayame-diff 3way csv --base base.csv --left team-a.csv --right team-b.csv \
 An explicit key (or exclude-key set) is required. The command runs two existing
 partitioned/external-sort comparisons, then joins only changed key groups in
 memory. Saving streams BASE and replaces affected key groups, so unchanged
-rows are not materialized. Duplicate rows use multiset semantics. CSV conflicts
-without a choice are rejected; after explicit `--allow-conflicts`, BASE rows
-are retained because conflict markers are not valid structured records.
+rows are not materialized. A replacement is written where the BASE row it
+replaces sat, so rows interleaved with other keys keep their positions.
 
-The reconciled output is UTF-8. `.csv` / `.csv.gz` outputs use commas and `.tsv`
-/ `.tsv.gz` use tabs. Input gzip, Japanese encoding detection, quoting,
-multiline cells, column alignment, lazy quotes, and trim-leading-space settings
-follow the normal CSV engine.
+Duplicate keys are merged per row, not per group: when LEFT and RIGHT edit
+different BASE rows that share a key, both edits apply and the group reports
+`merged` instead of asking for a choice. Only edits that consume the same BASE
+row are conflicts. CSV conflicts without a choice are rejected; after explicit
+`--allow-conflicts`, BASE rows are retained because conflict markers are not
+valid structured records.
+
+The reconciled output reproduces the BASE file's character encoding, UTF-8 BOM,
+and line terminator rather than normalizing to BOM-less UTF-8 with LF. `.csv` /
+`.csv.gz` outputs use commas and `.tsv` / `.tsv.gz` use tabs. Input gzip,
+Japanese encoding detection, quoting, multiline cells, column alignment, lazy
+quotes, and trim-leading-space settings follow the normal CSV engine. Non-UTF-8
+inputs are decoded before the byte-oriented comparison engine sees them, so
+Shift_JIS, EUC-JP, UTF-16, and ISO-2022-JP keys compare as text.
 
 ## GUI
 
