@@ -215,7 +215,33 @@ button:active:not(:disabled) {
   position: absolute; left: 0; right: 0; min-height: 8px; border: var(--selection-ring-width) solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; z-index: 3;
 }
-.hunk { border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
+/* Placeholder cards shown while a comparison is in flight (#127). The result
+   area used to sit blank from the moment it was cleared until the render
+   finished, which read as a hung page. */
+.skeleton { display: grid; gap: 0.8rem; }
+.skeleton-hunk { border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
+.skeleton-head { height: 1.6rem; background: var(--panel); border-bottom: 1px solid var(--border); }
+.skeleton-row { height: 1.1rem; margin: 0.35rem 0.5rem; border-radius: var(--radius-control); background: var(--panel); }
+.skeleton-hunk .skeleton-row:nth-child(2) { width: 82%; }
+.skeleton-hunk .skeleton-row:nth-child(3) { width: 64%; }
+.skeleton-hunk .skeleton-row:nth-child(4) { width: 73%; }
+/* A slow shimmer signals "working" without implying determinate progress; the
+   status line carries the real count. */
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-head, .skeleton-row { animation: skeleton-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.hunk {
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden;
+  /* Skip layout and paint for hunks that are off screen (#127). Appending a
+     large diff otherwise ends in one full-document layout — measured at
+     several seconds — because nothing below the fold was laid out during the
+     sliced build. contain-intrinsic-size keeps the scrollbar stable by
+     remembering each hunk's real size once it has been rendered. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6rem;
+}
 .hunk.current { outline: var(--selection-ring-width) solid var(--accent); outline-offset: 2px; }
 .hunk.read .hunk-head::after { content: " ✓"; color: var(--accent); }
 .hunk.moved { border-color: var(--move-fg); }
