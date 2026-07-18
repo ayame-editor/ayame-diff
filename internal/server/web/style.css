@@ -192,7 +192,10 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
-.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18px; gap: 0.55rem; align-items: start; }
+/* The minimap column was 18px, below the ~24px a pointer can reliably hit and
+   well below a touch target. Widening it makes the markers clickable; drag-to-
+   scroll is still missing, so #102 stays open. */
+.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 0.55rem; align-items: start; }
 /* Reclaim the map's column when it is hidden, so a short diff is not indented
    by a gutter leading to nothing (#102). */
 .diff-layout:has(.minimap[hidden]) { grid-template-columns: minmax(0, 1fr); }
@@ -202,7 +205,7 @@ button:active:not(:disabled) {
   border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--panel); overflow: hidden;
 }
 .minimap-marker {
-  position: absolute; left: 2px; right: 2px; min-height: 3px; margin: 0; padding: 0;
+  position: absolute; left: 3px; right: 3px; min-height: 4px; margin: 0; padding: 0;
   border: 0; border-radius: calc(var(--radius-control) - 4px); background: var(--chg-bg);
 }
 .minimap-marker.insert { background: var(--add-fg); }
@@ -421,6 +424,17 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .csv-table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
 .csv-table { border-collapse: separate; border-spacing: 0; min-width: 100%; font: var(--fs-data) var(--mono); }
 .csv-table th, .csv-table td { padding: 0.3rem 0.5rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
+/* A long value was readable only as a hover tooltip, so on a touch screen it
+   could not be read at all, and a change hidden past the ellipsis was invisible
+   (#105). Expanding a cell wraps it in place; the wrap toggle expands them all. */
+.csv-table td.expandable { cursor: pointer; }
+.csv-table td.expanded, .csv-table.wrap-cells td { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 34rem; }
+.csv-table td.expanded { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.csv-cell-copy {
+  margin: 0 0 0 0.4rem; padding: 0 0.35rem; font-size: var(--fs-caption);
+  vertical-align: middle; opacity: 0.75;
+}
+.csv-cell-copy:hover { opacity: 1; }
 .csv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; }
 .csv-table thead th:first-child, .csv-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--panel); }
 .csv-table thead th b { margin-left: 0.35rem; padding: 0.05rem 0.35rem; border-radius: 999px; background: var(--chg-bg); color: var(--chg-fg); }

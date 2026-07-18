@@ -71,6 +71,7 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    copyValue: "値をコピー", copied: "コピーしました", copyFailed: "コピーできませんでした（選択しました）",
     conditionsGroup: "比較条件", conditionsHint: "差分と見なす基準を変えるため、変更すると比較をやり直します。",
     theme: "テーマ", themeSystem: "OS に合わせる", themeLight: "ライト", themeDark: "ダーク",
     jumpToKind: (v) => `${v.label}の差分へ移動`,
@@ -165,6 +166,7 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    copyValue: "Copy value", copied: "Copied", copyFailed: "Could not copy; the value is selected instead",
     conditionsGroup: "Comparison conditions", conditionsHint: "These change what counts as a difference, so a change re-runs the comparison.",
     theme: "Theme", themeSystem: "Match system", themeLight: "Light", themeDark: "Dark",
     jumpToKind: (v) => `Jump to ${v.label}`,
@@ -1295,7 +1297,18 @@ function renderCSV(data) {
     if (!values?.length) return;
     const tr = document.createElement("tr"); tr.className = `csv-${kind.toLowerCase()} csv-${side}`;
     const sideCell = document.createElement("th"); sideCell.textContent = side; tr.append(sideCell);
-    for (const index of columns) { const td = document.createElement("td"); td.textContent = values[index] ?? ""; td.title = values[index] ?? ""; if (changed.has(index)) td.classList.add("csv-cell-changed"); tr.append(td); }
+    for (const index of columns) {
+      const td = document.createElement("td");
+      const value = values[index] ?? "";
+      td.textContent = value;
+      td.title = value;
+      if (changed.has(index)) td.classList.add("csv-cell-changed");
+      // A value that fits needs no affordance; one that is cut off gets a
+      // click-to-expand and a copy button, since a tooltip is unreadable on a
+      // touch screen and hides any change past the ellipsis (#105).
+      if (value.length > CSV_CELL_PREVIEW_CHARS) makeCellExpandable(td, value);
+      tr.append(td);
+    }
     tbody.append(tr);
   };
   for (const diff of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE)) {
@@ -1312,6 +1325,7 @@ function renderCSV(data) {
     const changed = new Set((diff.changed_columns || []).map((column) => column.index));
     appendRow(diff.old, "left", diff.kind, changed); appendRow(diff.new, "right", diff.kind, changed);
   }
+  table.classList.toggle("wrap-cells", $("wrap").checked);
   table.append(tbody); wrap.append(table); result.append(wrap); updateCSVMergeUI();
 }
 
@@ -1886,6 +1900,44 @@ function applyTheme(value) {
   $("theme").value = theme;
 }
 
+// ---- CSV cell expansion (#105) ----
+// CSV_CELL_PREVIEW_CHARS is the length past which a value is assumed to be cut
+// off by the column's max-width. It is deliberately generous: an unnecessary
+// affordance costs little, an unreadable value costs a lot.
+const CSV_CELL_PREVIEW_CHARS = 60;
+
+function makeCellExpandable(td, value) {
+  td.classList.add("expandable");
+  td.addEventListener("click", (event) => {
+    if (event.target.closest(".csv-cell-copy")) return;
+    td.classList.toggle("expanded");
+  });
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "csv-cell-copy";
+  copy.textContent = "⧉";
+  copy.title = t("copyValue");
+  copy.addEventListener("click", async (event) => {
+    // The button lives inside the cell, so without this the copy would also
+    // toggle the cell it sits in.
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus(t("copied"), "");
+    } catch {
+      // Clipboard access can be refused; selecting the text keeps the value
+      // obtainable rather than leaving the button dead.
+      const range = document.createRange();
+      range.selectNodeContents(td);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      setStatus(t("copyFailed"), "error");
+    }
+  });
+  td.append(copy);
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   return {
@@ -2094,6 +2146,7 @@ function applyWrap(on) {
   $("result").classList.toggle("nowrap", !on);
   localStorage.setItem("ayame-wrap", on ? "1" : "0");
   $("wrap").checked = on;
+  document.querySelector(".csv-table")?.classList.toggle("wrap-cells", on);
 }
 function applyDisplayPreferences() {
   const result = $("result");
