@@ -236,6 +236,10 @@ button:active:not(:disabled) {
    while scrolling a long diff. */
 /* Collapsed setup groups (#93). The badge reports how many controls inside
    differ from their defaults, so folding a group never hides a change. */
+/* Swap control between the two path rows (#90). */
+.path-swap { display: flex; justify-content: flex-end; margin-top: -0.2rem; }
+.path-swap button { margin: 0; padding: 0.25rem 0.7rem; font-size: var(--fs-label); }
+
 .csv-advanced > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 .details-badge {
   font-size: var(--fs-caption); font-weight: 600; color: var(--on-accent);
