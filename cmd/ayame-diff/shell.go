@@ -15,6 +15,22 @@ import (
 )
 
 func runShellInstall(args []string, stdout, stderr io.Writer) int {
+	return runShellInstallWithDeps(args, stdout, stderr, shellCommandDeps{
+		environment: shellEnvironment,
+		install:     shellintegration.Install,
+	})
+}
+
+type shellCommandDeps struct {
+	environment func() (shellintegration.Environment, error)
+	install     func(shellintegration.Environment) ([]string, error)
+	uninstall   func(shellintegration.Environment) error
+	configDir   func() (string, error)
+	runGUI      func([]string, io.Writer, io.Writer) int
+	now         func() time.Time
+}
+
+func runShellInstallWithDeps(args []string, stdout, stderr io.Writer, deps shellCommandDeps) int {
 	fs := flag.NewFlagSet("ayame-diff shell-install", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	fs.Usage = func() {
@@ -31,12 +47,12 @@ func runShellInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: shell-install takes no arguments")
 		return exitUsage
 	}
-	env, err := shellEnvironment()
+	env, err := deps.environment()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
-	paths, err := shellintegration.Install(env)
+	paths, err := deps.install(env)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -49,6 +65,13 @@ func runShellInstall(args []string, stdout, stderr io.Writer) int {
 }
 
 func runShellUninstall(args []string, stdout, stderr io.Writer) int {
+	return runShellUninstallWithDeps(args, stdout, stderr, shellCommandDeps{
+		environment: shellEnvironment,
+		uninstall:   shellintegration.Uninstall,
+	})
+}
+
+func runShellUninstallWithDeps(args []string, stdout, stderr io.Writer, deps shellCommandDeps) int {
 	fs := flag.NewFlagSet("ayame-diff shell-uninstall", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	fs.Usage = func() {
@@ -65,12 +88,12 @@ func runShellUninstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: shell-uninstall takes no arguments")
 		return exitUsage
 	}
-	env, err := shellEnvironment()
+	env, err := deps.environment()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
-	if err := shellintegration.Uninstall(env); err != nil {
+	if err := deps.uninstall(env); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
@@ -101,11 +124,19 @@ type shellSelection struct {
 // runShellSelect implements WinMerge-style two-step Explorer selection. The
 // first invocation records a path; the second clears it and launches the GUI.
 func runShellSelect(args []string, stdout, stderr io.Writer) int {
+	return runShellSelectWithDeps(args, stdout, stderr, shellCommandDeps{
+		configDir: os.UserConfigDir,
+		runGUI:    runGUI,
+		now:       time.Now,
+	})
+}
+
+func runShellSelectWithDeps(args []string, stdout, stderr io.Writer, deps shellCommandDeps) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(stderr, "error: shell-select needs one path")
 		return exitUsage
 	}
-	config, err := os.UserConfigDir()
+	config, err := deps.configDir()
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -113,16 +144,16 @@ func runShellSelect(args []string, stdout, stderr io.Writer) int {
 	statePath := filepath.Join(config, "ayame-diff", "shell-selection.json")
 	data, readErr := os.ReadFile(statePath)
 	var previous shellSelection
-	valid := readErr == nil && json.Unmarshal(data, &previous) == nil && previous.Path != "" && time.Since(previous.Time) < 30*time.Minute
+	valid := readErr == nil && json.Unmarshal(data, &previous) == nil && previous.Path != "" && deps.now().Sub(previous.Time) < 30*time.Minute
 	if valid && previous.Path != args[0] {
 		_ = os.Remove(statePath)
-		return runGUI([]string{previous.Path, args[0]}, stdout, stderr)
+		return deps.runGUI([]string{previous.Path, args[0]}, stdout, stderr)
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
-	data, _ = json.Marshal(shellSelection{Path: args[0], Time: time.Now()})
+	data, _ = json.Marshal(shellSelection{Path: args[0], Time: deps.now()})
 	if err := os.WriteFile(statePath, data, 0o600); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
