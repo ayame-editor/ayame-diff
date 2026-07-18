@@ -1,6 +1,13 @@
 # Changelog
 
-## v0.7.17 - 2026-07-16
+## v0.8.0 - 2026-07-18
+
+**Breaking:** the local GUI server now requires an API token on every `/api`
+call. The URL that `gui` opens and `serve` prints carries it, so the browser
+flow is unchanged, but a script calling the API directly must send the token in
+an `X-Ayame-Token` header. See [the GUI guide](docs/gui.md) for details. New
+input limits (`--max-line-bytes`, `--max-entries`, and the 1GiB cap on stdin and
+`--pre`) can also refuse inputs that previously ran until they exhausted memory.
 
 - Stopped the diff minimap from rendering as a tall empty bar next to a diff
   that already fits the screen: it now appears only when the result actually
