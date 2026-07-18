@@ -252,10 +252,7 @@ function inlineWordDiff(oldText, newText) {
 
 // In-flight request controller, so the Cancel button can abort a long compare.
 let currentAbort = null;
-// Display prefs read at render time.
-let showWS = false;
-let showSyntax = true;
-let lastData = null; // last diff response, for re-render on a display-option change
+let lastData = null; // last diff response, retained for navigation and merge actions
 let lastComparedRequest = null;
 let currentHunk = -1;
 let readHunks = new Set();
@@ -283,17 +280,22 @@ function setMergeMode(on) {
 let threeWayData = null;
 
 // ---- rendering ----
-// appendText adds text to el, optionally rendering whitespace as dimmed marks
-// (space -> ·, tab -> →) so leading/trailing spacing is visible.
+// appendText emits both the original whitespace and its visible representation.
+// CSS swaps between them so display toggles never rebuild the diff DOM.
 function appendText(el, text) {
-  if (!showWS) { el.appendChild(document.createTextNode(text)); return; }
   const re = /(\s+)|([^\s]+)/g;
   let m;
   while ((m = re.exec(text))) {
     if (m[1]) {
       const s = document.createElement("span");
       s.className = "ws";
-      s.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      const original = document.createElement("span");
+      original.className = "ws-original";
+      original.textContent = m[1];
+      const visible = document.createElement("span");
+      visible.className = "ws-visible";
+      visible.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      s.append(original, visible);
       el.appendChild(s);
     } else {
       el.appendChild(document.createTextNode(m[2]));
@@ -305,7 +307,7 @@ function syntaxPath(side) {
   return side === "old" ? $("old").value : $("new").value;
 }
 function appendSyntax(el, text, path) {
-  const spans = showSyntax ? globalThis.AyameSyntax?.highlightSpans(text, path) : null;
+  const spans = globalThis.AyameSyntax?.highlightSpans(text, path);
   if (!spans) { appendText(el, text); return; }
   for (const part of spans) {
     if (part.kind === "plain") { appendText(el, part.text); continue; }
@@ -364,7 +366,7 @@ function row(left, right) {
   return r;
 }
 
-function renderHunk(h, useWord, index) {
+function renderHunk(h, index) {
   const box = document.createElement("div");
   box.className = "hunk";
   box.id = `hunk-${index}`;
@@ -431,7 +433,7 @@ function renderHunk(h, useWord, index) {
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
-      const wd = useWord ? inlineWordDiff(old[k], neu[k]) : null;
+      const wd = inlineWordDiff(old[k], neu[k]);
       const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath) : plainSpan(old[k], oldPath), "old");
       const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath) : plainSpan(neu[k], newPath), "new");
       rows.append(row(left, right));
@@ -510,11 +512,10 @@ function comparisonUsesRules(csvMode = false) {
   ));
 }
 
-// renderResult draws a diff response into the summary + result areas, honoring
-// the current display options (word highlight, syntax, show-whitespace).
+// renderResult draws a diff response once. Display preferences only toggle
+// classes on the completed DOM via applyDisplayPreferences.
 function renderResult(data) {
-  showWS = $("showWs").checked;
-  showSyntax = $("syntax").checked;
+  applyDisplayPreferences();
   renderSummary(data);
   const result = $("result");
   result.innerHTML = "";
@@ -525,9 +526,8 @@ function renderResult(data) {
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
-  const useWord = $("word").checked;
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], useWord, i));
+  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], i));
   result.append(frag);
   updateMergeUI();
   observeHunks();
@@ -1443,6 +1443,12 @@ function applyWrap(on) {
   localStorage.setItem("ayame-wrap", on ? "1" : "0");
   $("wrap").checked = on;
 }
+function applyDisplayPreferences() {
+  const result = $("result");
+  result.classList.toggle("show-whitespace", $("showWs").checked);
+  result.classList.toggle("syntax-highlight", $("syntax").checked);
+  result.classList.toggle("word-highlight", $("word").checked);
+}
 
 function droppedPaths(dataTransfer) {
   const uriList = dataTransfer.getData("text/uri-list");
@@ -1607,12 +1613,13 @@ $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
-  if (lastData) renderResult(lastData); // re-render so the change is immediate
+  applyDisplayPreferences();
 });
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
-  if (lastData) renderResult(lastData);
+  applyDisplayPreferences();
 });
+$("word").addEventListener("change", applyDisplayPreferences);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
@@ -1628,6 +1635,7 @@ applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
+applyDisplayPreferences();
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
 syncPatchOpts();
