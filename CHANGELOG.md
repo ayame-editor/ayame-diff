@@ -9,6 +9,14 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Made the `sorted` comparison memory-bounded: input within `--sort-memory`
+  (default 256MiB) still sorts in memory, and anything larger spills sorted runs
+  to `--temp-dir` and merges them with a bounded fan-in, so files far larger
+  than RAM compare instead of being OOM-killed. Two ~370MB files at
+  `--sort-memory 64MiB` now peak at 114MiB resident instead of 1.2GiB, with
+  identical output. A failed spill explains that the default temporary directory
+  is RAM-backed on many systems rather than reporting a bare "no space left on
+  device". (#7, #137)
 - Contained panics so a bug in one comparison no longer kills the process: the
   local GUI server answers with a 500 and keeps serving, the CLI reports the
   documented runtime-failure code 3 with a reportable trace instead of colliding

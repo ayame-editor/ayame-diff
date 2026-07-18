@@ -16,6 +16,7 @@ import (
 
 	"github.com/hjosugi/ayame-diff/internal/diffout"
 	"github.com/hjosugi/ayame-diff/internal/encoding"
+	"github.com/hjosugi/ayame-diff/internal/engine"
 	"github.com/hjosugi/ayame-diff/internal/htmlreport"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesort"
@@ -350,18 +351,32 @@ func runSorted(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&numeric, "n", false, "alias for --numeric")
 	fs.BoolVar(&reverse, "reverse", false, "reverse the sort order")
 	fs.BoolVar(&reverse, "r", false, "alias for --reverse")
+	var sortMemory, tempDir string
+	fs.StringVar(&sortMemory, "sort-memory", "256MiB", "line data held in memory before the sort spills to disk")
+	fs.StringVar(&tempDir, "temp-dir", "", "parent directory for sort spill files (default: TMPDIR)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff sorted [flags] OLD NEW
 
 Sort both text files (plain or .gz) line-wise, then diff. Use when the two
 files hold the same rows in a different order.
 
-Note: v1 sorts in memory.`)
+Files larger than --sort-memory spill sorted runs to --temp-dir and are merged,
+so inputs bigger than RAM still compare. On many systems TMPDIR is RAM-backed;
+point --temp-dir at a real disk when sorting very large files.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
 	if err := parseDiffArgs(fs, args); err != nil {
 		return reportFlagError(err, stderr)
+	}
+	memoryBytes, err := engine.ParseByteSize(sortMemory)
+	if err != nil {
+		fmt.Fprintln(stderr, "error: --sort-memory:", err)
+		return exitUsage
+	}
+	if memoryBytes <= 0 {
+		fmt.Fprintln(stderr, "error: --sort-memory must be greater than zero")
+		return exitUsage
 	}
 	if _, _, patch, err := d.outputFormat(); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -383,8 +398,22 @@ Note: v1 sorts in memory.`)
 		return exitError
 	}
 	defer closeNew()
-	oldLines := linesort.SortLines(collectLines(oldSrc), numeric, reverse)
-	newLines := linesort.SortLines(collectLines(newSrc), numeric, reverse)
+	// Sort through the spilling sorter rather than materializing both sides:
+	// a sorted comparison of files larger than memory must complete, not be
+	// OOM-killed (#137).
+	opts := linesort.Options{Numeric: numeric, Reverse: reverse, MemoryBytes: memoryBytes, TempDir: tempDir}
+	oldLines, err := linesort.SortSource(oldSrc, opts)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitError
+	}
+	defer oldLines.Close()
+	newLines, err := linesort.SortSource(newSrc, opts)
+	if err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return exitError
+	}
+	defer newLines.Close()
 	if err := emitDiff(oldLines, newLines, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -489,15 +518,4 @@ func readStdin(encHint string) (linediff.Lines, error) {
 	}
 	decoded = bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf"))
 	return linediff.SplitTextLines(string(decoded)), nil
-}
-
-// collectLines reads every line of l into a slice (for in-memory sorting).
-func collectLines(l linediff.Lines) []string {
-	n := l.Count()
-	out := make([]string, 0, n)
-	for i := uint64(0); i < n; i++ {
-		s, _ := l.Line(i)
-		out = append(out, s)
-	}
-	return out
 }
