@@ -71,6 +71,8 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    swap: "入れ替え", swapSides: "OLD と NEW を入れ替え",
+    engineTuning: "エンジン調整", engineTuningHint: "差分の計算量と表示量に効きます（何を差分と見なすかは変わりません）。結果が打ち切られたときだけ上げてください。",
     csvParsingOptions: "ファイル形式", csvProjectOptions: "保存した比較",
     csvParsingHint: "自動判定されます。読み取りがおかしいときだけ設定してください。",
     csvAdvancedHint: "大きい/遅い比較向けの調整です。ほとんどのファイルは既定のままで動きます。",
@@ -155,6 +157,8 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    swap: "Swap", swapSides: "Swap OLD and NEW",
+    engineTuning: "Engine tuning", engineTuningHint: "Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.",
     csvParsingOptions: "File format", csvProjectOptions: "Saved comparisons",
     csvParsingHint: "Detected automatically. Set these only when a file is misread.",
     csvAdvancedHint: "Tuning for large or slow comparisons; the defaults suit most files.",
@@ -1737,13 +1741,34 @@ function changedControlCount(root) {
 
 // updateDetailsBadges keeps each collapsed group honest about what it hides.
 function updateDetailsBadges() {
-  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"]]) {
+  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"]]) {
     const group = $(groupID), badge = $(badgeID);
     if (!group || !badge) continue;
     const changed = changedControlCount(group);
     badge.textContent = changed ? t("changedSettings", { count: changed }) : "";
     badge.hidden = changed === 0;
   }
+}
+
+// swapSides exchanges the two inputs (#90). Every comparison tool has this and
+// ayame-diff did not: reversing a comparison meant retyping both paths.
+//
+// It swaps whichever pair is actually in use — the paths, or the pasted text
+// when scratch mode is on — and re-runs only if a result is already showing, so
+// the button never starts work the user did not ask for.
+function swapSides() {
+  const pairs = $("scratch").checked
+    ? [["oldText", "newText"]]
+    : [["old", "new"]];
+  for (const [left, right] of pairs) {
+    const a = $(left), b = $(right);
+    [a.value, b.value] = [b.value, a.value];
+  }
+  // The inspection describes the previous pairing.
+  csvInspection = null;
+  $("inspection").textContent = "";
+  $("keySetup").hidden = true;
+  if (lastData || csvData || threeWayData || directoryData) compare();
 }
 
 function requestBody() {
@@ -2152,6 +2177,12 @@ for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEv
 $("searchNext").addEventListener("click", () => stepSearch(1));
 $("searchPrev").addEventListener("click", () => stepSearch(-1));
 $("searchClose").addEventListener("click", closeSearch);
+$("swapSides").addEventListener("click", swapSides);
+captureControlDefaults($("engineTuning"));
+for (const control of $("engineTuning").querySelectorAll("input, select")) {
+  control.addEventListener("change", updateDetailsBadges);
+  control.addEventListener("input", updateDetailsBadges);
+}
 captureControlDefaults($("csvOptions"));
 for (const control of $("csvOptions").querySelectorAll("input, select")) {
   control.addEventListener("change", updateDetailsBadges);

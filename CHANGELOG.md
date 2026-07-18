@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a swap control between the OLD and NEW inputs, so reversing a
+  comparison no longer means retyping both paths; it swaps whichever pair is in
+  use, forgets the inspection that described the old pairing, and re-runs only
+  when a result is already showing. (#90)
+- Moved the four engine-tuning controls (resync window, max hunks, max lines per
+  hunk, move minimum) into a collapsed group, where they no longer read as
+  ordinary comparison settings, with the same changed-settings badge the CSV
+  groups use. (#92)
 - Reorganised the CSV setup so a first comparison is not met with about thirty
   controls at once. The engine tuning, the file-format overrides, and the saved
   comparisons are collapsed, leaving four controls on the required path; the
