@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Reorganised the CSV setup so a first comparison is not met with about thirty
+  controls at once. The engine tuning, the file-format overrides, and the saved
+  comparisons are collapsed, leaving four controls on the required path; the
+  performance group in particular no longer opens expanded. Each collapsed group
+  reports how many of its settings differ from their defaults, so folding one
+  never hides a change someone made. (#93)
 - Added search inside the comparison result (Ctrl+F): every match is
   highlighted with a running count, Enter and Shift+Enter step between them, and
   the scope can be narrowed to changed lines, with match-case and regular

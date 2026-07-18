@@ -71,6 +71,10 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    csvParsingOptions: "ファイル形式", csvProjectOptions: "保存した比較",
+    csvParsingHint: "自動判定されます。読み取りがおかしいときだけ設定してください。",
+    csvAdvancedHint: "大きい/遅い比較向けの調整です。ほとんどのファイルは既定のままで動きます。",
+    changedSettings: (v) => `${v.count} 件変更`,
     searchResults: "結果内を検索", searchPlaceholder: "結果内を検索", searchCase: "大小区別",
     searchRegex: "正規表現", searchChangedOnly: "変更行のみ", searchPrevious: "前の一致", searchNext: "次の一致",
     searchClose: "検索を閉じる", searchNoMatches: "一致なし",
@@ -151,6 +155,10 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    csvParsingOptions: "File format", csvProjectOptions: "Saved comparisons",
+    csvParsingHint: "Detected automatically. Set these only when a file is misread.",
+    csvAdvancedHint: "Tuning for large or slow comparisons; the defaults suit most files.",
+    changedSettings: (v) => `${v.count} changed`,
     searchResults: "Search results", searchPlaceholder: "Search in results", searchCase: "Match case",
     searchRegex: "Regex", searchChangedOnly: "Changed lines only", searchPrevious: "Previous match", searchNext: "Next match",
     searchClose: "Close search", searchNoMatches: "No matches",
@@ -1777,6 +1785,46 @@ function scheduleSearch() {
   searchTimer = setTimeout(runSearch, 120);
 }
 
+// ---- Progressive disclosure for the CSV setup (#93) ----
+// The setup showed about 30 controls at once, seventeen of them engine tuning
+// that a first comparison never needs. The rarely-used groups are collapsed;
+// so that collapsing does not hide a setting someone actually changed, each
+// group's header carries a count of the controls differing from their default.
+
+// defaultControlValues snapshots every control's initial state, taken before
+// anything can modify it, so "changed" means changed by the user rather than
+// hardcoded per control.
+const defaultControlValues = new Map();
+
+function captureControlDefaults(root) {
+  for (const control of root.querySelectorAll("input, select")) {
+    if (!control.id) continue;
+    defaultControlValues.set(control.id, control.type === "checkbox" ? control.checked : control.value);
+  }
+}
+
+function changedControlCount(root) {
+  let changed = 0;
+  for (const control of root.querySelectorAll("input, select")) {
+    if (!control.id || !defaultControlValues.has(control.id)) continue;
+    const initial = defaultControlValues.get(control.id);
+    const now = control.type === "checkbox" ? control.checked : control.value;
+    if (now !== initial) changed++;
+  }
+  return changed;
+}
+
+// updateDetailsBadges keeps each collapsed group honest about what it hides.
+function updateDetailsBadges() {
+  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"]]) {
+    const group = $(groupID), badge = $(badgeID);
+    if (!group || !badge) continue;
+    const changed = changedControlCount(group);
+    badge.textContent = changed ? t("changedSettings", { count: changed }) : "";
+    badge.hidden = changed === 0;
+  }
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   return {
@@ -2183,6 +2231,12 @@ for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEv
 $("searchNext").addEventListener("click", () => stepSearch(1));
 $("searchPrev").addEventListener("click", () => stepSearch(-1));
 $("searchClose").addEventListener("click", closeSearch);
+captureControlDefaults($("csvOptions"));
+for (const control of $("csvOptions").querySelectorAll("input, select")) {
+  control.addEventListener("change", updateDetailsBadges);
+  control.addEventListener("input", updateDetailsBadges);
+}
+updateDetailsBadges();
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {

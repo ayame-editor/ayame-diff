@@ -234,6 +234,15 @@ button:active:not(:disabled) {
 
 /* In-result search (#118). Sticky under the nav so matches stay reachable
    while scrolling a long diff. */
+/* Collapsed setup groups (#93). The badge reports how many controls inside
+   differ from their defaults, so folding a group never hides a change. */
+.csv-advanced > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.details-badge {
+  font-size: var(--fs-caption); font-weight: 600; color: var(--on-accent);
+  background: var(--accent); border-radius: 999px; padding: 0.05rem 0.5rem;
+}
+.details-hint { margin: 0.4rem 0 0.6rem; color: var(--muted); font-size: var(--fs-label); }
+
 .result-search {
   position: sticky; top: 3.3rem; z-index: 4;
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
