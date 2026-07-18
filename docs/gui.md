@@ -23,6 +23,19 @@ Two subcommands start it:
     prints a warning; anyone holding the URL can drive it, so place it behind
     trusted network access controls.
 
+## Searching a result
+
+`Ctrl+F` opens a search bar over the comparison result. Matches are highlighted
+with a running count; `Enter` and `Shift+Enter` step forward and back, and `Esc`
+closes. Toggles narrow it to changed lines only, make it case-sensitive, or
+treat the query as a regular expression.
+
+Matching runs against each line's whole text, so anchors (`$`) and patterns
+spanning several syntax tokens work as written. The line-number gutter is not
+searched, so a numeric query matches content rather than line numbers. The
+number of highlighted matches is capped so a broad query on a very large diff
+cannot undo the incremental rendering; the counter shows `+` when it applies.
+
 ## Access control
 
 Every run generates an API token, and every `/api` call needs it in an

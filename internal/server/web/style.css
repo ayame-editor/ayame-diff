@@ -232,6 +232,28 @@ button:active:not(:disabled) {
 }
 @keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
+/* In-result search (#118). Sticky under the nav so matches stay reachable
+   while scrolling a long diff. */
+.result-search {
+  position: sticky; top: 3.3rem; z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  margin-top: 0.6rem; padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+  background: var(--panel); box-shadow: var(--shadow);
+}
+.result-search input[type="search"] {
+  flex: 1 1 14rem; min-width: 8rem; padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--bg); color: var(--fg); font-family: var(--mono);
+}
+.result-search input[type="search"].no-match { border-color: var(--del-fg); }
+.result-search button { margin: 0; padding: 0.3rem 0.6rem; }
+#searchCounter { color: var(--muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
+/* A match is marked on the text itself; the current one is picked out so the
+   jump target is unambiguous. */
+.search-hit { background: var(--gold); color: var(--on-accent); border-radius: 2px; }
+.search-hit.current { outline: var(--selection-ring-width) solid var(--accent); }
+
 .hunk {
   border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden;
   /* Skip layout and paint for hunks that are off screen (#127). Appending a

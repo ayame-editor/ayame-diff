@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added search inside the comparison result (Ctrl+F): every match is
+  highlighted with a running count, Enter and Shift+Enter step between them, and
+  the scope can be narrowed to changed lines, with match-case and regular
+  expression toggles. It works on side-by-side, three-way and CSV results, and
+  it matches against each line's whole text rather than the fragments syntax
+  highlighting splits it into, so anchors and patterns spanning several tokens
+  behave as written. The line-number gutter is excluded, so a numeric query
+  matches content rather than line numbers. (#118)
 - Made the inline word diff allocate one reusable table instead of one array
   per token per call, worth 1.64x on worst-case sized lines, and throttled the
   resize handler to a frame like the scroll handler beside it. (#155)

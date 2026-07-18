@@ -51,7 +51,7 @@ const I18N = {
     previousDiff: "前の差分",
     nextDiff: "次の差分",
     lastDiff: "最後の差分",
-    navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右 / Alt+B ベース、Alt+Home/End",
+    navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右 / Alt+B ベース、Alt+Home/End、検索: Ctrl+F（Enter/Shift+Enter で次/前、Esc で閉じる）",
     keyboardShortcuts: "キーボードショートカット", differenceMap: "差分マップ",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
@@ -71,6 +71,10 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    searchResults: "結果内を検索", searchPlaceholder: "結果内を検索", searchCase: "大小区別",
+    searchRegex: "正規表現", searchChangedOnly: "変更行のみ", searchPrevious: "前の一致", searchNext: "次の一致",
+    searchClose: "検索を閉じる", searchNoMatches: "一致なし",
+    searchCounter: (v) => `${v.current} / ${v.total}${v.capped} 件`,
     comparing: "比較中…", rendering: (v) => `描画中… ${v.done} / ${v.total} ハンク`, noDiff: "差分はありません。",
     completeMatch: "✔ 完全一致", filteredMatch: "✔ 比較条件適用後に一致",
     textMatchScope: (v) => `OLD ${v.old} 行 / NEW ${v.new} 行を比較、差分 0`,
@@ -130,7 +134,7 @@ const I18N = {
     previousDiff: "Previous difference",
     nextDiff: "Next difference",
     lastDiff: "Last difference",
-    navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right / Alt+B base; Alt+Home/End",
+    navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right / Alt+B base; Alt+Home/End; search: Ctrl+F (Enter/Shift+Enter next/previous, Esc closes)",
     keyboardShortcuts: "Keyboard shortcuts", differenceMap: "Difference map",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
@@ -147,6 +151,10 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    searchResults: "Search results", searchPlaceholder: "Search in results", searchCase: "Match case",
+    searchRegex: "Regex", searchChangedOnly: "Changed lines only", searchPrevious: "Previous match", searchNext: "Next match",
+    searchClose: "Close search", searchNoMatches: "No matches",
+    searchCounter: (v) => `${v.current} / ${v.total}${v.capped}`,
     comparing: "Comparing…", rendering: (v) => `Rendering… ${v.done} / ${v.total} hunks`, noDiff: "No differences.",
     completeMatch: "✔ Complete match", filteredMatch: "✔ Match under comparison rules",
     textMatchScope: (v) => `Compared ${v.old} OLD / ${v.new} NEW lines; 0 differences`,
@@ -687,6 +695,8 @@ function yieldToBrowser() {
 // superseded this one, in which case the caller must not run its finishing
 // steps.
 async function renderInSlices(target, items, build) {
+  // The nodes any search hits pointed at are being replaced.
+  clearSearchHits();
   const token = ++renderToken;
   let index = 0;
   while (index < items.length) {
@@ -749,6 +759,8 @@ async function renderResult(data) {
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
   if (!complete) return;
   setStatus("");
+  // Re-apply an open search to the diff that just replaced the old one (#118).
+  if (searchOpen()) runSearch();
   updateMergeUI();
   observeHunks();
   updateMinimapViewport();
@@ -1582,6 +1594,189 @@ async function previewDirectoryFilter() { return runExclusive("previewDirectoryF
 async function saveDirectoryProject() { return runExclusive("saveDirectoryProject", runSaveDirectoryProject); }
 async function loadDirectoryProject() { return runExclusive("loadDirectoryProject", runLoadDirectoryProject); }
 
+// ---- In-result search (#118) ----
+// The browser's own find-in-page is a poor fit here: a side-by-side diff wraps
+// and scrolls horizontally, matches inside a collapsed off-screen hunk behave
+// unpredictably, and it reports no count. This searches the rendered result,
+// marks every hit, and steps between them.
+//
+// Matches are wrapped in place with CSS Highlight-free spans so nothing about
+// the diff's own markup changes: only text nodes are touched, and clearing
+// restores them by normalising the parent back together.
+
+let searchHits = [];
+let searchIndex = -1;
+let searchTimer = 0;
+
+function searchOpen() { return !$("resultSearch").hidden; }
+
+function openSearch() {
+  if (!$("result").children.length) return;
+  $("resultSearch").hidden = false;
+  $("searchInput").focus();
+  $("searchInput").select();
+  if ($("searchInput").value) runSearch();
+}
+
+function closeSearch() {
+  $("resultSearch").hidden = true;
+  clearSearchHits();
+  setSearchCounter(0, 0);
+}
+
+// clearSearchHits unwraps every marker and rejoins the split text nodes, so a
+// repeated search never sees text fragmented by the previous one.
+function clearSearchHits() {
+  for (const hit of document.querySelectorAll("#result .search-hit")) {
+    const parent = hit.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(hit.textContent), hit);
+    parent.normalize();
+  }
+  searchHits = [];
+  searchIndex = -1;
+}
+
+function searchPattern() {
+  const raw = $("searchInput").value;
+  if (!raw) return null;
+  const flags = $("searchCase").checked ? "g" : "gi";
+  if ($("searchRegex").checked) {
+    try {
+      return new RegExp(raw, flags);
+    } catch {
+      return undefined; // signals an invalid pattern, distinct from "empty"
+    }
+  }
+  return new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+}
+
+// searchableCells yields the text containers to scan, honoring the changed-only
+// scope.
+//
+// It targets the .tx span rather than the whole .cell: a cell also holds the
+// line-number gutter, so searching the cell made a query like "12" light up
+// line numbers instead of content.
+function searchableCells() {
+  const selector = $("searchChangedOnly").checked
+    ? "#result .cell.add .tx, #result .cell.del .tx, #result .cell.chg .tx, #result .three-line, #result td"
+    : "#result .cell .tx, #result .three-line, #result td";
+  return document.querySelectorAll(selector);
+}
+
+function runSearch() {
+  clearSearchHits();
+  const pattern = searchPattern();
+  const input = $("searchInput");
+  input.classList.toggle("no-match", pattern === undefined);
+  if (!pattern) {
+    setSearchCounter(0, 0);
+    return;
+  }
+  for (const cell of searchableCells()) {
+    markMatchesIn(cell, pattern);
+    // A pathological pattern on a huge diff would otherwise lock the page; the
+    // count tells the user the result is partial.
+    if (searchHits.length >= SEARCH_MAX_HITS) break;
+  }
+  input.classList.toggle("no-match", searchHits.length === 0 && Boolean($("searchInput").value));
+  if (searchHits.length) {
+    searchIndex = 0;
+    focusSearchHit();
+  } else {
+    setSearchCounter(0, 0);
+  }
+}
+
+// SEARCH_MAX_HITS bounds how many markers are inserted. Each one is a DOM node
+// inside the diff, so an unbounded count would undo the render budget #127 set.
+const SEARCH_MAX_HITS = 2000;
+
+// markMatchesIn wraps every match inside one cell.
+//
+// Matching runs against the cell's whole text, not against individual text
+// nodes: syntax highlighting and word-diff markup split a line into many nodes,
+// so a per-node scan silently failed on anchors and on anything spanning a
+// boundary — a regex like `payload_1[0-9]$` found nothing at all. The match
+// ranges are then mapped back onto the nodes they cover, which is also what
+// lets a single match straddle several spans.
+function markMatchesIn(cell, pattern) {
+  const full = cell.textContent;
+  if (!full) return;
+  pattern.lastIndex = 0;
+  const ranges = [];
+  for (let match = pattern.exec(full); match; match = pattern.exec(full)) {
+    if (match[0] === "") {
+      // A zero-length match would loop forever; step past it.
+      pattern.lastIndex++;
+      continue;
+    }
+    ranges.push([match.index, match.index + match[0].length]);
+    if (searchHits.length + ranges.length >= SEARCH_MAX_HITS) break;
+  }
+  if (!ranges.length) return;
+
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+
+  let offset = 0;
+  for (const node of nodes) {
+    const text = node.nodeValue || "";
+    const nodeStart = offset;
+    const nodeEnd = offset + text.length;
+    offset = nodeEnd;
+    // Every range overlapping this node contributes a marked slice.
+    const overlapping = ranges.filter(([from, to]) => from < nodeEnd && to > nodeStart);
+    if (!overlapping.length) continue;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    for (const [from, to] of overlapping) {
+      const localFrom = Math.max(0, from - nodeStart);
+      const localTo = Math.min(text.length, to - nodeStart);
+      if (localFrom > cursor) fragment.append(text.slice(cursor, localFrom));
+      const mark = document.createElement("span");
+      mark.className = "search-hit";
+      mark.textContent = text.slice(localFrom, localTo);
+      // A match split across nodes yields one marker per node; only the piece
+      // that starts the match counts, so the tally matches what was found.
+      if (from >= nodeStart) searchHits.push(mark);
+      else mark.dataset.continuation = "1";
+      fragment.append(mark);
+      cursor = localTo;
+    }
+    if (cursor < text.length) fragment.append(text.slice(cursor));
+    node.parentNode?.replaceChild(fragment, node);
+  }
+}
+
+function setSearchCounter(current, total) {
+  $("searchCounter").textContent = total
+    ? t("searchCounter", { current, total, capped: total >= SEARCH_MAX_HITS ? "+" : "" })
+    : ($("searchInput").value ? t("searchNoMatches") : "");
+}
+
+function focusSearchHit() {
+  document.querySelector("#result .search-hit.current")?.classList.remove("current");
+  const hit = searchHits[searchIndex];
+  if (!hit) return;
+  hit.classList.add("current");
+  hit.scrollIntoView({ behavior: "smooth", block: "center" });
+  setSearchCounter(searchIndex + 1, searchHits.length);
+}
+
+function stepSearch(delta) {
+  if (!searchHits.length) return;
+  searchIndex = (searchIndex + delta + searchHits.length) % searchHits.length;
+  focusSearchHit();
+}
+
+// Typing re-runs the whole scan, so it is debounced like the column filter.
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 120);
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   return {
@@ -1964,6 +2159,30 @@ window.addEventListener("resize", () => {
   if (viewportFrame) return;
   viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
 });
+// In-result search (#118). Ctrl+F is intercepted only when there is a result to
+// search; otherwise the browser's own find is left alone.
+document.addEventListener("keydown", (event) => {
+  const findKey = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f";
+  if (findKey && $("result").children.length) {
+    event.preventDefault();
+    openSearch();
+    return;
+  }
+  if (event.key === "Escape" && searchOpen()) {
+    event.preventDefault();
+    closeSearch();
+    return;
+  }
+  if (event.key === "Enter" && searchOpen() && document.activeElement === $("searchInput")) {
+    event.preventDefault();
+    stepSearch(event.shiftKey ? -1 : 1);
+  }
+});
+$("searchInput").addEventListener("input", scheduleSearch);
+for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEventListener("change", runSearch);
+$("searchNext").addEventListener("click", () => stepSearch(1));
+$("searchPrev").addEventListener("click", () => stepSearch(-1));
+$("searchClose").addEventListener("click", closeSearch);
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
