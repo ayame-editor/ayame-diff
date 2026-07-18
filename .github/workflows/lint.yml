@@ -25,6 +25,10 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - name: Web unit tests
+        # node --test needs no dependencies; the web assets are plain scripts
+        # with no build step, and this keeps it that way (#139).
+        run: node --test internal/server/web/test/*.test.js
       - run: go vet ./...
       - name: staticcheck
         # Pinned so an unrelated PR never breaks when a new staticcheck ships;
