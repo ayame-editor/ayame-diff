@@ -72,6 +72,7 @@ ayame-diff shell-install                               # Register file-manager i
 ayame-diff shell-uninstall                             # Remove file-manager integration
 ayame-diff update [--check]                            # Self-update to latest release (SHA256 verification)
 ayame-diff remove [--yes]                              # Uninstall standalone version
+ayame-diff shell-select PATH                           # Handle a Windows Explorer selection (internal helper)
 ```
 
 If you start with `--left ... --right ...` without a subcommand, it works as `csv` (backward compatible).

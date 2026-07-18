@@ -73,6 +73,7 @@ ayame-diff shell-install                               # ファイルマネー�
 ayame-diff shell-uninstall                             # ファイルマネージャ連携を解除
 ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
 ayame-diff remove [--yes]                              # スタンドアロン版をアンインストール
+ayame-diff shell-select PATH                           # Windows Explorer の選択を処理（内部用）
 ```
 
 サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
