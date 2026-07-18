@@ -762,13 +762,23 @@ function updateMergeUI() {
   $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, lastData.hunk_count - mergeChoices.size));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
+// mergeRowIndex maps a merge id to the row that represents it, filled while
+// rendering. Both merge UIs used to find their rows with a document-wide
+// attribute selector, once per event, on every merge click. The three-way
+// result has no cap on its event count, so a file with thousands of conflicts
+// meant thousands of full-document scans per click (#154).
+let mergeRowIndex = new Map();
+
+function resetMergeRowIndex() { mergeRowIndex = new Map(); }
+function indexMergeRow(id, node) { mergeRowIndex.set(String(id), node); }
+
 function updateCSVMergeUI() {
   $("mergePanel").hidden = false;
   const chosen = new Set([...mergeChoices.keys()].map(String));
-  document.querySelectorAll("[data-merge-id]").forEach((row) => {
-    const side = mergeChoices.get(row.dataset.mergeId);
+  for (const [id, row] of mergeRowIndex) {
+    const side = mergeChoices.get(id);
     row.classList.toggle("merge-left", side === "left"); row.classList.toggle("merge-right", side === "right");
-  });
+  }
   $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, (csvData.difference_count || csvData.differences.length) - chosen.size));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
@@ -832,12 +842,14 @@ async function renderThreeWay(data, csvMode) {
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
   add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); if (data.merged) add(t("autoMerged"), data.merged, "add"); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
+  resetMergeRowIndex();
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
   setupNavigation(lastData);
   const buildEvent = (event, index) => {
     const box = document.createElement("section");
     box.className = `hunk three-event ${event.kind}`; box.id = `hunk-${index}`; box.dataset.hunk = String(index); box.dataset.mergeId = String(event.id); box.tabIndex = -1;
+    indexMergeRow(event.id, box);
     const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `BASE ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
@@ -867,7 +879,7 @@ function updateThreeWayMergeUI() {
   $("mergePanel").hidden = !threeWayData;
   if (!threeWayData) return;
   for (const event of threeWayData.events) {
-    const row = document.querySelector(`.three-event[data-merge-id="${CSS.escape(String(event.id))}"]`), side = mergeChoices.get(event.id);
+    const row = mergeRowIndex.get(String(event.id)), side = mergeChoices.get(event.id);
     for (const value of ["left", "right", "base"]) row?.classList.toggle(`merge-${value}`, side === value);
   }
   $("mergeUnresolved").textContent = t("unresolved", Math.max(0, threeWayData.conflicts - mergeChoices.size));
@@ -1205,6 +1217,9 @@ function renderColumnSelection(inspection) {
     label.append(input, text); list.append(label);
   });
   $("keySetup").hidden = false;
+  // Rebuild the filter cache alongside the list it describes.
+  buildColumnFilterIndex();
+  applyColumnFilter();
   syncKeyMode();
 }
 
@@ -1244,7 +1259,10 @@ function renderCSV(data) {
   lastComparedRequest = null;
   syncExportPatchVisibility();
   minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
-  updateCSVMergeUI();
+  // The rows this index pointed at are about to be replaced. Updating the merge
+  // UI here would only toggle classes on nodes that are discarded below; the
+  // call after the table is built is the one that matters (#154).
+  resetMergeRowIndex();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
   if (!data.differences.length) {
@@ -1292,6 +1310,7 @@ function renderCSV(data) {
   };
   for (const diff of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE)) {
     const action = document.createElement("tr"); action.className = "csv-merge-choice"; action.dataset.mergeId = diff.id;
+    indexMergeRow(diff.id, action);
     const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
     const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
     actionCell.append(label);
@@ -1681,9 +1700,33 @@ function syncKeyMode() {
   updateCSVReview();
 }
 
+// columnFilterIndex caches the column labels and their lowercased text, built
+// once per column list rather than re-derived on every keystroke. Reading
+// textContent concatenates the subtree and toLocaleLowerCase goes through ICU,
+// so the old version allocated two strings per column per keystroke (#154).
+let columnFilterIndex = [];
+
+function buildColumnFilterIndex() {
+  columnFilterIndex = [...document.querySelectorAll("#columnList .column-choice")]
+    .map((label) => ({ label, text: label.textContent.toLocaleLowerCase() }));
+}
+
+let columnFilterTimer = 0;
+
+// filterColumns is debounced because each run writes hidden on every label,
+// which dirties layout for the whole list.
 function filterColumns() {
+  clearTimeout(columnFilterTimer);
+  columnFilterTimer = setTimeout(applyColumnFilter, 80);
+}
+
+function applyColumnFilter() {
   const needle = $("columnSearch").value.toLocaleLowerCase();
-  document.querySelectorAll("#columnList .column-choice").forEach((label) => { label.hidden = !label.textContent.toLocaleLowerCase().includes(needle); });
+  for (const entry of columnFilterIndex) {
+    const hidden = !entry.text.includes(needle);
+    // Only touch the DOM when the state actually changes.
+    if (entry.label.hidden !== hidden) entry.label.hidden = hidden;
+  }
 }
 
 async function loadBrowser(path) {

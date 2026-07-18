@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stopped the merge UI from searching the whole document for every row on
+  every click. Both merge views resolved each row with a document-wide
+  attribute selector, once per event, and a three-way result has no cap on its
+  event count: with 3,000 conflicts a single merge click cost 661ms, now 4.5ms.
+  The key-column search is also debounced and works from a cached list rather
+  than re-reading and re-lowercasing every label on each keystroke. (#154)
 - Removed two allocation hotspots the engine paid on every large comparison.
   Counting a file's lines built and discarded a string per line; counting now
   scans the decoded bytes instead, which on 200,000 lines is 90ms and 300,006
