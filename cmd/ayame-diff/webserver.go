@@ -46,5 +46,34 @@ func browserBaseURL(addr net.Addr) string {
 }
 
 func printRemoteWarning(w io.Writer) {
-	fmt.Fprintln(w, "WARNING: remote access is enabled. The GUI can read and write local files and has no authentication; restrict access with a firewall or trusted network.")
+	fmt.Fprintln(w, "WARNING: remote access is enabled. The GUI can read and write local files, and anyone holding the URL's token can drive it; restrict access with a firewall or trusted network.")
+}
+
+// loopbackHosts returns the Host header values a browser will send for a
+// loopback listener: the address itself plus the other spellings of the same
+// machine. Pinning this set is what stops DNS rebinding, where a page keeps its
+// own hostname in Host after making that name resolve to 127.0.0.1 (#108).
+func loopbackHosts(addr net.Addr) []string {
+	_, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return nil
+	}
+	return []string{
+		net.JoinHostPort("127.0.0.1", port),
+		net.JoinHostPort("localhost", port),
+		net.JoinHostPort("::1", port),
+	}
+}
+
+// tokenURL appends the API token to a base URL, which is how the browser comes
+// to hold the credential every API call needs (#108).
+func tokenURL(base, token string) string {
+	if token == "" {
+		return base
+	}
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
+	}
+	return base + separator + url.Values{"token": {token}}.Encode()
 }

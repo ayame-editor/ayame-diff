@@ -2,6 +2,35 @@
 
 const $ = (id) => document.getElementById(id);
 
+// ---- API token (#108) ----
+// The server requires this token on every /api call. It arrives once in the
+// URL the ayame-diff command opens or prints, and is kept in sessionStorage so
+// a reload or an in-page navigation that drops the query string still works.
+// sessionStorage is per-origin and per-tab, so a page on another site cannot
+// read it.
+//
+// It travels as a request header, never as a cookie: a cookie would be attached
+// automatically to a cross-site request, whereas another origin cannot set a
+// custom header without a CORS preflight that this server refuses. That is what
+// makes the token double as CSRF protection.
+const API_TOKEN_KEY = "ayame-api-token";
+const apiToken = (() => {
+  const fromURL = new URLSearchParams(location.search).get("token");
+  if (fromURL) {
+    try { sessionStorage.setItem(API_TOKEN_KEY, fromURL); } catch { /* private mode: keep it in memory only */ }
+    return fromURL;
+  }
+  try { return sessionStorage.getItem(API_TOKEN_KEY) || ""; } catch { return ""; }
+})();
+
+// apiFetch is the single door to the API: it adds the token to every request so
+// no call site can forget it.
+function apiFetch(input, init = {}) {
+  const headers = new Headers(init.headers || {});
+  if (apiToken) headers.set("X-Ayame-Token", apiToken);
+  return fetch(input, { ...init, headers });
+}
+
 // ---- i18n (JA/EN) ----
 const I18N = {
   ja: {
@@ -592,7 +621,7 @@ async function saveTextMerge() {
   const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
-    const response = await fetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setStatus(t("mergeSaved", data.output), "");
   } catch (err) { setStatus(String(err.message || err), "error"); }
@@ -610,7 +639,7 @@ async function saveCSVMerge() {
   const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
-    const response = await fetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setStatus(t("mergeSaved", data.output), "");
   } catch (err) { setStatus(String(err.message || err), "error"); }
@@ -669,7 +698,7 @@ async function compareThreeWay(csvMode) {
   else body = threeWayRequestBody();
   $("compare").disabled = true; setStatus(t("comparing"), "busy");
   try {
-    const response = await fetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
@@ -685,7 +714,7 @@ async function saveThreeWayMerge() {
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
-  try { const response = await fetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), ""); }
+  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 
@@ -986,7 +1015,7 @@ async function inspectCSV() {
   $("inspectCSV").disabled = true;
   setStatus(t("comparing"), "busy");
   try {
-    const resp = await fetch("/api/csv/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const resp = await apiFetch("/api/csv/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     csvInspection = data;
@@ -1089,7 +1118,7 @@ async function compareCSV() {
   const started = Date.now(), tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy"); tick();
   const timer = setInterval(tick, 100);
   try {
-    const resp = await fetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
+    const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
@@ -1106,7 +1135,7 @@ async function exportCSV() {
 	if (!validateInputs(body)) return;
   if (!body.output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
-  try { const resp = await fetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
+  try { const resp = await apiFetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
 }
 
@@ -1158,13 +1187,13 @@ async function saveProject() {
   if (!body.projectPath) missing.push(t("projectPath"));
   if (!body.output) missing.push(t("outputPath"));
   if (missing.length) { setStatus(t("requiredFields", { fields: missing }), "error"); return; }
-  try { const resp = await fetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function loadProject() {
   const path = $("projectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
+  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -1173,7 +1202,7 @@ function dirRequestBody() { return { mode: "dir", old: $("old").value.trim(), ne
 async function previewDirectoryFilter() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
   $("dirPreview").disabled = true; $("dirPreviewResult").textContent = t("comparing");
-  try { const resp = await fetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
+  try { const resp = await apiFetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
   catch (err) { $("dirPreviewResult").textContent = String(err.message || err); }
   finally { $("dirPreview").disabled = false; }
 }
@@ -1189,13 +1218,13 @@ function applyDirectoryProject(body) {
 async function saveDirectoryProject() {
   const body = dirRequestBody(); body.projectPath = $("dirProjectPath").value.trim();
   if (!validateInputs(body) || !body.projectPath) { if (!body.projectPath) setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await fetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function loadDirectoryProject() {
   const path = $("dirProjectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
+  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -1224,7 +1253,7 @@ function renderDirectory(data, body) {
 async function compareDirectory() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
   const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false; setStatus(t("comparing"), "busy");
-  try { const resp = await fetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); renderDirectory(data, body); setStatus(""); }
+  try { const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); renderDirectory(data, body); setStatus(""); }
   catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
   finally { $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
 }
@@ -1252,7 +1281,7 @@ async function compare() {
   tick();
   const timer = setInterval(tick, 100);
   try {
-    const resp = await fetch("/api/diff", {
+    const resp = await apiFetch("/api/diff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1338,7 +1367,7 @@ async function exportPatch() {
   $("exportPatch").disabled = true;
   setStatus(t("exporting"), "busy");
   try {
-    const resp = await fetch("/api/patch", {
+    const resp = await apiFetch("/api/patch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1424,7 +1453,7 @@ function filterColumns() {
 }
 
 async function loadBrowser(path) {
-  const resp = await fetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
+  const resp = await apiFetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
   if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
   $("browserPath").value = data.Path || data.path; $("browserUp").dataset.path = data.Parent || data.parent;
   const entries = $("browserEntries"); entries.innerHTML = "";
@@ -1484,7 +1513,7 @@ function droppedPaths(dataTransfer) {
 async function uploadDrop(file, session, relative, directory = false) {
   const query = new URLSearchParams({ session, relative });
   if (directory) query.set("directory", "1");
-  const response = await fetch(`/api/drop?${query}`, { method: "POST", body: directory ? new Blob([]) : file });
+  const response = await apiFetch(`/api/drop?${query}`, { method: "POST", body: directory ? new Blob([]) : file });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data.path;
@@ -1531,7 +1560,7 @@ async function setDroppedPaths(paths) {
   if ($("old").value && $("new").value) {
     try {
       const info = await Promise.all(["old", "new"].map(async (id) => {
-        const response = await fetch(`/api/path-info?path=${encodeURIComponent($(id).value)}`);
+        const response = await apiFetch(`/api/path-info?path=${encodeURIComponent($(id).value)}`);
         return response.ok ? response.json() : null;
       }));
       $("mode").value = info.every((item) => item?.directory) ? "dir" : "text";
@@ -1666,7 +1695,7 @@ if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspectio
 const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);
 if (launch.get("autorun") === "1" && launchReady) queueMicrotask(compare);
 
-fetch("/api/health")
+apiFetch("/api/health")
   .then((r) => r.json())
   .then((d) => { if (d.version) $("version").textContent = d.version; })
   .catch(() => {});

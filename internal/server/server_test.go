@@ -25,7 +25,18 @@ func newTestServer(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s.Handler()
+	return authorizedHandler(s)
+}
+
+// authorizedHandler wraps a server so every test request carries its API token,
+// keeping each test focused on the behavior it is about. The token requirement
+// itself is covered against the bare handler in auth_test.go (#108).
+func authorizedHandler(s *Server) http.Handler {
+	handler := s.Handler()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set(tokenHeader, s.Token())
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func TestHealth(t *testing.T) {

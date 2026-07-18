@@ -93,20 +93,21 @@ func TestRunServeMapsStartupAndServeErrors(t *testing.T) {
 		{
 			name: "handler",
 			deps: serveCommandDeps{
-				newHandler: func(string) (http.Handler, error) { return nil, errTest },
+				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return nil, "", errTest },
+				listen:     net.Listen,
 			},
 		},
 		{
 			name: "listen",
 			deps: serveCommandDeps{
-				newHandler: func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
 				listen:     func(string, string) (net.Listener, error) { return nil, errTest },
 			},
 		},
 		{
 			name: "serve",
 			deps: serveCommandDeps{
-				newHandler: func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
 				listen:     net.Listen,
 				serve:      func(net.Listener, http.Handler) error { return errTest },
 			},
@@ -212,7 +213,7 @@ func TestRunGUIRejectsTooManyPathsAndMapsServeError(t *testing.T) {
 
 	errServe := errors.New("serve failed")
 	deps := guiCommandDeps{
-		newHandler:  func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+		newHandler:  func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
 		listen:      net.Listen,
 		serve:       func(net.Listener, http.Handler) error { return errServe },
 		openBrowser: func(string) error { return nil },
@@ -237,13 +238,14 @@ func TestRunGUIMapsHandlerAndListenErrors(t *testing.T) {
 		{
 			name: "handler",
 			deps: guiCommandDeps{
-				newHandler: func(string) (http.Handler, error) { return nil, errTest },
+				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return nil, "", errTest },
+				listen:     net.Listen,
 			},
 		},
 		{
 			name: "listen",
 			deps: guiCommandDeps{
-				newHandler: func(string) (http.Handler, error) { return http.NotFoundHandler(), nil },
+				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
 				listen:     func(string, string) (net.Listener, error) { return nil, errTest },
 			},
 		},

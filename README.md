@@ -141,9 +141,12 @@ ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ### `serve` — Browser GUI
 
 Starts a local web app to compare two files in the browser. Binds to localhost by default (since it opens the entered path directly, for local use only).
-Non-loopback addresses are rejected unless you pass `--allow-remote`. Remote
-mode has no authentication and exposes APIs that can read and write local
-files, so use it only behind trusted network access controls.
+Every run generates an API token that the printed URL carries; the API refuses
+calls without it, and a loopback server also pins the `Host` header, so a
+website you happen to be visiting cannot drive it. Non-loopback addresses are
+rejected unless you pass `--allow-remote`; remote mode exposes APIs that can
+read and write local files to anyone holding the URL, so use it only behind
+trusted network access controls.
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080

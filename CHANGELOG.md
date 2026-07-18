@@ -13,6 +13,16 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Closed the local GUI server to everything but the browser it launched: every
+  run generates an API token that the opened or printed URL carries, and every
+  `/api` call now requires it in a header, so a website the user happens to be
+  visiting can no longer read or overwrite local files through the server or
+  enumerate directories via `/api/files`. Because the credential is a header
+  rather than a cookie, another origin cannot attach it without a CORS preflight
+  that the server refuses, which also closes CSRF. A loopback server
+  additionally pins the `Host` header, refusing DNS-rebinding requests even when
+  they carry a valid token. The embedded UI, its assets, and `/api/health` stay
+  open, as none exposes user data. (#108)
 - Bounded the remaining inputs that could not stream, so an oversized one is
   refused with a way forward instead of exhausting memory: a single line past
   `--max-line-bytes` (default 64MiB) is rejected at open time, since a file with
