@@ -6,13 +6,20 @@ import (
 	"testing"
 )
 
+// readWebAsset returns an embedded asset with LF line endings. Every assertion
+// about the web assets goes through here, and several match on "\n" to pin a
+// statement to its own line. Git checks the assets out as CRLF on Windows, so
+// without this normalization those assertions fail on that platform alone —
+// which is exactly what happened, silently, until a Windows CI job caught it.
+// .gitattributes now pins the assets to LF as well; this keeps the tests honest
+// regardless of how a working tree was checked out.
 func readWebAsset(t *testing.T, name string) string {
 	t.Helper()
 	b, err := webFS.ReadFile("web/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 func TestWebStylesUseAyameTokens(t *testing.T) {
