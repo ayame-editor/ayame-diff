@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -225,7 +226,27 @@ func (f *columnToleranceFlag) Set(text string) error {
 var runEngine = engine.Run
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(runGuarded(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// runGuarded converts a panic anywhere in the command into the documented
+// runtime-failure exit code with a message a user can act on (#137). Without
+// it the Go runtime prints a raw stack trace and exits 2 — which collides with
+// exitUsage, so a script could not tell a crash from a bad flag. The stack
+// still goes to stderr, because a crash the user cannot report is worse than a
+// noisy one.
+func runGuarded(args []string, stdout, stderr io.Writer) (code int) {
+	defer func() {
+		value := recover()
+		if value == nil {
+			return
+		}
+		fmt.Fprintf(stderr, "ayame-diff: internal error: %v\n", value)
+		fmt.Fprintln(stderr, "This is a bug. Please report it with the command you ran and the trace below:")
+		fmt.Fprintf(stderr, "%s\n", debug.Stack())
+		code = exitError
+	}()
+	return run(args, stdout, stderr)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
