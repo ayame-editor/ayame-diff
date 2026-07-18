@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Stopped a large diff from freezing the GUI. Every result was built in one
+  synchronous loop, so 20,000 rows — reachable at the default caps via large
+  insertion blocks — blocked the main thread for ~15.7s with a blank result
+  area and a stalled elapsed counter. Rendering is now sliced with yields
+  between batches, off-screen hunks skip layout, and the whitespace markers and
+  word-diff spans that were built even when their option was off (82% of the
+  DOM: 660,000 of 801,400 elements) are only built when shown. The same diff
+  now takes 758ms with a longest main-thread block of 356ms, and a placeholder
+  fills the result area while the comparison runs. (#127)
+
 ## v0.8.0 - 2026-07-18
 
 **Breaking:** the local GUI server now requires an API token on every `/api`

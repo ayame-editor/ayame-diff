@@ -125,7 +125,20 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
-func TestDisplayTogglesDoNotRebuildDiffDOM(t *testing.T) {
+// TestDisplayTogglesKeepSyntaxClassDriven pins how the three display toggles
+// behave, which #127 changed for two of them.
+//
+// #153 made all three class-driven so a toggle never rebuilt the result. That
+// held while a rebuild was one blocking loop. It is no longer the right trade
+// for the two toggles whose markup is large: building whitespace markers and
+// word-diff spans that CSS then hid accounted for 82% of the DOM on a large
+// diff (660,000 of 801,400 elements) even with both options off, and laying
+// out those nodes is what froze the page. Those two now build only what is
+// shown and redraw on change — cheap, because the redraw is sliced (#127).
+//
+// Syntax highlighting keeps the #153 treatment: its spans are always built and
+// the class only changes their appearance, so toggling it stays instant.
+func TestDisplayTogglesKeepSyntaxClassDriven(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
 	style := readWebAsset(t, "style.css")
@@ -134,15 +147,21 @@ func TestDisplayTogglesDoNotRebuildDiffDOM(t *testing.T) {
 		`original.className = "ws-original"`,
 		`visible.className = "ws-visible"`,
 		`const spans = globalThis.AyameSyntax?.highlightSpans(text, path)`,
-		`const wd = inlineWordDiff(old[k], neu[k])`,
 		`result.classList.toggle("show-whitespace"`,
 		`result.classList.toggle("syntax-highlight"`,
 		`result.classList.toggle("word-highlight"`,
-		`$("word").addEventListener("change", applyDisplayPreferences)`,
 	} {
 		if !strings.Contains(app, want) {
-			t.Errorf("class-driven display toggle missing %q", want)
+			t.Errorf("display toggle plumbing missing %q", want)
 		}
+	}
+	// Syntax stays purely class-driven: nothing may gate building its spans.
+	syntaxBody := renderFunctionBody(t, app, "function appendSyntax(")
+	if strings.Contains(syntaxBody, `$("syntax").checked`) {
+		t.Error("syntax spans became conditional; toggling syntax should not need a redraw")
+	}
+	if !strings.Contains(app, `$("syntax").checked ? "1" : "0"`) {
+		t.Error("the syntax toggle no longer persists its state")
 	}
 	for _, want := range []string{
 		".result.show-whitespace .ws-original",

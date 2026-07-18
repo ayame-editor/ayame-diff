@@ -71,7 +71,7 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
-    comparing: "比較中…", noDiff: "差分はありません。",
+    comparing: "比較中…", rendering: (v) => `描画中… ${v.done} / ${v.total} ハンク`, noDiff: "差分はありません。",
     completeMatch: "✔ 完全一致", filteredMatch: "✔ 比較条件適用後に一致",
     textMatchScope: (v) => `OLD ${v.old} 行 / NEW ${v.new} 行を比較、差分 0`,
     csvMatchScope: (v) => `${v.rows} 行 / ${v.columns} 列を比較、差分 0`,
@@ -147,7 +147,7 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
-    comparing: "Comparing…", noDiff: "No differences.",
+    comparing: "Comparing…", rendering: (v) => `Rendering… ${v.done} / ${v.total} hunks`, noDiff: "No differences.",
     completeMatch: "✔ Complete match", filteredMatch: "✔ Match under comparison rules",
     textMatchScope: (v) => `Compared ${v.old} OLD / ${v.new} NEW lines; 0 differences`,
     csvMatchScope: (v) => `Compared ${v.rows} rows / ${v.columns} columns; 0 differences`,
@@ -311,7 +311,20 @@ let threeWayData = null;
 // ---- rendering ----
 // appendText emits both the original whitespace and its visible representation.
 // CSS swaps between them so display toggles never rebuild the diff DOM.
+// appendText writes a line's text, building the whitespace-marker structure
+// only when the display is actually on.
+//
+// Each whitespace run costs three elements (.ws wrapping .ws-original and
+// .ws-visible) so CSS can swap the raw run for dots and arrows. Building them
+// unconditionally made them 82% of the DOM on a large diff — 660,000 of
+// 801,400 elements — for a display that is off by default, and it was the
+// layout of all those nodes that froze the page (#127). Toggling the option
+// re-renders, which is what applyDisplayPreferences now arranges.
 function appendText(el, text) {
+  if (!showWhitespace()) {
+    el.appendChild(document.createTextNode(text));
+    return;
+  }
   const re = /(\s+)|([^\s]+)/g;
   let m;
   while ((m = re.exec(text))) {
@@ -331,6 +344,8 @@ function appendText(el, text) {
     }
   }
 }
+
+function showWhitespace() { return $("showWs").checked; }
 function syntaxPath(side) {
   if ($("scratch").checked) return "";
   return side === "old" ? $("old").value : $("new").value;
@@ -462,7 +477,9 @@ function renderHunk(h, index) {
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
-      const wd = inlineWordDiff(old[k], neu[k]);
+      // The DP and its per-part spans are pure cost when the highlight is
+      // off, since CSS only hid the result (#127).
+      const wd = $("word").checked ? inlineWordDiff(old[k], neu[k]) : null;
       const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath) : plainSpan(old[k], oldPath), "old");
       const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath) : plainSpan(neu[k], newPath), "new");
       rows.append(row(left, right));
@@ -541,9 +558,98 @@ function comparisonUsesRules(csvMode = false) {
   ));
 }
 
+// ---- Incremental rendering (#127) ----
+// A large diff is far more DOM than one task can afford: 200 insert hunks of
+// 100 lines each — reachable at the default caps — is 20,000 rows and roughly
+// 800,000 elements, which took ~15.7s of blocked main thread when built in a
+// single loop. Nothing could paint in that window, so the elapsed counter
+// froze and the page ignored input.
+//
+// Rendering is therefore sliced: build for a few milliseconds, hand the frame
+// back to the browser, continue. Content appears progressively instead of all
+// at once at the end, and scrolling and typing keep working throughout.
+
+// renderBudgetMs is how long one slice may build before yielding. Comfortably
+// inside a frame, so a slice cannot itself cause a dropped frame.
+const RENDER_BUDGET_MS = 8;
+
+// renderToken invalidates an in-progress render when a newer one starts, so a
+// superseded render stops appending instead of interleaving with its successor.
+let renderToken = 0;
+
+// yieldToBrowser hands the thread back, resuming on the next macrotask so the
+// browser can paint and process input in between.
+//
+// MessageChannel rather than requestAnimationFrame, which does not fire in a
+// hidden tab: a user who switches away mid-render would come back to a diff
+// frozen part-way through. And rather than setTimeout, which browsers clamp to
+// about a second in background tabs, turning a 3-second render into minutes.
+const yieldWaiters = [];
+const yieldChannel = new MessageChannel();
+yieldChannel.port1.onmessage = () => {
+  const resolve = yieldWaiters.shift();
+  if (resolve) resolve();
+};
+function yieldToBrowser() {
+  return new Promise((resolve) => {
+    yieldWaiters.push(resolve);
+    yieldChannel.port2.postMessage(0);
+  });
+}
+
+// renderInSlices appends items.length nodes to target, yielding between
+// slices. build(item, index) returns the node. Returns false if a newer render
+// superseded this one, in which case the caller must not run its finishing
+// steps.
+async function renderInSlices(target, items, build) {
+  const token = ++renderToken;
+  let index = 0;
+  while (index < items.length) {
+    const started = performance.now();
+    const frag = document.createDocumentFragment();
+    // Always place at least one node, so a single very expensive item cannot
+    // stall the loop forever.
+    do {
+      frag.append(build(items[index], index));
+      index++;
+    } while (index < items.length && performance.now() - started < RENDER_BUDGET_MS);
+    target.append(frag);
+    if (index >= items.length) break;
+    setStatus(t("rendering", { done: index.toLocaleString(), total: items.length.toLocaleString() }), "busy");
+    await yieldToBrowser();
+    if (token !== renderToken) return false;
+  }
+  return true;
+}
+
+// showResultSkeleton fills the result area with placeholder cards while a
+// comparison is in flight. The area used to sit blank from the moment it was
+// cleared until the render finished, which read as a hung page (#127).
+function showResultSkeleton() {
+  const result = $("result");
+  result.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "skeleton";
+  wrap.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 3; i++) {
+    const card = document.createElement("div");
+    card.className = "skeleton-hunk";
+    const head = document.createElement("div");
+    head.className = "skeleton-head";
+    card.append(head);
+    for (let row = 0; row < 3; row++) {
+      const line = document.createElement("div");
+      line.className = "skeleton-row";
+      card.append(line);
+    }
+    wrap.append(card);
+  }
+  result.append(wrap);
+}
+
 // renderResult draws a diff response once. Display preferences only toggle
 // classes on the completed DOM via applyDisplayPreferences.
-function renderResult(data) {
+async function renderResult(data) {
   applyDisplayPreferences();
   renderSummary(data);
   const result = $("result");
@@ -555,9 +661,9 @@ function renderResult(data) {
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
-  const frag = document.createDocumentFragment();
-  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], i));
-  result.append(frag);
+  const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
+  if (!complete) return;
+  setStatus("");
   updateMergeUI();
   observeHunks();
   updateMinimapViewport();
@@ -649,7 +755,7 @@ function saveMergeResult() { if ($("mode").value === "threeway" || $("mode").val
 
 function threeWayRequestBody() { return { ...requestBody(), base: $("base").value.trim() }; }
 function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) => row.join("\t")) : (value || []); }
-function renderThreeWay(data, csvMode) {
+async function renderThreeWay(data, csvMode) {
   threeWayData = { ...data, csvMode }; csvData = null;
   lastComparedRequest = null;
   const summary = $("summary"); summary.innerHTML = "";
@@ -659,8 +765,8 @@ function renderThreeWay(data, csvMode) {
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
   setupNavigation(lastData);
-  for (let index = 0; index < data.events.length; index++) {
-    const event = data.events[index], box = document.createElement("section");
+  const buildEvent = (event, index) => {
+    const box = document.createElement("section");
     box.className = `hunk three-event ${event.kind}`; box.id = `hunk-${index}`; box.dataset.hunk = String(index); box.dataset.mergeId = String(event.id); box.tabIndex = -1;
     const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `BASE ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
@@ -670,8 +776,14 @@ function renderThreeWay(data, csvMode) {
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
     for (const [name, values] of (event.kind === "merged" ? [["BASE", event.base], ["MERGED", event.combined]] : [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]])) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
-    box.append(head, grid); result.append(box);
-  }
+    box.append(head, grid);
+    return box;
+  };
+  // Sliced like the text path: a three-way result can carry as many events as
+  // a diff carries hunks, and this loop appended straight into the live DOM
+  // rather than a fragment, so it was the heavier of the two (#127).
+  if (data.events.length && !(await renderInSlices(result, data.events, buildEvent))) return;
+  if (data.events.length) setStatus("");
   if (!data.events.length) {
     const scope = csvMode
       ? t("threeWayCSVMatchScope", { columns: (data.header || []).length.toLocaleString() })
@@ -702,7 +814,7 @@ async function compareThreeWay(csvMode) {
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
-    renderThreeWay(data, csvMode); setStatus("");
+    await renderThreeWay(data, csvMode);
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("compare").disabled = false; }
 }
@@ -1228,7 +1340,7 @@ async function loadDirectoryProject() {
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
-function renderDirectory(data, body) {
+async function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
   csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
   syncExportPatchVisibility();
@@ -1237,23 +1349,28 @@ function renderDirectory(data, body) {
   for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${t(name)}`); summary.append(item); } summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
   const filter = $("dirStatus").value;
-  for (const entry of data.entries) {
-    if ((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)) continue;
+  // A folder comparison carries one entry per file with no cap, so a large
+  // tree is exactly the case that must not arrive as one blocking loop (#127).
+  const visible = data.entries.filter((entry) =>
+    !((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)));
+  const buildEntry = (entry) => {
     const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
     const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
     const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
     row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
     if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
     else row.disabled = true;
-    tree.append(row);
-  }
+    return row;
+  };
   result.append(tree);
+  if (visible.length && !(await renderInSlices(tree, visible, buildEntry))) return;
+  setStatus("");
 }
 
 async function compareDirectory() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
   const ac = new AbortController(); currentAbort = ac; $("compare").disabled = true; $("cancel").hidden = false; setStatus(t("comparing"), "busy");
-  try { const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); renderDirectory(data, body); setStatus(""); }
+  try { const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); await renderDirectory(data, body); }
   catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
   finally { $("compare").disabled = false; $("cancel").hidden = true; currentAbort = null; }
 }
@@ -1275,7 +1392,7 @@ async function compare() {
   lastComparedRequest = null;
   syncExportPatchVisibility();
   $("summary").hidden = true;
-  $("result").innerHTML = "";
+  showResultSkeleton();
   const started = Date.now();
   const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
   tick();
@@ -1289,7 +1406,6 @@ async function compare() {
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    setStatus("");
     lastData = data;
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
@@ -1299,7 +1415,10 @@ async function compare() {
       const source = $("old").value.trim();
       $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.txt";
     }
-    renderResult(data);
+    // Stop the elapsed ticker before rendering: renderResult yields between
+    // slices, so the ticker would otherwise keep overwriting its progress.
+    clearInterval(timer);
+    await renderResult(data);
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
     else setStatus(String(err.message || err), "error");
@@ -1495,6 +1614,16 @@ function applyDisplayPreferences() {
   result.classList.toggle("word-highlight", $("word").checked);
 }
 
+// rerenderForDisplayChange redraws the current result after a toggle that
+// changes which nodes are built. Whitespace markers and word-diff spans are no
+// longer created when their option is off (#127), so a class flip alone can no
+// longer reveal them.
+function rerenderForDisplayChange() {
+  applyDisplayPreferences();
+  if (threeWayData) renderThreeWay(threeWayData, threeWayData.csvMode);
+  else if (lastData) renderResult(lastData);
+}
+
 function droppedPaths(dataTransfer) {
   const uriList = dataTransfer.getData("text/uri-list");
   const fromURIs = uriList.split(/\r?\n/).filter((line) => line && !line.startsWith("#")).map((line) => {
@@ -1658,13 +1787,13 @@ $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
-  applyDisplayPreferences();
+  rerenderForDisplayChange();
 });
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
   applyDisplayPreferences();
 });
-$("word").addEventListener("change", applyDisplayPreferences);
+$("word").addEventListener("change", rerenderForDisplayChange);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
