@@ -11,8 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-
-	"github.com/hjosugi/ayame-diff/internal/server"
 )
 
 // runGUI implements: ayame-diff gui [--addr host:port] [--no-open] [OLD [NEW]]
@@ -22,6 +20,22 @@ import (
 // experience without a native webview dependency (keeping the single static,
 // cross-compiled binary). See ADR 0002 / hjosugi/ayame-diff#14.
 func runGUI(args []string, stdout, stderr io.Writer) int {
+	return runGUIWithDeps(args, stdout, stderr, guiCommandDeps{
+		newHandler:  newServerHandler,
+		listen:      net.Listen,
+		serve:       http.Serve,
+		openBrowser: openBrowser,
+	})
+}
+
+type guiCommandDeps struct {
+	newHandler  func(string) (http.Handler, error)
+	listen      func(string, string) (net.Listener, error)
+	serve       func(net.Listener, http.Handler) error
+	openBrowser func(string) error
+}
+
+func runGUIWithDeps(args []string, stdout, stderr io.Writer, deps guiCommandDeps) int {
 	fs := flag.NewFlagSet("ayame-diff gui", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var addr string
@@ -49,24 +63,25 @@ the GUI chooses text/folder mode and starts comparing immediately.`)
 		return exitUsage
 	}
 
-	srv, err := server.New(version)
+	handler, err := deps.newHandler(version)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
-	ln, err := net.Listen("tcp", addr)
+	ln, err := deps.listen("tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
+	defer ln.Close()
 	guiURL := guiLaunchURL("http://"+ln.Addr().String()+"/", fs.Args())
 	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
 	if !noOpen {
-		if err := openBrowser(guiURL); err != nil {
+		if err := deps.openBrowser(guiURL); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, guiURL)
 		}
 	}
-	if err := http.Serve(ln, srv.Handler()); err != nil {
+	if err := deps.serve(ln, handler); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
@@ -93,9 +108,14 @@ func guiLaunchURL(base string, paths []string) string {
 // openBrowser opens url in the platform's default browser. The launcher is
 // detached; a failure to start is reported to the caller.
 func openBrowser(url string) error {
+	name, args := browserCommand(runtime.GOOS, url)
+	return exec.Command(name, args...).Start()
+}
+
+func browserCommand(goos, url string) (string, []string) {
 	var name string
 	var args []string
-	switch runtime.GOOS {
+	switch goos {
 	case "darwin":
 		name, args = "open", []string{url}
 	case "windows":
@@ -103,5 +123,5 @@ func openBrowser(url string) error {
 	default:
 		name, args = "xdg-open", []string{url}
 	}
-	return exec.Command(name, args...).Start()
+	return name, args
 }
