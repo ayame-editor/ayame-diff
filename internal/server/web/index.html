@@ -105,19 +105,28 @@
 		<fieldset id="csvOptions" class="csv-options" hidden>
 		  <legend data-i18n="csvSetup">CSV / TSV setup</legend>
 		  <div class="csv-actions"><button id="inspectCSV" type="button" data-i18n="inspect">Inspect headers</button><span id="inspection"></span></div>
-		  <div class="project-actions"><input id="projectPath" placeholder="compare.ayamediff.json" spellcheck="false" /><button id="loadProject" type="button" data-i18n="openProject">Open project</button><button id="saveProject" type="button" data-i18n="saveProject">Save project</button><select id="recentProjects"><option value="" data-i18n="recent">Recent comparisons</option></select></div>
+		  <details class="csv-advanced" id="csvProject">
+			<summary data-i18n="csvProjectOptions">Saved comparisons</summary>
+			<div class="project-actions"><input id="projectPath" placeholder="compare.ayamediff.json" spellcheck="false" /><button id="loadProject" type="button" data-i18n="openProject">Open project</button><button id="saveProject" type="button" data-i18n="saveProject">Save project</button><select id="recentProjects"><option value="" data-i18n="recent">Recent comparisons</option></select></div>
+		  </details>
 		  <div class="csv-grid">
-			<label class="opt"><span data-i18n="leftFormat">left format</span><select id="leftFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
-			<label class="opt"><span data-i18n="rightFormat">right format</span><select id="rightFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
-			<label class="opt"><span data-i18n="leftParser">left parser</span><select id="leftParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
-			<label class="opt"><span data-i18n="rightParser">right parser</span><select id="rightParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
-			<label class="opt"><span data-i18n="leftDelimiter">left delimiter</span><input id="leftDelimiter" spellcheck="false" /></label>
-			<label class="opt"><span data-i18n="rightDelimiter">right delimiter</span><input id="rightDelimiter" spellcheck="false" /></label>
 			<label class="opt check"><input id="hasHeader" type="checkbox" checked /><span data-i18n="hasHeader">header row</span></label>
 			<label class="opt check"><input id="alignColumns" type="checkbox" checked /><span data-i18n="alignColumns">align by name</span></label>
-			<label class="opt check"><input id="lazyQuotes" type="checkbox" /><span data-i18n="lazyQuotes">lazy quotes</span></label>
-			<label class="opt check"><input id="trimLeadingSpace" type="checkbox" /><span data-i18n="trimLeadingSpace">trim leading space</span></label>
 		  </div>
+		  <details class="csv-advanced" id="csvParsing">
+			<summary><span data-i18n="csvParsingOptions">File format</span><span class="details-badge" id="csvParsingBadge" hidden></span></summary>
+			<p class="details-hint" data-i18n="csvParsingHint">Detected automatically. Set these only when a file is misread.</p>
+			<div class="csv-grid">
+			  <label class="opt"><span data-i18n="leftFormat">left format</span><select id="leftFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			  <label class="opt"><span data-i18n="rightFormat">right format</span><select id="rightFormat"><option>auto</option><option>csv</option><option>tsv</option></select></label>
+			  <label class="opt"><span data-i18n="leftParser">left parser</span><select id="leftParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			  <label class="opt"><span data-i18n="rightParser">right parser</span><select id="rightParser"><option>auto</option><option>rfc4180</option><option>simple</option></select></label>
+			  <label class="opt"><span data-i18n="leftDelimiter">left delimiter</span><input id="leftDelimiter" spellcheck="false" /></label>
+			  <label class="opt"><span data-i18n="rightDelimiter">right delimiter</span><input id="rightDelimiter" spellcheck="false" /></label>
+			  <label class="opt check"><input id="lazyQuotes" type="checkbox" /><span data-i18n="lazyQuotes">lazy quotes</span></label>
+			  <label class="opt check"><input id="trimLeadingSpace" type="checkbox" /><span data-i18n="trimLeadingSpace">trim leading space</span></label>
+			</div>
+		  </details>
 		  <section id="keySetup" class="key-setup" hidden>
 			<div class="key-toolbar">
 			  <label class="opt"><span data-i18n="keyMode">key mode</span><select id="keyMode"><option value="all" data-i18n="allColumns">all columns</option><option value="include" data-i18n="includeKeys">selected keys</option><option value="exclude" data-i18n="excludeKeys">exclude selected</option></select></label>
@@ -126,8 +135,9 @@
 			</div>
 			<div id="columnList" class="column-list"></div>
 		  </section>
-		  <details class="csv-advanced" open>
-			<summary data-i18n="csvCompareOptions">Comparison and performance</summary>
+		  <details class="csv-advanced" id="csvAdvanced">
+			<summary><span data-i18n="csvCompareOptions">Comparison and performance</span><span class="details-badge" id="csvAdvancedBadge" hidden></span></summary>
+			<p class="details-hint" data-i18n="csvAdvancedHint">Tuning for large or slow comparisons; the defaults suit most files.</p>
 			<div class="csv-grid">
 			  <label class="opt"><span data-i18n="ignoreColumns">ignore columns</span><input id="ignoreColumns" placeholder="updated_at, checksum" spellcheck="false" /></label>
 			  <label class="opt"><span data-i18n="tolerance">numeric tolerance</span><input id="tolerance" type="number" min="0" step="any" /></label>
