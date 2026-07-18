@@ -250,6 +250,18 @@ function pushPart(parts, text, changed) {
   if (last && last.changed === changed) last.text += text;
   else parts.push({ text, changed });
 }
+// inlineDPScratch is reused across calls so a full render does not allocate a
+// fresh table per changed line. It is cleared to the needed length each time,
+// since the algorithm reads cells it has not written yet (row m and column n
+// must be zero).
+let inlineDPScratch = new Uint16Array(0);
+
+function inlineDPBuffer(size) {
+  if (inlineDPScratch.length < size) inlineDPScratch = new Uint16Array(size);
+  inlineDPScratch.fill(0, 0, size);
+  return inlineDPScratch;
+}
+
 function inlineWordDiff(oldText, newText) {
   oldText = String(oldText || "");
   newText = String(newText || "");
@@ -259,10 +271,16 @@ function inlineWordDiff(oldText, newText) {
   const b = inlineTokens(newText);
   if (a.length + b.length > INLINE_MAX_TOKENS) return null;
   const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  // One flat Uint16Array rather than m+1 of them: the row-per-line form
+  // allocated an array per token and turned every dp read into an
+  // array-of-arrays double dereference. The table is bounded by
+  // INLINE_MAX_TOKENS above, so a single buffer is reused across calls (#155).
+  const stride = n + 1;
+  const dp = inlineDPBuffer(stride * (m + 1));
+  const at = (i, j) => i * stride + j;
   for (let i = m - 1; i >= 0; i--)
     for (let j = n - 1; j >= 0; j--)
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[at(i, j)] = a[i] === b[j] ? dp[at(i + 1, j + 1)] + 1 : Math.max(dp[at(i + 1, j)], dp[at(i, j + 1)]);
   const oldParts = [], newParts = [];
   let i = 0, j = 0;
   while (i < m || j < n) {
@@ -270,7 +288,7 @@ function inlineWordDiff(oldText, newText) {
       pushPart(oldParts, a[i], false);
       pushPart(newParts, b[j], false);
       i++; j++;
-    } else if (j >= n || (i < m && dp[i + 1][j] >= dp[i][j + 1])) {
+    } else if (j >= n || (i < m && dp[at(i + 1, j)] >= dp[at(i, j + 1)])) {
       pushPart(oldParts, a[i], true); i++;
     } else {
       pushPart(newParts, b[j], true); j++;
@@ -1940,7 +1958,12 @@ window.addEventListener("scroll", () => {
   if (viewportFrame) return;
   viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
 }, { passive: true });
-window.addEventListener("resize", updateMinimapViewport);
+// Throttled like scroll above: a resize fires continuously while dragging, and
+// each call forces a layout read (#155).
+window.addEventListener("resize", () => {
+  if (viewportFrame) return;
+  viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
+});
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {

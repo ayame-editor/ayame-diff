@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Made the inline word diff allocate one reusable table instead of one array
+  per token per call, worth 1.64x on worst-case sized lines, and throttled the
+  resize handler to a frame like the scroll handler beside it. (#155)
 - Stopped the merge UI from searching the whole document for every row on
   every click. Both merge views resolved each row with a document-wide
   attribute selector, once per event, and a three-way result has no cap on its
