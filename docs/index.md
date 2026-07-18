@@ -51,6 +51,24 @@ ayame-diff csv --left old.csv --right new.csv --key id --out diff.tsv
 ayame-diff dir old-folder new-folder        # compare folder trees
 ```
 
+## Subcommands at a glance
+
+```text
+ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison
+ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
+ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
+ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
+ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
+ayame-diff 3way   [text|csv] [flags]                   # three-way comparison
+ayame-diff serve  [--addr host:port]                   # local web UI
+ayame-diff gui    [flags] [OLD [NEW]]                  # open the web UI in a browser
+ayame-diff update [--check]                            # check for or install the latest release
+ayame-diff remove [--yes]                              # uninstall a standalone binary
+ayame-diff shell-install                               # register file-manager integration
+ayame-diff shell-uninstall                             # remove file-manager integration
+ayame-diff shell-select PATH                           # Windows Explorer integration helper
+```
+
 Use [Comparison options](comparison-options.md) for whitespace, case, line filters, word highlights, and resync controls. For repeatable jobs, save the full setup as a [comparison project](projects.md).
 
 <div class="doc-link-row">

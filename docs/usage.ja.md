@@ -4,7 +4,9 @@
 # 使用方法
 
 `ayame-diff` はファイル、構造化データ、フォルダ、アーカイブ、バイナリ、
-3-way の比較と、Web GUI、ファイルマネージャー統合を1つのコマンドで扱います。
+3-way の比較と、Web GUI、保守、ファイルマネージャー統合を1つのコマンドで扱います。
+
+## コマンド一覧
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSVキー比較（デフォルト）
@@ -15,8 +17,11 @@ ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比�
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
 ayame-diff serve  [--addr host:port]                   # ローカルWeb GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # GUIを開き、必要なら入力を事前設定
+ayame-diff update [--check]                            # 最新リリースの確認・導入
+ayame-diff remove [--yes]                              # スタンドアロン版を削除
 ayame-diff shell-install                               # ファイルマネージャー統合
 ayame-diff shell-uninstall                             # 統合を削除
+ayame-diff shell-select PATH                           # Windows Explorer 統合用ヘルパー
 ```
 
 `--left ... --right ...`を指定してサブコマンドなしで`ayame-diff`を呼び出すと、後方互換性のために`csv`として動作します。`serve`と`gui`のサブコマンドについては[GUI](gui.ja.md)を参照してください。
@@ -30,6 +35,8 @@ ayame-diff shell-uninstall                             # 統合を削除
   <a class="doc-jump" href="#text">テキストを比較</a>
   <a class="doc-jump" href="#sorted">ソートして比較</a>
   <a class="doc-jump" href="#dir">フォルダを比較</a>
+  <a class="doc-jump" href="#bin">バイナリを比較</a>
+  <a class="doc-jump" href="#update">インストールを保守</a>
   <a class="doc-jump" href="#exit-codes">スクリプト / CI で使う</a>
   <a class="doc-jump" href="../gui.ja/">GUI を使う</a>
 </div>
@@ -296,6 +303,73 @@ size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
 `--filter-set` は繰り返し指定でき、直接指定した `--include`、`--exclude`、`--filter`
 と組み合わせます。ディレクトリモードの `.ayamediff.json` は `--filter-file` として
 直接渡せます。OLD/NEW パスを含む場合、コマンドライン側のパスは省略できます。
+
+---
+
+## `bin` — バイト単位のバイナリ比較 { #bin }
+
+`bin OLD NEW`は2ファイルをストリーミングし、差分領域ごとにバイトオフセットと
+変更前後のバイト列を16進数で表示します。巨大な入力でもメモリ使用量は有界です。
+画像などのファイル形式を解釈する機能ではありません。
+
+```bash
+ayame-diff bin firmware-v1.bin firmware-v2.bin
+ayame-diff bin --max-regions 20 --max-bytes 64 old.dat new.dat
+```
+
+`--max-regions`は表示する領域数（デフォルト256）、`--max-bytes`は各領域の左右で
+保持・表示するバイト数（デフォルト32）を制限します。サマリーには差分バイト総数と
+領域一覧が省略されたかどうかも表示されます。
+
+---
+
+## `update` — スタンドアロン版の更新 { #update }
+
+`update`はGitHubの最新リリースを確認し、現在のOS・アーキテクチャ用アーカイブを
+ダウンロードして、リリースの`SHA256SUMS`で検証した後、実行中のバイナリを
+アトミックに置き換えます。実行ファイルのディレクトリへの書き込み権限が必要です。
+
+```bash
+ayame-diff update --check   # 新しいリリースの有無だけを表示
+ayame-diff update           # 検証して最新リリースを導入
+```
+
+Homebrew、Scoop、Nixなどで管理している場合は、パッケージデータベースとの整合を
+保つため、そのパッケージマネージャーの更新コマンドを使ってください。
+
+---
+
+## `remove` — スタンドアロン版のアンインストール { #remove }
+
+`remove`は確認後、実行中のスタンドアロンバイナリを削除します。非対話で実行する
+場合は`--yes`を指定します。Homebrew、Scoop、Nix配下と判定されたインストールは
+削除せず、対応するパッケージマネージャーでの削除を案内します。
+
+```bash
+ayame-diff shell-uninstall  # 任意: 先にファイルマネージャー登録を解除
+ayame-diff remove
+ayame-diff remove --yes
+```
+
+Windowsでは実行中のバイナリを`.delete-me`付きの名前へ変更します。プロセス終了後、
+そのファイルを削除するとアンインストールが完了します。
+
+---
+
+## `shell-select` — Windows Explorer 選択ヘルパー { #shell-select }
+
+`shell-select PATH`は、`shell-install`がWindows Explorerの
+**Compare with Ayame Diff**用に登録する内部ブリッジです。1回目の実行は現在の
+ユーザー設定へパスを最大30分保存し、異なる2つ目のパスで実行すると状態を消して
+両方のパスをGUIで開きます。
+
+```text
+ayame-diff shell-select PATH
+```
+
+通常はこのコマンドを直接実行せず、Explorerのアクションを使います。設定方法と
+クロスプラットフォームの起動形式は[ファイルマネージャーとクイック起動](shell-integration.ja.md)
+を参照してください。
 
 ---
 

@@ -124,6 +124,14 @@ type shellSelection struct {
 // runShellSelect implements WinMerge-style two-step Explorer selection. The
 // first invocation records a path; the second clears it and launches the GUI.
 func runShellSelect(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		fmt.Fprintln(stdout, `ayame-diff shell-select PATH
+
+Handle one Windows Explorer "Compare with Ayame Diff" selection. The first
+invocation remembers PATH; a second invocation opens both paths in the GUI.
+This integration helper is normally invoked by Explorer, not by hand.`)
+		return exitOK
+	}
 	return runShellSelectWithDeps(args, stdout, stderr, shellCommandDeps{
 		configDir: os.UserConfigDir,
 		runGUI:    runGUI,
