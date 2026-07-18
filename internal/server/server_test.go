@@ -286,6 +286,55 @@ func TestDirectoryDiffAPI(t *testing.T) {
 	}
 }
 
+func TestDirectoryFilterPreviewAndProjectAPI(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	oldDir, newDir := filepath.Join(root, "old"), filepath.Join(root, "new")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range []struct{ dir, name, value string }{
+		{oldDir, "large.log", strings.Repeat("a", 2048)}, {newDir, "large.log", strings.Repeat("b", 2048)},
+		{oldDir, "small.log", "a"}, {newDir, "small.log", "b"},
+	} {
+		if err := os.WriteFile(filepath.Join(fixture.dir, fixture.name), []byte(fixture.value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := newTestServer(t)
+	req := dirRequest{Mode: "dir", Old: oldDir, New: newDir, Filter: "size > 1KiB", CompareBy: "size", Workers: 2}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/preview", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"union_count":1`) || !strings.Contains(rec.Body.String(), "large.log") {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/dir/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"same":1`) || strings.Contains(rec.Body.String(), "small.log") {
+		t.Fatalf("diff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	projectPath := filepath.Join(root, "folder.ayamediff.json")
+	req.ProjectPath = projectPath
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/project/save", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	loadBody, _ := json.Marshal(map[string]string{"path": projectPath})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/project/load", bytes.NewReader(loadBody)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"mode":"dir"`) || !strings.Contains(rec.Body.String(), `"compareBy":"size"`) || !strings.Contains(rec.Body.String(), `size \u003e 1KiB`) {
+		t.Fatalf("load status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDirectoryDiffAPIRejectsOversizedArchiveEntry(t *testing.T) {
 	t.Parallel()
 	archivePath := filepath.Join(t.TempDir(), "large.zip")

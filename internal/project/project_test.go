@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hjosugi/ayame-diff/internal/dircompare"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
@@ -23,6 +24,26 @@ func TestProjectRoundTripResolvesRelativePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Version != Version || got.CSV.LeftPath != p.CSV.LeftPath || got.CSV.OutputPath != p.CSV.OutputPath || !got.CSV.ToleranceSet {
+		t.Fatalf("project=%+v", got)
+	}
+}
+
+func TestDirectoryProjectRoundTrip(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	path := filepath.Join(root, "config", "folder.ayamediff.json")
+	want := &dircompare.DirectoryProject{
+		Old: filepath.Join(root, "old"), New: filepath.Join(root, "new"),
+		Filter: `size > 1MiB`, FilterSets: []string{"development"}, CompareBy: "hash", Workers: 4,
+	}
+	if err := Save(path, Project{Mode: "dir", Directory: want}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "dir" || got.Directory == nil || got.Directory.Old != want.Old || got.Directory.New != want.New || got.Directory.Filter != want.Filter || got.Directory.CompareBy != "hash" {
 		t.Fatalf("project=%+v", got)
 	}
 }

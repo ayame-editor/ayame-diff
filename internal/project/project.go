@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/hjosugi/ayame-diff/internal/atomicfile"
+	"github.com/hjosugi/ayame-diff/internal/dircompare"
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
@@ -16,10 +17,11 @@ const Version = 1
 
 // Project is the portable, versioned on-disk comparison format.
 type Project struct {
-	Version int           `json:"version"`
-	Mode    string        `json:"mode"`
-	CSV     engine.Config `json:"csv"`
-	Report  Report        `json:"report,omitempty"`
+	Version   int                          `json:"version"`
+	Mode      string                       `json:"mode"`
+	CSV       engine.Config                `json:"csv"`
+	Directory *dircompare.DirectoryProject `json:"directory,omitempty"`
+	Report    Report                       `json:"report,omitempty"`
 }
 
 type Report struct {
@@ -38,6 +40,12 @@ func Save(path string, p Project) error {
 	if p.Mode == "" {
 		p.Mode = "csv"
 	}
+	if p.Mode != "csv" && p.Mode != "dir" {
+		return fmt.Errorf("unsupported project mode %q", p.Mode)
+	}
+	if p.Mode == "dir" && p.Directory == nil {
+		return fmt.Errorf("directory project settings are required")
+	}
 	portable := p
 	base, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {
@@ -48,6 +56,12 @@ func Save(path string, p Project) error {
 	portable.CSV.OutputPath = relative(base, portable.CSV.OutputPath)
 	portable.CSV.TempDir = relative(base, portable.CSV.TempDir)
 	portable.CSV.WorkDir = relative(base, portable.CSV.WorkDir)
+	if portable.Directory != nil {
+		directory := *portable.Directory
+		directory.Old = relative(base, directory.Old)
+		directory.New = relative(base, directory.New)
+		portable.Directory = &directory
+	}
 	data, err := json.MarshalIndent(portable, "", "  ")
 	if err != nil {
 		return err
@@ -75,7 +89,7 @@ func Load(path string) (Project, error) {
 	if p.Version != Version {
 		return Project{}, fmt.Errorf("unsupported project version %d", p.Version)
 	}
-	if p.Mode != "csv" {
+	if p.Mode != "csv" && p.Mode != "dir" {
 		return Project{}, fmt.Errorf("unsupported project mode %q", p.Mode)
 	}
 	base, err := filepath.Abs(filepath.Dir(path))
@@ -87,6 +101,13 @@ func Load(path string) (Project, error) {
 	p.CSV.OutputPath = absolute(base, p.CSV.OutputPath)
 	p.CSV.TempDir = absolute(base, p.CSV.TempDir)
 	p.CSV.WorkDir = absolute(base, p.CSV.WorkDir)
+	if p.Directory != nil {
+		p.Directory.Old = absolute(base, p.Directory.Old)
+		p.Directory.New = absolute(base, p.Directory.New)
+	}
+	if p.Mode == "dir" && p.Directory == nil {
+		return Project{}, fmt.Errorf("directory project settings are required")
+	}
 	return p, nil
 }
 

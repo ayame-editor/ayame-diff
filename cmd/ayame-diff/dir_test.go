@@ -93,3 +93,65 @@ func TestRunDirValidatesArchiveLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestRunDirAdvancedFiltersAndCompareBy(t *testing.T) {
+	t.Parallel()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	for _, fixture := range []struct{ dir, name, value string }{
+		{oldDir, "keep.log", strings.Repeat("a", 2048)}, {newDir, "keep.log", strings.Repeat("b", 2048)},
+		{oldDir, "small.log", "a"}, {newDir, "small.log", "b"},
+		{oldDir, "skip.txt", strings.Repeat("a", 2048)}, {newDir, "skip.txt", strings.Repeat("b", 2048)},
+	} {
+		if err := os.WriteFile(filepath.Join(fixture.dir, fixture.name), []byte(fixture.value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := runDir([]string{"--filter", `size > 1KiB and name =~ '\.log$'`, "--compare-by", "size", "--all", oldDir, newDir}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "= keep.log") || strings.Contains(stdout.String(), "small.log") || strings.Contains(stdout.String(), "skip.txt") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runDir([]string{"--compare-by", "hash", oldDir, newDir}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "~ keep.log") {
+		t.Fatalf("hash code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunDirLoadsEmbeddedDirectoryProject(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	oldDir, newDir := filepath.Join(root, "old"), filepath.Join(root, "new")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{oldDir, newDir} {
+		if err := os.WriteFile(filepath.Join(dir, "app.log"), []byte("same"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("different"+dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectPath := filepath.Join(root, "compare.ayamediff.json")
+	project := `{"version":1,"mode":"dir","directory":{"old":"old","new":"new","filter_sets":["vcs"],"compare_by":"contents"}}`
+	if err := os.WriteFile(projectPath, []byte(project), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runDir([]string{"--filter-file", projectPath, "--all"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "= app.log") || strings.Contains(stdout.String(), ".git") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	if code := runDir([]string{"--list-filter-sets"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "development") {
+		t.Fatalf("sets code=%d stdout=%q", code, stdout.String())
+	}
+}

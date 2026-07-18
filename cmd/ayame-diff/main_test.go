@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -47,6 +49,7 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 		{name: "remove help", args: []string{"remove", "--help"}, code: 0, stdout: "Uninstall"},
 		{name: "shell install help", args: []string{"shell-install", "--help"}, code: 0, stdout: "file-manager"},
 		{name: "shell uninstall help", args: []string{"shell-uninstall", "--help"}, code: 0, stdout: "file-manager"},
+		{name: "shell select help", args: []string{"shell-select", "--help"}, code: 0, stdout: "Windows Explorer"},
 		{name: "no arguments", code: 0, stdout: "ayame-diff gui a.txt b.txt"},
 		{name: "parse error", args: []string{"--not-a-real-flag"}, code: 2, stderr: "flag provided but not defined"},
 		{name: "text missing paths", args: []string{"text", "only-one"}, code: 2, stderr: "needs exactly two paths"},
@@ -76,10 +79,7 @@ func TestRunExitCodesAndStreams(t *testing.T) {
 
 func TestRootUsageListsEverySubcommandOnItsOwnLine(t *testing.T) {
 	t.Parallel()
-	for _, command := range []string{
-		"csv", "text", "sorted", "dir", "bin", "3way", "serve", "gui", "update", "remove",
-		"shell-install", "shell-uninstall", "shell-select",
-	} {
+	for command := range subcommandRunners {
 		if !strings.Contains(rootUsage, "\n  "+command+" ") {
 			t.Errorf("root usage does not list %q on its own line", command)
 		}
@@ -91,6 +91,97 @@ func TestRootUsageListsEverySubcommandOnItsOwnLine(t *testing.T) {
 	} {
 		if !strings.Contains(rootUsage, example) {
 			t.Errorf("root usage missing example %q", example)
+		}
+	}
+}
+
+func TestDispatchedSubcommandsMatchBilingualOverviews(t *testing.T) {
+	t.Parallel()
+
+	want := make(map[string]struct{}, len(subcommandRunners))
+	for command := range subcommandRunners {
+		want[command] = struct{}{}
+	}
+
+	rootBlock := rootUsage
+	if _, after, ok := strings.Cut(rootBlock, "Subcommands:\n"); ok {
+		rootBlock = after
+	}
+	if before, _, ok := strings.Cut(rootBlock, "\n\nRun '"); ok {
+		rootBlock = before
+	}
+	assertCommandSet(t, "top-level help", commandsFromLines(rootBlock, `(?m)^  ([[:alnum:]-]+)(?:\s|$)`), want)
+
+	for _, overview := range []struct {
+		name, path, heading string
+	}{
+		{name: "English README", path: "../../README.md", heading: `(?m)^## Subcommands\s*$`},
+		{name: "English compatibility README", path: "../../README.en.md", heading: `(?m)^## Subcommands\s*$`},
+		{name: "Japanese README", path: "../../README.ja.md", heading: `(?m)^## サブコマンド\s*$`},
+		{name: "English docs home", path: "../../docs/index.md", heading: `(?m)^## Subcommands at a glance\s*$`},
+		{name: "Japanese docs home", path: "../../docs/ja/index.md", heading: `(?m)^## サブコマンド一覧\s*$`},
+		{name: "English usage", path: "../../docs/usage.md", heading: `(?m)^## Command overview\s*$`},
+		{name: "Japanese usage", path: "../../docs/usage.ja.md", heading: `(?m)^## コマンド一覧\s*$`},
+	} {
+		content := readTestFile(t, overview.path)
+		block := firstFencedBlockAfter(t, overview.name, content, overview.heading)
+		assertCommandSet(t, overview.name, commandsFromLines(block, `(?m)^ayame-diff\s+([[:alnum:]-]+)(?:\s|$)`), want)
+	}
+}
+
+func TestBilingualUsageHasDedicatedPreviouslyMissingSections(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"../../docs/usage.md", "../../docs/usage.ja.md"} {
+		content := readTestFile(t, path)
+		for _, command := range []string{"bin", "update", "remove", "shell-select"} {
+			pattern := `(?m)^## ` + regexp.QuoteMeta("`"+command+"`") + `(?:\s|—)`
+			if !regexp.MustCompile(pattern).MatchString(content) {
+				t.Errorf("%s has no dedicated %q section", path, command)
+			}
+		}
+	}
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+func firstFencedBlockAfter(t *testing.T, name, content, headingPattern string) string {
+	t.Helper()
+	location := regexp.MustCompile(headingPattern).FindStringIndex(content)
+	if location == nil {
+		t.Fatalf("%s: overview heading not found", name)
+	}
+	block := regexp.MustCompile("(?s)```(?:text)?\\n(.*?)\\n```").FindStringSubmatch(content[location[1]:])
+	if block == nil {
+		t.Fatalf("%s: overview command block not found", name)
+	}
+	return block[1]
+}
+
+func commandsFromLines(content, pattern string) map[string]struct{} {
+	commands := make(map[string]struct{})
+	for _, match := range regexp.MustCompile(pattern).FindAllStringSubmatch(content, -1) {
+		commands[match[1]] = struct{}{}
+	}
+	return commands
+}
+
+func assertCommandSet(t *testing.T, name string, got, want map[string]struct{}) {
+	t.Helper()
+	for command := range want {
+		if _, ok := got[command]; !ok {
+			t.Errorf("%s is missing dispatched subcommand %q", name, command)
+		}
+	}
+	for command := range got {
+		if _, ok := want[command]; !ok {
+			t.Errorf("%s documents non-dispatched subcommand %q", name, command)
 		}
 	}
 }

@@ -125,6 +125,51 @@ func TestSyntaxHighlightAssetsAreWired(t *testing.T) {
 	}
 }
 
+func TestDisplayTogglesDoNotRebuildDiffDOM(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{
+		`original.className = "ws-original"`,
+		`visible.className = "ws-visible"`,
+		`const spans = globalThis.AyameSyntax?.highlightSpans(text, path)`,
+		`const wd = inlineWordDiff(old[k], neu[k])`,
+		`result.classList.toggle("show-whitespace"`,
+		`result.classList.toggle("syntax-highlight"`,
+		`result.classList.toggle("word-highlight"`,
+		`$("word").addEventListener("change", applyDisplayPreferences)`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("class-driven display toggle missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".result.show-whitespace .ws-original",
+		".result.show-whitespace .ws-visible",
+		".result:not(.syntax-highlight) .syn",
+		".result:not(.word-highlight) .w-add",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("display preference style missing %q", want)
+		}
+	}
+
+	for _, id := range []string{"showWs", "syntax"} {
+		start := strings.Index(app, `$("`+id+`").addEventListener("change"`)
+		if start < 0 {
+			t.Fatalf("%s change handler is missing", id)
+		}
+		end := strings.Index(app[start:], "\n});")
+		if end < 0 {
+			t.Fatalf("%s change handler is malformed", id)
+		}
+		if handler := app[start : start+end]; strings.Contains(handler, "renderResult(") {
+			t.Errorf("%s change handler rebuilds the diff DOM", id)
+		}
+	}
+}
+
 func TestInteractiveControlsHaveHoverActiveAndTransitions(t *testing.T) {
 	t.Parallel()
 	// Normalize CRLF: git may check style.css out with CRLF on Windows
@@ -214,6 +259,22 @@ func TestLaunchParametersSupportThreeWayComparison(t *testing.T) {
 	for _, want := range []string{`launch.has("base")`, `"threeway-csv"`, `launchReady`} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js launch handling missing %q", want)
+		}
+	}
+}
+
+func TestDirectoryFilterEditorIsWired(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	for _, want := range []string{`id="dirFilter"`, `id="dirFilterFile"`, `id="dirFilterSet"`, `id="dirCompareBy"`, `id="dirPreview"`, `id="dirProjectPath"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q", want)
+		}
+	}
+	for _, want := range []string{`/api/dir/preview`, `compareBy: $("dirCompareBy").value`, `saveDirectoryProject`, `applyDirectoryProject`} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
 		}
 	}
 }

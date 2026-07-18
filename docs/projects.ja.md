@@ -5,6 +5,27 @@
 
 `.ayamediff.json` プロジェクトは、繰り返し可能な CSV/TSV 比較を1つ保存します。GUI と CLI は同じバージョン管理された JSON を使用し、相対パスはプロジェクトファイルのディレクトリから解決されます。これにより、プロジェクトはリポジトリのテストデータと並べてコミットするのに適しています。
 
+フォルダプロジェクトは `"mode": "dir"` と `directory` オブジェクトを使います。
+OLD/NEW パス、包含/除外 glob、フィルタ式、比較方法、隠しファイル方針、ワーカー数を
+保存します。外部/同梱の名前付きフィルタセットは保存時に展開されるため、再オープン時に
+元のフィルタファイルへ依存しません。
+
+```json
+{
+  "version": 1,
+  "mode": "dir",
+  "directory": {
+    "old": "../snapshots/old",
+    "new": "../snapshots/new",
+    "excludes": [".git/**", "node_modules/**", "target/**"],
+    "filter": "size >= 1KiB and not name =~ '\\.tmp$'",
+    "compare_by": "hash",
+    "hidden": false,
+    "workers": 8
+  }
+}
+```
+
 ## スキーマバージョン 1
 
 ```json

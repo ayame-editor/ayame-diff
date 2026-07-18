@@ -9,6 +9,10 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Required `--allow-remote` before the local GUI can bind beyond loopback,
+  printed usable loopback URLs for wildcard listeners, bounded browser drops
+  per file and session with atomic cleanup, and added defensive HTTP transport
+  timeouts without cutting off long comparisons or downloads. (#109)
 
 ## v0.7.16 - 2026-07-14
 

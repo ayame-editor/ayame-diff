@@ -19,12 +19,14 @@ Two subcommands start it:
 !!! warning "Local, single-user use only"
     The server opens the file paths you type in the browser, so it binds to
     localhost by default and is meant only for your own local use. Do not expose
-    it to a network.
+    it to a network. A non-loopback `--addr` requires `--allow-remote`, prints a
+    warning, and remains unauthenticated; place it behind trusted network access
+    controls.
 
 ## `serve`
 
 ```text
-ayame-diff serve [--addr host:port]
+ayame-diff serve [--addr host:port] [--allow-remote]
 ```
 
 Starts the web UI and keeps running until you stop it with `Ctrl+C`.
@@ -32,16 +34,18 @@ Starts the web UI and keeps running until you stop it with `Ctrl+C`.
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
+ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--addr` | `127.0.0.1:8080` | Listen address (`host:port`). |
+| `--allow-remote` | off | Explicitly allow a non-loopback listen address. There is no authentication. |
 
 ## `gui`
 
 ```text
-ayame-diff gui [--addr host:port] [--no-open]
+ayame-diff gui [--addr host:port] [--allow-remote] [--no-open]
 ```
 
 Same UI as `serve`, but it picks a free localhost port and launches your default
@@ -56,6 +60,7 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 | Flag | Default | Meaning |
 |---|---|---|
 | `--addr` | `127.0.0.1:0` | Listen address; port `0` picks a free port. |
+| `--allow-remote` | off | Explicitly allow a non-loopback listen address. There is no authentication. |
 | `--no-open` | off | Start the server but do not open the browser. |
 
 ## Using the web UI
@@ -78,6 +83,11 @@ sorted view would not apply safely to the original file.
 
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.
+
+Browser-dropped files are copied to a private local cache. Each file is limited
+to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
+HTTP 413 error and its partial staged file is removed. Orphaned session caches
+become eligible for cleanup after 24 hours when a later session starts.
 
 ### Navigating differences
 
@@ -129,7 +139,10 @@ See the [former TUI parity checklist](gui-setup-parity.md) for the full mapping.
 ### Folder comparison
 
 The `folder` mode accepts include/exclude globs, hidden-file policy, parallel
-worker count, and optional quick size+mtime comparison. Results form an
+worker count, a five-way comparison method, named filter files/sets, and a
+boolean metadata filter expression. **Preview filter** reports selected counts
+and exposes a path sample before any content comparison. Folder settings can be
+saved in a portable `.ayamediff.json` project. Results form an
 indented, status-colored tree with status filters. Clicking a changed file
 switches to text mode and opens the paired relative paths. Symbolic links are
 skipped and `.gz` files compare decompressed content.
@@ -256,4 +269,4 @@ defaults to 3 when omitted.
   (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
 
 These endpoints deliberately accept local paths and are subject to the same
-localhost-only warning as the rest of the GUI.
+local-single-user and explicit remote-mode warnings as the rest of the GUI.

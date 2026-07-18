@@ -33,6 +33,7 @@
 - 重複キーを行の多重集合として厳密に比較
 - CSV セル単位差分（`_changed_cols` / JSON Lines）、数値許容差、列別変更ランキング
 - Web GUI のヘッダー検査、検索可能なキー列選択、解析/性能設定、セル強調・完全結果書き出し
+- メタデータ式、再利用可能なフィルタセット、5種類の比較方法、GUIプレビューを備えたフォルダ比較
 - 引用符、カンマ、タブ、改行を含む RFC 4180 系 CSV/TSV に対応
 - 単純TSV/CSV向け高速並列パーサー
 - メモリ上限付き外部ソート
@@ -66,12 +67,13 @@ ayame-diff sorted [flags] OLD NEW                      # ソートしてから�
 ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT の3-way比較
-ayame-diff serve  [--addr host:port]                   # ブラウザ GUI（ローカル Web）
-ayame-diff gui    [--addr host:port] [--no-open]       # GUI を空きポートで起動しブラウザを開く
+ayame-diff serve  [--addr host:port] [--allow-remote]  # ブラウザ GUI（ローカル Web）
+ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
 ayame-diff shell-install                               # ファイルマネージャ連携を登録
 ayame-diff shell-uninstall                             # ファイルマネージャ連携を解除
 ayame-diff update [--check]                            # 最新リリースへ自己更新（SHA256 検証）
 ayame-diff remove [--yes]                              # スタンドアロン版をアンインストール
+ayame-diff shell-select PATH                           # Windows Explorer の選択を処理（内部用）
 ```
 
 サブコマンドを付けずに `--left ... --right ...` と起動した場合は `csv`（後方互換）として動作します。
@@ -140,10 +142,14 @@ ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ### `serve` — ブラウザ GUI
 
 ローカル Web アプリを起動し、ブラウザ上で 2 ファイルを比較します。既定で localhost にのみバインドします（入力したパスをそのまま開くため、ローカル利用専用）。
+loopback 以外のアドレスは、`--allow-remote`を指定しない限り拒否されます。
+リモートモードには認証がなく、ローカルファイルを読み書きできるAPIが公開されるため、
+信頼できるネットワークのアクセス制御下でのみ使用してください。
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
+ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
 OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。

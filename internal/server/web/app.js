@@ -79,6 +79,7 @@ const I18N = {
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
+	filterExpression: "フィルタ式", filterFile: "フィルタファイル", filterSet: "フィルタセット", compareBy: "比較方法", filterPreview: "フィルタをプレビュー", filterPreviewResult: (v) => `左 ${v.old_count} / 右 ${v.new_count} / 合計 ${v.union_count}`,
     langButton: "日本語 → EN",
     langSwitchLabel: "言語を英語に切り替え",
   },
@@ -154,6 +155,7 @@ const I18N = {
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
+	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `old ${v.old_count} / new ${v.new_count} / union ${v.union_count}`,
     langButton: "English → 日本語",
     langSwitchLabel: "Switch language to Japanese",
   },
@@ -250,10 +252,7 @@ function inlineWordDiff(oldText, newText) {
 
 // In-flight request controller, so the Cancel button can abort a long compare.
 let currentAbort = null;
-// Display prefs read at render time.
-let showWS = false;
-let showSyntax = true;
-let lastData = null; // last diff response, for re-render on a display-option change
+let lastData = null; // last diff response, retained for navigation and merge actions
 let lastComparedRequest = null;
 let currentHunk = -1;
 let readHunks = new Set();
@@ -281,17 +280,22 @@ function setMergeMode(on) {
 let threeWayData = null;
 
 // ---- rendering ----
-// appendText adds text to el, optionally rendering whitespace as dimmed marks
-// (space -> ·, tab -> →) so leading/trailing spacing is visible.
+// appendText emits both the original whitespace and its visible representation.
+// CSS swaps between them so display toggles never rebuild the diff DOM.
 function appendText(el, text) {
-  if (!showWS) { el.appendChild(document.createTextNode(text)); return; }
   const re = /(\s+)|([^\s]+)/g;
   let m;
   while ((m = re.exec(text))) {
     if (m[1]) {
       const s = document.createElement("span");
       s.className = "ws";
-      s.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      const original = document.createElement("span");
+      original.className = "ws-original";
+      original.textContent = m[1];
+      const visible = document.createElement("span");
+      visible.className = "ws-visible";
+      visible.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      s.append(original, visible);
       el.appendChild(s);
     } else {
       el.appendChild(document.createTextNode(m[2]));
@@ -303,7 +307,7 @@ function syntaxPath(side) {
   return side === "old" ? $("old").value : $("new").value;
 }
 function appendSyntax(el, text, path) {
-  const spans = showSyntax ? globalThis.AyameSyntax?.highlightSpans(text, path) : null;
+  const spans = globalThis.AyameSyntax?.highlightSpans(text, path);
   if (!spans) { appendText(el, text); return; }
   for (const part of spans) {
     if (part.kind === "plain") { appendText(el, part.text); continue; }
@@ -362,7 +366,7 @@ function row(left, right) {
   return r;
 }
 
-function renderHunk(h, useWord, index) {
+function renderHunk(h, index) {
   const box = document.createElement("div");
   box.className = "hunk";
   box.id = `hunk-${index}`;
@@ -429,7 +433,7 @@ function renderHunk(h, useWord, index) {
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
-      const wd = useWord ? inlineWordDiff(old[k], neu[k]) : null;
+      const wd = inlineWordDiff(old[k], neu[k]);
       const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath) : plainSpan(old[k], oldPath), "old");
       const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath) : plainSpan(neu[k], newPath), "new");
       rows.append(row(left, right));
@@ -508,11 +512,10 @@ function comparisonUsesRules(csvMode = false) {
   ));
 }
 
-// renderResult draws a diff response into the summary + result areas, honoring
-// the current display options (word highlight, syntax, show-whitespace).
+// renderResult draws a diff response once. Display preferences only toggle
+// classes on the completed DOM via applyDisplayPreferences.
 function renderResult(data) {
-  showWS = $("showWs").checked;
-  showSyntax = $("syntax").checked;
+  applyDisplayPreferences();
   renderSummary(data);
   const result = $("result");
   result.innerHTML = "";
@@ -523,9 +526,8 @@ function renderResult(data) {
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
-  const useWord = $("word").checked;
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], useWord, i));
+  for (let i = 0; i < data.hunks.length; i++) frag.append(renderHunk(data.hunks[i], i));
   result.append(frag);
   updateMergeUI();
   observeHunks();
@@ -1146,11 +1148,40 @@ async function saveProject() {
 
 async function loadProject() {
   const path = $("projectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); await applyCSVProject(data); rememberComparison(data); setStatus(""); }
+  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
-function dirRequestBody() { return { old: $("old").value.trim(), new: $("new").value.trim(), includes: splitList($("dirIncludes").value), excludes: splitList($("dirExcludes").value), hidden: $("dirHidden").checked, quick: $("dirQuick").checked, workers: Number($("dirWorkers").value) || 8 }; }
+function dirRequestBody() { return { mode: "dir", old: $("old").value.trim(), new: $("new").value.trim(), includes: splitList($("dirIncludes").value), excludes: splitList($("dirExcludes").value), filter: $("dirFilter").value.trim(), filterFile: $("dirFilterFile").value.trim(), filterSets: splitList($("dirFilterSet").value), compareBy: $("dirCompareBy").value, hidden: $("dirHidden").checked, workers: Number($("dirWorkers").value) || 8 }; }
+
+async function previewDirectoryFilter() {
+  const body = dirRequestBody(); if (!validateInputs(body)) return;
+  $("dirPreview").disabled = true; $("dirPreviewResult").textContent = t("comparing");
+  try { const resp = await fetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
+  catch (err) { $("dirPreviewResult").textContent = String(err.message || err); }
+  finally { $("dirPreview").disabled = false; }
+}
+
+function applyDirectoryProject(body) {
+  $("mode").value = "dir"; syncModeOpts(); $("old").value = body.old || ""; $("new").value = body.new || "";
+  $("dirIncludes").value = (body.includes || []).join(", "); $("dirExcludes").value = (body.excludes || []).join(", ");
+  $("dirFilter").value = body.filter || ""; $("dirFilterSet").value = (body.filterSets || []).join(", ");
+  $("dirCompareBy").value = body.compareBy || "contents"; $("dirHidden").checked = Boolean(body.hidden); $("dirWorkers").value = body.workers || 8;
+  if (body.projectPath) $("dirProjectPath").value = body.projectPath;
+}
+
+async function saveDirectoryProject() {
+  const body = dirRequestBody(); body.projectPath = $("dirProjectPath").value.trim();
+  if (!validateInputs(body) || !body.projectPath) { if (!body.projectPath) setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
+  try { const resp = await fetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
+}
+
+async function loadDirectoryProject() {
+  const path = $("dirProjectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
+  try { const resp = await fetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
+  catch (err) { setStatus(String(err.message || err), "error"); }
+}
 
 function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
@@ -1412,6 +1443,12 @@ function applyWrap(on) {
   localStorage.setItem("ayame-wrap", on ? "1" : "0");
   $("wrap").checked = on;
 }
+function applyDisplayPreferences() {
+  const result = $("result");
+  result.classList.toggle("show-whitespace", $("showWs").checked);
+  result.classList.toggle("syntax-highlight", $("syntax").checked);
+  result.classList.toggle("word-highlight", $("word").checked);
+}
 
 function droppedPaths(dataTransfer) {
   const uriList = dataTransfer.getData("text/uri-list");
@@ -1504,7 +1541,7 @@ $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
 $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);
-$("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") await applyCSVProject(recentComparisons()[Number($("recentProjects").value)]); });
+$("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
 $("mode").addEventListener("change", syncModeOpts);
 $("detectMoves").addEventListener("change", syncMoveMinLines);
@@ -1520,6 +1557,9 @@ $("browserGo").addEventListener("click", async () => { try { await loadBrowser($
 $("browserUp").addEventListener("click", async () => { try { await loadBrowser($("browserUp").dataset.path); } catch (err) { setStatus(String(err.message || err), "error"); } });
 $("chooseFolder").addEventListener("click", () => { if (browserTarget) $(browserTarget).value = $("browserPath").value; $("fileBrowser").close(); });
 $("dirStatus").addEventListener("change", () => { if (directoryData) renderDirectory(directoryData, directoryBody); });
+$("dirPreview").addEventListener("click", previewDirectoryFilter);
+$("saveDirProject").addEventListener("click", saveDirectoryProject);
+$("loadDirProject").addEventListener("click", loadDirectoryProject);
 $("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
 function compareFromKeyboard(event) {
   if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
@@ -1573,12 +1613,13 @@ $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
-  if (lastData) renderResult(lastData); // re-render so the change is immediate
+  applyDisplayPreferences();
 });
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
-  if (lastData) renderResult(lastData);
+  applyDisplayPreferences();
 });
+$("word").addEventListener("change", applyDisplayPreferences);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
@@ -1594,6 +1635,7 @@ applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
+applyDisplayPreferences();
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 syncModeOpts();
 syncPatchOpts();

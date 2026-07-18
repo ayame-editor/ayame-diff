@@ -246,7 +246,9 @@ button:active:not(:disabled) {
 }
 .cell:first-child { border-right: 1px solid var(--border); }
 .result.nowrap .cell { white-space: pre; }
-.ws { color: var(--muted); opacity: 0.55; }
+.ws-visible { display: none; color: var(--muted); opacity: 0.55; }
+.result.show-whitespace .ws-original { display: none; }
+.result.show-whitespace .ws-visible { display: inline; }
 .cell .ln { color: var(--muted); text-align: right; user-select: none; }
 .cell.selectable-line { cursor: crosshair; }
 .cell.selectable-line:focus-visible { outline-offset: -2px; }
@@ -282,6 +284,13 @@ button:active:not(:disabled) {
 .cell.chg .syn-function,
 .cell.chg .syn-level-warn { color: color-mix(in srgb, var(--gold) 52%, var(--fg)); font-weight: 600; }
 .cell.del .syn-level-error { color: color-mix(in srgb, var(--del-fg) 68%, var(--fg)); }
+.result:not(.syntax-highlight) .syn {
+  color: inherit; font-style: inherit; font-weight: inherit; text-decoration: none;
+}
+.result:not(.word-highlight) .w-add,
+.result:not(.word-highlight) .w-del {
+  padding-inline: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .result-empty { border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .result-empty strong { display: block; color: var(--fg); font-size: 1.1rem; }

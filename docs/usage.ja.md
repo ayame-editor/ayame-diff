@@ -4,7 +4,9 @@
 # 使用方法
 
 `ayame-diff` はファイル、構造化データ、フォルダ、アーカイブ、バイナリ、
-3-way の比較と、Web GUI、ファイルマネージャー統合を1つのコマンドで扱います。
+3-way の比較と、Web GUI、保守、ファイルマネージャー統合を1つのコマンドで扱います。
+
+## コマンド一覧
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSVキー比較（デフォルト）
@@ -13,10 +15,13 @@ ayame-diff sorted [flags] OLD NEW                      # 両方のソート後�
 ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ比較
 ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
-ayame-diff serve  [--addr host:port]                   # ローカルWeb GUI
+ayame-diff serve  [--addr host:port] [--allow-remote]  # ローカルWeb GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # GUIを開き、必要なら入力を事前設定
+ayame-diff update [--check]                            # 最新リリースの確認・導入
+ayame-diff remove [--yes]                              # スタンドアロン版を削除
 ayame-diff shell-install                               # ファイルマネージャー統合
 ayame-diff shell-uninstall                             # 統合を削除
+ayame-diff shell-select PATH                           # Windows Explorer 統合用ヘルパー
 ```
 
 `--left ... --right ...`を指定してサブコマンドなしで`ayame-diff`を呼び出すと、後方互換性のために`csv`として動作します。`serve`と`gui`のサブコマンドについては[GUI](gui.ja.md)を参照してください。
@@ -30,6 +35,8 @@ ayame-diff shell-uninstall                             # 統合を削除
   <a class="doc-jump" href="#text">テキストを比較</a>
   <a class="doc-jump" href="#sorted">ソートして比較</a>
   <a class="doc-jump" href="#dir">フォルダを比較</a>
+  <a class="doc-jump" href="#bin">バイナリを比較</a>
+  <a class="doc-jump" href="#update">インストールを保守</a>
   <a class="doc-jump" href="#exit-codes">スクリプト / CI で使う</a>
   <a class="doc-jump" href="../gui.ja/">GUI を使う</a>
 </div>
@@ -237,6 +244,10 @@ ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
 ayame-diff dir --html folder-report.html old/ new/
 ayame-diff dir --csv folder-summary.csv --all old/ new/
+ayame-diff dir --compare-by hash old/ new/
+ayame-diff dir --filter "size > 1MiB and name =~ '\\.log$'" old/ new/
+ayame-diff dir --filter-set development old/ new/
+ayame-diff dir --filter-file filters.json --filter-set audit old/ new/
 ```
 
 ドットファイルやディレクトリは`--hidden`を指定しない限りスキップされます。シンボリックリンクも常にスキップされ、ループや不明瞭なツリー外の読み込みを防ぎます。TSVやJSONには状態、相対パス、サイズ、mtimeが含まれます。GUIでは「フォルダ」を選び、状態ツリーをフィルタし、変更された通常ファイルをクリックしてテキスト差分を確認できます。
@@ -245,6 +256,120 @@ ayame-diff dir --csv folder-summary.csv --all old/ new/
 自己完結ツリーレポートを書き出します。`--csv FILE` は同じ項目を後続処理向けの
 RFC 4180 CSV として書き出します。どちらもアトミックに保存し、`--all` がなければ
 同一項目を省略します。これらのファイル出力は `--json` / `--tsv` と同時指定できません。
+
+### 比較方法
+
+`--compare-by` は 5 種類の方法を明示的に選べます。
+
+| 方法 | 動作 |
+|---|---|
+| `contents` | バイトをストリーミングし、最初の差異で終了します（既定）。 |
+| `quick` | サイズ + mtime が同じなら同一とみなし、それ以外は内容比較します。`--quick` は別名です。 |
+| `hash` | 両ファイルを SHA-256 へストリーミングし、digest を比較します。 |
+| `date` | 更新時刻だけを比較します。 |
+| `size` | ファイルサイズだけを比較します。 |
+
+通常の `.gz` は `contents` / `hash` で展開内容を使います。メタデータだけの方法は、
+ソースまたはアーカイブが示すメタデータを使います。
+
+### フィルタ式と再利用可能なセット
+
+`--filter` は括弧と、大文字小文字を区別しない `and`、`or`、`not` を使えます。
+フィールドは `size`、`name`、`path`、`ext`、`mtime` です。size/mtime は
+`< <= == != >= >`、文字列は `== != =~ !~` に対応します。サイズは10進/2進単位、
+mtime は RFC 3339 または `YYYY-MM-DD` を受け付けます。
+
+```text
+size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
+```
+
+同梱セットは `development`、`vcs`、`node`、`rust` です。
+`--list-filter-sets` で一覧表示できます。外部 JSON では名前付きセットを定義します。
+
+```json
+{
+  "version": 1,
+  "default": "audit",
+  "filters": {
+    "audit": {
+      "includes": ["**/*.log", "**/*.json"],
+      "excludes": ["archive/**"],
+      "expression": "size >= 1KiB"
+    }
+  }
+}
+```
+
+`--filter-set` は繰り返し指定でき、直接指定した `--include`、`--exclude`、`--filter`
+と組み合わせます。ディレクトリモードの `.ayamediff.json` は `--filter-file` として
+直接渡せます。OLD/NEW パスを含む場合、コマンドライン側のパスは省略できます。
+
+---
+
+## `bin` — バイト単位のバイナリ比較 { #bin }
+
+`bin OLD NEW`は2ファイルをストリーミングし、差分領域ごとにバイトオフセットと
+変更前後のバイト列を16進数で表示します。巨大な入力でもメモリ使用量は有界です。
+画像などのファイル形式を解釈する機能ではありません。
+
+```bash
+ayame-diff bin firmware-v1.bin firmware-v2.bin
+ayame-diff bin --max-regions 20 --max-bytes 64 old.dat new.dat
+```
+
+`--max-regions`は表示する領域数（デフォルト256）、`--max-bytes`は各領域の左右で
+保持・表示するバイト数（デフォルト32）を制限します。サマリーには差分バイト総数と
+領域一覧が省略されたかどうかも表示されます。
+
+---
+
+## `update` — スタンドアロン版の更新 { #update }
+
+`update`はGitHubの最新リリースを確認し、現在のOS・アーキテクチャ用アーカイブを
+ダウンロードして、リリースの`SHA256SUMS`で検証した後、実行中のバイナリを
+アトミックに置き換えます。実行ファイルのディレクトリへの書き込み権限が必要です。
+
+```bash
+ayame-diff update --check   # 新しいリリースの有無だけを表示
+ayame-diff update           # 検証して最新リリースを導入
+```
+
+Homebrew、Scoop、Nixなどで管理している場合は、パッケージデータベースとの整合を
+保つため、そのパッケージマネージャーの更新コマンドを使ってください。
+
+---
+
+## `remove` — スタンドアロン版のアンインストール { #remove }
+
+`remove`は確認後、実行中のスタンドアロンバイナリを削除します。非対話で実行する
+場合は`--yes`を指定します。Homebrew、Scoop、Nix配下と判定されたインストールは
+削除せず、対応するパッケージマネージャーでの削除を案内します。
+
+```bash
+ayame-diff shell-uninstall  # 任意: 先にファイルマネージャー登録を解除
+ayame-diff remove
+ayame-diff remove --yes
+```
+
+Windowsでは実行中のバイナリを`.delete-me`付きの名前へ変更します。プロセス終了後、
+そのファイルを削除するとアンインストールが完了します。
+
+---
+
+## `shell-select` — Windows Explorer 選択ヘルパー { #shell-select }
+
+`shell-select PATH`は、`shell-install`がWindows Explorerの
+**Compare with Ayame Diff**用に登録する内部ブリッジです。1回目の実行は現在の
+ユーザー設定へパスを最大30分保存し、異なる2つ目のパスで実行すると状態を消して
+両方のパスをGUIで開きます。
+
+```text
+ayame-diff shell-select PATH
+```
+
+通常はこのコマンドを直接実行せず、Explorerのアクションを使います。設定方法と
+クロスプラットフォームの起動形式は[ファイルマネージャーとクイック起動](shell-integration.ja.md)
+を参照してください。
 
 ---
 

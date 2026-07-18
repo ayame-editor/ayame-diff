@@ -5,6 +5,8 @@
 
 `ayame-diff` provides comparison, web GUI, packaging, and maintenance commands.
 
+## Command overview
+
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
 ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
@@ -12,10 +14,13 @@ ayame-diff sorted [flags] OLD NEW                      # sort both sides, then d
 ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
 ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
-ayame-diff serve  [--addr host:port]                   # local web GUI
+ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
 ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
+ayame-diff update [--check]                            # check for or install the latest release
+ayame-diff remove [--yes]                              # uninstall a standalone binary
 ayame-diff shell-install                               # file-manager integration
 ayame-diff shell-uninstall                             # remove integration
+ayame-diff shell-select PATH                           # Windows Explorer integration helper
 ```
 
 Invoking `ayame-diff` with `--left ... --right ...` and no subcommand runs as
@@ -31,6 +36,8 @@ Two bare paths are a quick-launch form: files use `text`, directories use
   <a class="doc-jump" href="#text">Compare text</a>
   <a class="doc-jump" href="#sorted">Compare after sorting</a>
   <a class="doc-jump" href="#dir">Compare folders</a>
+  <a class="doc-jump" href="#bin">Compare binary files</a>
+  <a class="doc-jump" href="#update">Maintain an installation</a>
   <a class="doc-jump" href="#exit-codes">Use in scripts / CI</a>
   <a class="doc-jump" href="../gui/">Prefer the GUI?</a>
 </div>
@@ -288,6 +295,10 @@ ayame-diff dir --tsv --all old/ new/ > folders.tsv
 ayame-diff dir --json --diff-exit-code snapshot-a/ snapshot-b/
 ayame-diff dir --html folder-report.html old/ new/
 ayame-diff dir --csv folder-summary.csv --all old/ new/
+ayame-diff dir --compare-by hash old/ new/
+ayame-diff dir --filter "size > 1MiB and name =~ '\\.log$'" old/ new/
+ayame-diff dir --filter-set development old/ new/
+ayame-diff dir --filter-file filters.json --filter-set audit old/ new/
 ```
 
 Dotfiles/directories are skipped unless `--hidden` is set. Symbolic links are
@@ -300,6 +311,123 @@ paths, sizes, and modification times. `--csv FILE` writes the same entry fields
 as RFC 4180 CSV for downstream processing. Both write atomically; unchanged
 entries are omitted unless `--all` is set. These file outputs are mutually
 exclusive with `--json` and `--tsv`.
+
+### Comparison methods
+
+`--compare-by` accepts five explicit methods:
+
+| Method | Behavior |
+|---|---|
+| `contents` | Stream and compare bytes, short-circuiting on the first difference (default). |
+| `quick` | Trust equal size + mtime; otherwise fall back to content comparison. `--quick` is an alias. |
+| `hash` | Stream both files through SHA-256 and compare digests. |
+| `date` | Compare modification times only. |
+| `size` | Compare file sizes only. |
+
+Plain `.gz` content is decompressed for `contents` and `hash`. Metadata-only
+methods use the source/archive metadata as presented.
+
+### Filter expressions and reusable sets
+
+`--filter` supports parentheses plus case-insensitive `and`, `or`, and `not`.
+Fields are `size`, `name`, `path`, `ext`, and `mtime`. Size/mtime fields accept
+`< <= == != >= >`; string fields accept `== != =~ !~`. Sizes accept decimal or
+binary units, and mtimes accept RFC 3339 or `YYYY-MM-DD`.
+
+```text
+size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
+```
+
+Bundled sets are `development`, `vcs`, `node`, and `rust`; list them with
+`--list-filter-sets`. External JSON files provide named sets:
+
+```json
+{
+  "version": 1,
+  "default": "audit",
+  "filters": {
+    "audit": {
+      "includes": ["**/*.log", "**/*.json"],
+      "excludes": ["archive/**"],
+      "expression": "size >= 1KiB"
+    }
+  }
+}
+```
+
+`--filter-set` is repeatable. Selected sets are combined with direct
+`--include`, `--exclude`, and `--filter` arguments. A directory-mode
+`.ayamediff.json` can be passed directly as `--filter-file`; when it contains
+OLD/NEW paths, those paths may be omitted on the command line.
+
+---
+
+## `bin` — byte-level binary comparison { #bin }
+
+`bin OLD NEW` streams two files and reports each differing region by byte
+offset, followed by the old and new bytes in hexadecimal. It is memory-bounded
+for large inputs and does not attempt to decode images or other file formats.
+
+```bash
+ayame-diff bin firmware-v1.bin firmware-v2.bin
+ayame-diff bin --max-regions 20 --max-bytes 64 old.dat new.dat
+```
+
+`--max-regions` limits the number of regions printed (default 256), while
+`--max-bytes` limits the retained bytes shown on each side of a region (default
+32). The summary still reports the total differing byte count and whether the
+region list was truncated.
+
+---
+
+## `update` — update a standalone installation { #update }
+
+`update` checks the latest GitHub release, downloads the archive for the current
+OS and architecture, verifies it against the release's `SHA256SUMS`, and
+atomically replaces the running executable. The executable's directory must be
+writable.
+
+```bash
+ayame-diff update --check   # report whether a newer release exists
+ayame-diff update           # verify and install the latest release
+```
+
+For Homebrew, Scoop, Nix, or another managed installation, prefer that package
+manager's update command so its package database remains authoritative.
+
+---
+
+## `remove` — uninstall a standalone installation { #remove }
+
+`remove` asks for confirmation and then removes the running standalone binary.
+Use `--yes` for a non-interactive invocation. Installs detected under Homebrew,
+Scoop, or Nix are left untouched and must be removed with their package manager.
+
+```bash
+ayame-diff shell-uninstall  # optional: remove file-manager entries first
+ayame-diff remove
+ayame-diff remove --yes
+```
+
+On Windows, the running executable is renamed with a `.delete-me` suffix; delete
+that file after the process exits to finish removal.
+
+---
+
+## `shell-select` — Windows Explorer selection helper { #shell-select }
+
+`shell-select PATH` is the internal bridge installed by `shell-install` for the
+Windows Explorer **Compare with Ayame Diff** action. The first invocation stores
+one path in the current user's configuration for up to 30 minutes. A second,
+different path clears that state and opens both paths in the GUI.
+
+```text
+ayame-diff shell-select PATH
+```
+
+Users normally invoke the Explorer action instead of running this command
+directly. See [File-manager and quick launch](shell-integration.md) for setup
+and the cross-platform launch forms.
 
 ---
 

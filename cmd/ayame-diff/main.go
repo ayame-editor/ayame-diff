@@ -93,6 +93,27 @@ options cannot be mixed. Key indexes are 0-based by default.
 Rows with the same selected key but different full content produce two output
 rows: one for the left row and one for the right row.`
 
+type subcommandRunner func(args []string, stdout, stderr io.Writer) int
+
+// subcommandRunners is the authoritative list of explicitly dispatched
+// commands. Documentation tests use the same registry so a new command cannot
+// silently disappear from the top-level help or bilingual command overviews.
+var subcommandRunners = map[string]subcommandRunner{
+	"csv":             runCSV,
+	"text":            runText,
+	"sorted":          runSorted,
+	"dir":             runDir,
+	"bin":             runBin,
+	"3way":            runThreeWay,
+	"serve":           runServe,
+	"gui":             runGUI,
+	"update":          runUpdate,
+	"remove":          runRemove,
+	"shell-install":   runShellInstall,
+	"shell-uninstall": runShellUninstall,
+	"shell-select":    runShellSelect,
+}
+
 // cliOptions contains process-level behavior that does not belong to the diff
 // engine's reusable Config API.
 type cliOptions struct {
@@ -240,36 +261,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// Subcommand dispatch (ADR 0002). A bare invocation (or one that starts
 	// with a flag) stays on the CSV/TSV key comparison for backward
 	// compatibility; new line-oriented modes live under explicit subcommands.
-	switch subcommand(args) {
-	case "text":
-		return runText(args[1:], stdout, stderr)
-	case "sorted":
-		return runSorted(args[1:], stdout, stderr)
-	case "dir":
-		return runDir(args[1:], stdout, stderr)
-	case "bin":
-		return runBin(args[1:], stdout, stderr)
-	case "3way":
-		return runThreeWay(args[1:], stdout, stderr)
-	case "serve":
-		return runServe(args[1:], stdout, stderr)
-	case "gui":
-		return runGUI(args[1:], stdout, stderr)
-	case "update":
-		return runUpdate(args[1:], stdout, stderr)
-	case "remove":
-		return runRemove(args[1:], stdout, stderr)
-	case "shell-install":
-		return runShellInstall(args[1:], stdout, stderr)
-	case "shell-uninstall":
-		return runShellUninstall(args[1:], stdout, stderr)
-	case "shell-select":
-		return runShellSelect(args[1:], stdout, stderr)
-	case "csv":
-		return runCSV(args[1:], stdout, stderr)
-	default:
-		return runCSV(args, stdout, stderr)
+	if command := subcommand(args); command != "" {
+		return subcommandRunners[command](args[1:], stdout, stderr)
 	}
+	return runCSV(args, stdout, stderr)
 }
 
 // quickLaunchArgs recognizes the file-manager-friendly forms A B and
@@ -302,8 +297,7 @@ func subcommand(args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
-	switch args[0] {
-	case "csv", "text", "sorted", "dir", "bin", "3way", "serve", "gui", "update", "remove", "shell-install", "shell-uninstall", "shell-select":
+	if _, ok := subcommandRunners[args[0]]; ok {
 		return args[0]
 	}
 	return ""

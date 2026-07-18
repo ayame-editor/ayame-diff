@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -104,6 +105,10 @@ func loadArchive(path string, opts Options) (source, error) {
 				rc.Close()
 				return nil, archiveLimitError(rel, "entry", math.MaxInt64, opts)
 			}
+			if opts.Filter != nil && !opts.Filter.Match(rel, declaredSize, f.Modified) {
+				rc.Close()
+				continue
+			}
 			b, err := readArchiveEntry(rc, rel, declaredSize, &expandedBytes, opts)
 			closeErr := rc.Close()
 			if err != nil {
@@ -145,6 +150,9 @@ func loadArchive(path string, opts Options) (source, error) {
 		}
 		rel := filepath.ToSlash(h.Name)
 		if (!opts.IncludeHidden && hiddenPath(rel)) || excluded(rel, filepath.Base(rel), opts.Excludes) || (len(opts.Includes) > 0 && !matched(rel, filepath.Base(rel), opts.Includes)) {
+			continue
+		}
+		if opts.Filter != nil && !opts.Filter.Match(rel, h.Size, h.ModTime) {
 			continue
 		}
 		b, err := readArchiveEntry(tr, rel, h.Size, &expandedBytes, opts)
@@ -230,6 +238,55 @@ func CompareAnyContext(ctx context.Context, oldPath, newPath string, opts Option
 	return compareSources(ctx, oldSrc, newSrc, opts)
 }
 
+// Preview summarizes the paths selected by folder filters before content
+// comparison starts. Sample is a sorted union capped by the caller.
+type Preview struct {
+	OldCount   int      `json:"old_count"`
+	NewCount   int      `json:"new_count"`
+	UnionCount int      `json:"union_count"`
+	Sample     []string `json:"sample"`
+}
+
+// PreviewAny applies source selection and metadata filters without opening file
+// contents. It is used by the GUI filter editor for quick feedback.
+func PreviewAny(oldPath, newPath string, opts Options, maxSample int) (Preview, error) {
+	oldSrc, err := makeSource(oldPath, opts)
+	if err != nil {
+		return Preview{}, err
+	}
+	newSrc, err := makeSource(newPath, opts)
+	if err != nil {
+		return Preview{}, err
+	}
+	oldFiles, err := oldSrc.files()
+	if err != nil {
+		return Preview{}, err
+	}
+	newFiles, err := newSrc.files()
+	if err != nil {
+		return Preview{}, err
+	}
+	union := make(map[string]struct{}, len(oldFiles)+len(newFiles))
+	for name := range oldFiles {
+		union[name] = struct{}{}
+	}
+	for name := range newFiles {
+		union[name] = struct{}{}
+	}
+	names := make([]string, 0, len(union))
+	for name := range union {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if maxSample < 0 {
+		maxSample = 0
+	}
+	if len(names) > maxSample {
+		names = names[:maxSample]
+	}
+	return Preview{OldCount: len(oldFiles), NewCount: len(newFiles), UnionCount: len(union), Sample: names}, nil
+}
+
 // compareSources classifies every file across the two sources by content.
 func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*Result, error) {
 	oldFiles, err := oldSrc.files()
@@ -257,6 +314,13 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 	}
 	sort.Strings(rels)
 
+	method, err := ParseCompareMethod(string(opts.CompareBy))
+	if err != nil {
+		return nil, err
+	}
+	if opts.CompareBy == "" && opts.Quick {
+		method = CompareQuick
+	}
 	res := &Result{}
 	for _, rel := range rels {
 		oldMeta, inOld := oldFiles[rel]
@@ -269,11 +333,26 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 			e.Status, e.NewSize, e.NewModTime = Added, newMeta.Size, newMeta.ModTime
 		default:
 			e.OldSize, e.NewSize, e.OldModTime, e.NewModTime = oldMeta.Size, newMeta.Size, oldMeta.ModTime, newMeta.ModTime
-			if oldMeta.Size != newMeta.Size && !strings.HasSuffix(strings.ToLower(rel), ".gz") {
-				e.Status = Changed
-			} else if opts.Quick && oldMeta.Size == newMeta.Size && !oldMeta.ModTime.IsZero() && oldMeta.ModTime.Equal(newMeta.ModTime) {
-				e.Status = Same
-			} else {
+			switch method {
+			case CompareSize:
+				if oldMeta.Size == newMeta.Size {
+					e.Status = Same
+				} else {
+					e.Status = Changed
+				}
+			case CompareDate:
+				if !oldMeta.ModTime.IsZero() && oldMeta.ModTime.Equal(newMeta.ModTime) {
+					e.Status = Same
+				} else {
+					e.Status = Changed
+				}
+			case CompareQuick:
+				if oldMeta.Size == newMeta.Size && !oldMeta.ModTime.IsZero() && oldMeta.ModTime.Equal(newMeta.ModTime) {
+					e.Status = Same
+				} else {
+					e.Status = Changed
+				}
+			default:
 				e.Status = Changed
 			}
 		}
@@ -293,7 +372,11 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 			for index := range jobs {
 				equal, err := false, ctx.Err()
 				if err == nil {
-					equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
+					if method == CompareHash {
+						equal, err = hashEqual(ctx, oldSrc, newSrc, res.Entries[index].Path, opts)
+					} else {
+						equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
+					}
 				}
 				results <- struct {
 					index int
@@ -307,7 +390,8 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 		for index := range res.Entries {
 			e := res.Entries[index]
 			comparableSize := e.OldSize == e.NewSize || strings.HasSuffix(strings.ToLower(e.Path), ".gz")
-			if e.OldSize >= 0 && e.NewSize >= 0 && comparableSize && !(opts.Quick && e.OldSize == e.NewSize && !e.OldModTime.IsZero() && e.OldModTime.Equal(e.NewModTime)) {
+			needsContent := method == CompareContents || method == CompareHash || (method == CompareQuick && e.Status != Same)
+			if needsContent && e.OldSize >= 0 && e.NewSize >= 0 && comparableSize {
 				// Stop dispatching once cancelled; in-flight workers see ctx.Err()
 				// and drain quickly (#169).
 				select {
@@ -352,6 +436,95 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 	}
 	return res, nil
 }
+
+func hashEqual(ctx context.Context, oldSrc, newSrc source, rel string, opts Options) (bool, error) {
+	a, err := openCompared(oldSrc, rel)
+	if err != nil {
+		return false, err
+	}
+	defer a.Close()
+	b, err := openCompared(newSrc, rel)
+	if err != nil {
+		return false, err
+	}
+	defer b.Close()
+	limit := int64(0)
+	if strings.HasSuffix(strings.ToLower(rel), ".gz") {
+		limit, _ = archiveLimits(opts)
+	}
+	left, err := hashCompared(ctx, a, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	if err != nil {
+		return false, err
+	}
+	right, err := hashCompared(ctx, b, limit)
+	if errors.Is(err, errExpansionOverLimit) {
+		return false, fmt.Errorf("%w: %q expands past the %d-byte decompression limit", ErrArchiveLimit, rel, limit)
+	}
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(left, right), nil
+}
+
+func hashCompared(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
+	hash := sha256.New()
+	buffer := make([]byte, 64*1024)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		n, err := r.Read(buffer)
+		if n > 0 {
+			total += int64(n)
+			if limit > 0 && total > limit {
+				return nil, errExpansionOverLimit
+			}
+			if _, writeErr := hash.Write(buffer[:n]); writeErr != nil {
+				return nil, writeErr
+			}
+		}
+		if err == io.EOF {
+			return hash.Sum(nil), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+}
+
+func openCompared(src source, rel string) (io.ReadCloser, error) {
+	raw, err := src.open(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.HasSuffix(strings.ToLower(rel), ".gz") {
+		return raw, nil
+	}
+	gz, err := gzip.NewReader(raw)
+	if err != nil {
+		raw.Close()
+		return nil, err
+	}
+	return &combinedReadCloser{Reader: gz, close: func() error {
+		gzErr := gz.Close()
+		rawErr := raw.Close()
+		if gzErr != nil {
+			return gzErr
+		}
+		return rawErr
+	}}, nil
+}
+
+type combinedReadCloser struct {
+	io.Reader
+	close func() error
+}
+
+func (c *combinedReadCloser) Close() error { return c.close() }
 
 // errExpansionOverLimit is returned internally by readersEqual when the
 // decompressed byte count passes the cap; contentEqual translates it into a

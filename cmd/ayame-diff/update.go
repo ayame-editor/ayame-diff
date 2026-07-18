@@ -17,6 +17,20 @@ import (
 
 // runUpdate implements: ayame-diff update [--check]
 func runUpdate(args []string, stdout, stderr io.Writer) int {
+	return runUpdateWithDeps(args, stdout, stderr, updateCommandDeps{
+		latestRelease: selfupdate.LatestRelease,
+		needsUpdate:   selfupdate.NeedsUpdate,
+		update:        selfupdate.Update,
+	})
+}
+
+type updateCommandDeps struct {
+	latestRelease func(context.Context) (*selfupdate.Release, error)
+	needsUpdate   func(string, string) bool
+	update        func(context.Context, string, io.Writer) error
+}
+
+func runUpdateWithDeps(args []string, stdout, stderr io.Writer, deps updateCommandDeps) int {
 	fs := flag.NewFlagSet("ayame-diff update", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var checkOnly bool
@@ -41,7 +55,7 @@ Verifies the release's SHA-256 checksum before installing.`)
 	defer stop()
 
 	if checkOnly {
-		rel, err := selfupdate.LatestRelease(ctx)
+		rel, err := deps.latestRelease(ctx)
 		if err != nil {
 			fmt.Fprintln(stderr, "error:", err)
 			if errors.Is(err, context.Canceled) {
@@ -49,7 +63,7 @@ Verifies the release's SHA-256 checksum before installing.`)
 			}
 			return exitError
 		}
-		if selfupdate.NeedsUpdate(version, rel.TagName) {
+		if deps.needsUpdate(version, rel.TagName) {
 			fmt.Fprintf(stdout, "update available: %s -> %s\n%s\n", version, rel.TagName, rel.HTMLURL)
 		} else {
 			fmt.Fprintf(stdout, "up to date (%s)\n", version)
@@ -57,7 +71,7 @@ Verifies the release's SHA-256 checksum before installing.`)
 		return exitOK
 	}
 
-	if err := selfupdate.Update(ctx, version, stdout); err != nil {
+	if err := deps.update(ctx, version, stdout); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		if errors.Is(err, context.Canceled) {
 			return exitInterrupt
@@ -69,6 +83,22 @@ Verifies the release's SHA-256 checksum before installing.`)
 
 // runRemove implements: ayame-diff remove [--yes]
 func runRemove(args []string, stdout, stderr io.Writer) int {
+	return runRemoveWithDeps(args, stdout, stderr, removeCommandDeps{
+		managedInstall: selfupdate.ManagedInstall,
+		executable:     os.Executable,
+		remove:         selfupdate.Remove,
+		stdin:          os.Stdin,
+	})
+}
+
+type removeCommandDeps struct {
+	managedInstall func() string
+	executable     func() (string, error)
+	remove         func(io.Writer) error
+	stdin          io.Reader
+}
+
+func runRemoveWithDeps(args []string, stdout, stderr io.Writer, deps removeCommandDeps) int {
 	fs := flag.NewFlagSet("ayame-diff remove", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var yes bool
@@ -89,27 +119,27 @@ detected and left to their package manager.`)
 		return exitUsage
 	}
 
-	if mgr := selfupdate.ManagedInstall(); mgr != "" {
+	if mgr := deps.managedInstall(); mgr != "" {
 		fmt.Fprintf(stderr, "this install is managed by %s; use %s to remove it\n", mgr, strings.ToLower(mgr))
 		return exitError
 	}
 	if !yes {
-		exe, _ := os.Executable()
+		exe, _ := deps.executable()
 		fmt.Fprintf(stderr, "remove %s? [y/N] ", exe)
-		if !confirm() {
+		if !confirm(deps.stdin) {
 			fmt.Fprintln(stderr, "cancelled")
 			return exitInterrupt
 		}
 	}
-	if err := selfupdate.Remove(stdout); err != nil {
+	if err := deps.remove(stdout); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	return exitOK
 }
 
-func confirm() bool {
-	sc := bufio.NewScanner(os.Stdin)
+func confirm(r io.Reader) bool {
+	sc := bufio.NewScanner(r)
 	if !sc.Scan() {
 		return false
 	}

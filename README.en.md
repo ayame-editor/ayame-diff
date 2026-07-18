@@ -32,6 +32,7 @@ The embedded local GUI also supports [folder comparison](docs/assets/screenshot-
 - Strict comparison of duplicate keys as multisets of rows
 - CSV cell-level diff (`_changed_cols` / JSON Lines), numeric tolerance, per-column change ranking
 - Web GUI for header inspection, searchable key column selection, analysis/performance settings, cell highlighting, full result export
+- Folder comparison with metadata expressions, reusable filter sets, five comparison methods, and previewable GUI filters
 - Supports RFC 4180-style CSV/TSV with quotes, commas, tabs, and newlines
 - Fast parallel parser for simple TSV/CSV
 - Memory-limited external sort
@@ -65,12 +66,13 @@ ayame-diff sorted [flags] OLD NEW                      # Sort then line diff
 ayame-diff dir    [flags] OLD NEW                      # Recursive folder/archive (zip, tar.gz) comparison
 ayame-diff bin    [flags] OLD NEW                      # Binary/hex diff
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT three-way comparison
-ayame-diff serve  [--addr host:port]                   # Browser GUI (local web)
-ayame-diff gui    [--addr host:port] [--no-open]       # Start GUI on free port and open browser
+ayame-diff serve  [--addr host:port] [--allow-remote]  # Browser GUI (local web)
+ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
 ayame-diff shell-install                               # Register file-manager integration
 ayame-diff shell-uninstall                             # Remove file-manager integration
 ayame-diff update [--check]                            # Self-update to latest release (SHA256 verification)
 ayame-diff remove [--yes]                              # Uninstall standalone version
+ayame-diff shell-select PATH                           # Handle a Windows Explorer selection (internal helper)
 ```
 
 If you start with `--left ... --right ...` without a subcommand, it works as `csv` (backward compatible).
@@ -139,10 +141,14 @@ ayame-diff sorted --numeric metrics-a.txt metrics-b.txt
 ### `serve` — Browser GUI
 
 Starts a local web app to compare two files in the browser. Binds to localhost by default (since it opens the entered path directly, for local use only).
+Non-loopback addresses are rejected unless you pass `--allow-remote`. Remote
+mode has no authentication and exposes APIs that can read and write local
+files, so use it only behind trusted network access controls.
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
 ayame-diff serve --addr 127.0.0.1:9000
+ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
 Specify paths for OLD / NEW and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with header, row numbers, and word-level highlights for each hunk.
