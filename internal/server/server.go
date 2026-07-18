@@ -1629,12 +1629,15 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		}
 		choices[id] = side
 	}
+	// Capture the base file's encoding/BOM/EOL before MergeLines streams it, so
+	// the written merge round-trips them instead of BOM-less UTF-8/LF (#159).
+	profile := threeway.ProfileOf(base)
 	lines, unresolved, err := threeway.MergeLines(base, result, choices, req.AllowUnresolved)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := threeway.WriteMerged(req.Output, lines); err != nil {
+	if err := threeway.WriteMerged(req.Output, lines, profile); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -102,6 +102,7 @@ type FileLines struct {
 	path     string
 	gzipped  bool
 	encoding string // concrete encoding name (as resolved by the encoding pkg)
+	hasBOM   bool   // a leading UTF-8 BOM was present (and stripped) on open
 	count    uint64
 
 	// Streaming state. reader is positioned just past line index next-1.
@@ -147,6 +148,12 @@ func OpenEncoding(path, encHint string) (*FileLines, error) {
 
 // Encoding reports the concrete encoding the file was decoded from.
 func (f *FileLines) Encoding() string { return f.encoding }
+
+// HasBOM reports whether the file began with a UTF-8 byte-order mark, which
+// Open strips from the first line. Merge writers use it to re-emit the mark so
+// a round-trip preserves it (the UTF-16 codecs carry their own BOM, so this
+// stays false for them). (#159)
+func (f *FileLines) HasBOM() bool { return f.hasBOM }
 
 // ErrIsDirectory and ErrBinaryContent report inputs the text/line path cannot
 // meaningfully compare, so callers can steer users to the folder (dir) or
@@ -307,18 +314,19 @@ func (f *FileLines) readLine() (string, string, bool) {
 }
 
 // skipUTF8BOM discards a leading UTF-8 byte-order mark (EF BB BF) if present, so
-// the first line is not prefixed with a stray BOM. It must be applied
-// identically in the count and streaming passes so the two agree (a file that is
-// only a BOM must count as zero lines in both).
-func skipUTF8BOM(br *bufio.Reader) error {
+// the first line is not prefixed with a stray BOM, and reports whether one was
+// discarded. It must be applied identically in the count and streaming passes so
+// the two agree (a file that is only a BOM must count as zero lines in both).
+func skipUTF8BOM(br *bufio.Reader) (bool, error) {
 	prefix, err := br.Peek(3)
 	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
-		return err
+		return false, err
 	}
 	if len(prefix) == 3 && prefix[0] == 0xEF && prefix[1] == 0xBB && prefix[2] == 0xBF {
 		_, _ = br.Discard(3)
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // countLines counts lines using the same emit rule as readLine, in one pass,
@@ -340,7 +348,7 @@ func countLines(path string, gzipped bool, enc string) (uint64, error) {
 		r = gz
 	}
 	br := bufio.NewReaderSize(encoding.Decoder(r, enc), readerBufSize)
-	if err := skipUTF8BOM(br); err != nil {
+	if _, err := skipUTF8BOM(br); err != nil {
 		return 0, err
 	}
 
@@ -379,10 +387,12 @@ func (f *FileLines) reset() error {
 	f.file = file
 	f.gz = gz
 	reader := bufio.NewReaderSize(encoding.Decoder(r, f.encoding), readerBufSize)
-	if err := skipUTF8BOM(reader); err != nil {
+	hadBOM, err := skipUTF8BOM(reader)
+	if err != nil {
 		file.Close()
 		return err
 	}
+	f.hasBOM = hadBOM
 	f.reader = &universalLineReader{reader: reader}
 	f.buf = nil
 	f.endings = nil

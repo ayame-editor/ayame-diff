@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"bytes"
 	"io"
 	"testing"
 
@@ -172,5 +173,68 @@ func TestJapaneseNotMisdetectedAsUTF16(t *testing.T) {
 		if got := Detect(raw, Auto); got != c.want {
 			t.Errorf("%s misdetected as %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestEncoderRoundTrips confirms Encoder is the inverse of Decoder for every
+// concrete codec: UTF-8 text encoded to a target and decoded back is unchanged.
+func TestEncoderRoundTrips(t *testing.T) {
+	t.Parallel()
+	const s = "hello 日本語 123\nsecond ライン"
+	for _, name := range []string{UTF8, UTF16LE, UTF16BE, ShiftJIS, EUCJP, ISO2022JP} {
+		var buf bytes.Buffer
+		if _, err := io.WriteString(Encoder(&buf, name), s); err != nil {
+			t.Fatalf("%s: encode: %v", name, err)
+		}
+		if got := decodeAll(t, buf.Bytes(), name); got != s {
+			t.Errorf("%s: round-trip = %q, want %q", name, got, s)
+		}
+	}
+}
+
+// TestEncoderUTF8IsPassthrough documents that the UTF-8 encoder neither
+// transforms bytes nor prepends a BOM, so a UTF-8 BOM is the caller's job.
+func TestEncoderUTF8IsPassthrough(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := Encoder(&buf, UTF8)
+	if w != &buf {
+		t.Fatalf("UTF-8 Encoder wrapped the writer; want passthrough")
+	}
+	io.WriteString(w, "abc")
+	if got := buf.Bytes(); !bytes.Equal(got, []byte("abc")) {
+		t.Errorf("UTF-8 encode = % x, want 61 62 63", got)
+	}
+}
+
+// TestEncoderUTF16EmitsBOM confirms the UTF-16 encoders write their own
+// byte-order mark, so the merge path must not add one for those encodings.
+func TestEncoderUTF16EmitsBOM(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		bom  []byte
+	}{
+		{UTF16LE, []byte{0xFF, 0xFE}},
+		{UTF16BE, []byte{0xFE, 0xFF}},
+	} {
+		var buf bytes.Buffer
+		io.WriteString(Encoder(&buf, c.name), "A")
+		if got := buf.Bytes(); len(got) < 2 || !bytes.Equal(got[:2], c.bom) {
+			t.Errorf("%s: leading bytes = % x, want BOM % x", c.name, got, c.bom)
+		}
+	}
+}
+
+// TestEncoderRejectsUnrepresentable verifies an unmappable rune surfaces as a
+// write error rather than a silent substitution, so merges never persist
+// mojibake.
+func TestEncoderRejectsUnrepresentable(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	// 🍣 has no Shift_JIS mapping.
+	_, err := io.WriteString(Encoder(&buf, ShiftJIS), "a🍣b")
+	if err == nil {
+		t.Fatal("encoding an unrepresentable rune to Shift_JIS did not error")
 	}
 }
