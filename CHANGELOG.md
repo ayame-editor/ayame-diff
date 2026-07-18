@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stopped a comparison with any ignore option from re-normalizing the same
+  lines over and over. The resync scan holds one side fixed while sweeping the
+  other, so each line was normalized once per candidate; a small window-sized
+  cache now does it once. On 400 churn-heavy lines with ignore-case that is
+  169ms and 172,590 allocations down to 2.3ms and 819 — the normalizing path is
+  now as fast as the plain one, where before it was 62x slower. (#156)
 - Made long GUI operations mutually exclusive, so a comparison and an export no
   longer run at once and race their results into the same view. The lock wraps
   the flows rather than the buttons, which is what covers the callers that never

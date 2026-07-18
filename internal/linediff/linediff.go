@@ -151,6 +151,9 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 	}
 	maxHunks := opts.MaxHunks
 	comparison := lineComparator{old: old, new: new, norm: normalizer(opts), opts: opts}
+	if comparison.norm != nil {
+		comparison.oldNorm, comparison.newNorm = newNormRing(window), newNormRing(window)
+	}
 	oldTotal := old.Count()
 	newTotal := new.Count()
 	res := Result{OldLines: oldTotal, NewLines: newTotal}
@@ -245,19 +248,83 @@ type lineEndings interface {
 }
 
 type lineComparator struct {
-	old, new Lines
-	norm     func(string) string
-	opts     Options
+	old, new         Lines
+	norm             func(string) string
+	opts             Options
+	oldNorm, newNorm normRing
 }
 
-func (c lineComparator) equal(oldIndex, newIndex uint64) bool {
-	oldText, oldOK := c.old.Line(oldIndex)
-	newText, newOK := c.new.Line(newIndex)
+// normRing memoizes the normalized form of recently compared lines.
+//
+// A resync scan holds one side's index fixed and sweeps the other across the
+// window, so without memoization the fixed line is normalized once per
+// candidate and each swept line is normalized again on every overlapping scan.
+// With any ignore option set that dominates a comparison: 400 churny lines took
+// 169ms and 172,590 allocations, against 2.7ms and 12 allocations with no
+// normalizer (#156).
+//
+// It is a ring rather than a map so memory stays bounded by the window, which
+// is what the streaming line sources assume (#137). A slot is only trusted when
+// its recorded index matches, so a wrapped or evicted entry simply misses.
+type normRing struct {
+	indexes []uint64
+	texts   []string
+	filled  []bool
+}
+
+// maxNormCacheEntries bounds the ring even when a client asks for an enormous
+// resync window, which the API permits.
+const maxNormCacheEntries = 4096
+
+func newNormRing(window uint64) normRing {
+	size := window + 1
+	if size > maxNormCacheEntries {
+		size = maxNormCacheEntries
+	}
+	return normRing{indexes: make([]uint64, size), texts: make([]string, size), filled: make([]bool, size)}
+}
+
+func (r *normRing) lookup(index uint64) (string, bool) {
+	if len(r.texts) == 0 {
+		return "", false
+	}
+	slot := index % uint64(len(r.texts))
+	if r.filled[slot] && r.indexes[slot] == index {
+		return r.texts[slot], true
+	}
+	return "", false
+}
+
+func (r *normRing) store(index uint64, text string) {
+	if len(r.texts) == 0 {
+		return
+	}
+	slot := index % uint64(len(r.texts))
+	r.indexes[slot], r.texts[slot], r.filled[slot] = index, text, true
+}
+
+// normalized returns the comparison form of a line, from the ring when present.
+func (c *lineComparator) normalized(source Lines, ring *normRing, index uint64) (string, bool) {
+	if c.norm == nil {
+		return source.Line(index)
+	}
+	if text, ok := ring.lookup(index); ok {
+		return text, true
+	}
+	raw, ok := source.Line(index)
+	if !ok {
+		return "", false
+	}
+	text := c.norm(raw)
+	ring.store(index, text)
+	return text, true
+}
+
+func (c *lineComparator) equal(oldIndex, newIndex uint64) bool {
+	oldText, oldOK := c.normalized(c.old, &c.oldNorm, oldIndex)
+	newText, newOK := c.normalized(c.new, &c.newNorm, newIndex)
 	if !oldOK || !newOK {
 		return false
-	}
-	if c.norm != nil {
-		oldText, newText = c.norm(oldText), c.norm(newText)
 	}
 	if oldText != newText {
 		return false
@@ -287,7 +354,7 @@ func (c lineComparator) equal(oldIndex, newIndex uint64) bool {
 		(oldEOL == "" || newEOL == "")
 }
 
-func (c lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
+func (c *lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
 	for index := start; index < end; index++ {
 		if c.equal(oldIndex, index) {
 			return index, true
@@ -296,7 +363,7 @@ func (c lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
 	return 0, false
 }
 
-func (c lineComparator) findOld(newIndex, start, end uint64) (uint64, bool) {
+func (c *lineComparator) findOld(newIndex, start, end uint64) (uint64, bool) {
 	for index := start; index < end; index++ {
 		if c.equal(index, newIndex) {
 			return index, true
