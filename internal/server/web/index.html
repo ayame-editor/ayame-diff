@@ -182,6 +182,16 @@
         <button id="mergeMode" type="button" class="merge-toggle" data-i18n="mergeMode" aria-pressed="false" hidden>Merge mode</button>
         <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
       </nav>
+      <section class="result-search" id="resultSearch" hidden role="search" data-i18n-aria-label="searchResults" aria-label="結果内を検索">
+        <input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="結果内を検索" autocomplete="off" spellcheck="false" />
+        <label class="opt check"><input id="searchCase" type="checkbox" /><span data-i18n="searchCase">大小区別</span></label>
+        <label class="opt check"><input id="searchRegex" type="checkbox" /><span data-i18n="searchRegex">正規表現</span></label>
+        <label class="opt check"><input id="searchChangedOnly" type="checkbox" /><span data-i18n="searchChangedOnly">変更行のみ</span></label>
+        <span id="searchCounter" aria-live="polite"></span>
+        <button id="searchPrev" type="button" data-i18n-title="searchPrevious" data-i18n-aria-label="searchPrevious"><span aria-hidden="true">↑</span></button>
+        <button id="searchNext" type="button" data-i18n-title="searchNext" data-i18n-aria-label="searchNext"><span aria-hidden="true">↓</span></button>
+        <button id="searchClose" type="button" data-i18n-title="searchClose" data-i18n-aria-label="searchClose"><span aria-hidden="true">×</span></button>
+      </section>
       <section class="sync-panel" id="syncPanel" hidden>
         <strong data-i18n="syncPoints">Sync points</strong>
         <span id="syncList"></span>
