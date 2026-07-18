@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hjosugi/ayame-diff/internal/panicguard"
 )
 
 // ProgressEvent is a transport-neutral snapshot suitable for CLI logging,
@@ -44,19 +46,28 @@ func startProgress(parent context.Context, phase, label string, enabled bool, lo
 	p.done = make(chan struct{})
 	go func() {
 		defer close(p.done)
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				p.print(false)
-			}
-		}
+		// Progress reporting is cosmetic: a panic while formatting a tick must
+		// not kill a comparison that is otherwise succeeding (#137). Dropping
+		// the ticker leaves stop() to print the final line.
+		_ = panicguard.Call(func() { p.tick(ctx) })
 	}()
 	return p
 }
+
+// tick prints a progress line every interval until ctx is cancelled.
+func (p *progressCounter) tick(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.print(false)
+		}
+	}
+}
+
 func (p *progressCounter) add(rows, bytes uint64) { p.rows.Add(rows); p.bytes.Add(bytes) }
 func (p *progressCounter) stop() {
 	p.once.Do(func() {

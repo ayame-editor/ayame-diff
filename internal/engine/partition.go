@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/hjosugi/ayame-diff/internal/panicguard"
 )
 
 type partitionSink struct {
@@ -291,7 +293,7 @@ func partitionSimpleParallelWithChunk(ctx context.Context, spec inputSpec, info 
 		b := start + data*int64(w+1)/int64(workers)
 		last := w == workers-1
 		go func(a, b int64, last bool) {
-			rows, err := partitionSimpleRange(workerCtx, spec, info, mapping, keyIndexes, keyIsFullRow, cfg, set, p, start, a, b, last)
+			rows, err := guardedPartitionSimpleRange(workerCtx, spec, info, mapping, keyIndexes, keyIsFullRow, cfg, set, p, start, a, b, last)
 			if err != nil {
 				cancel()
 			}
@@ -312,6 +314,15 @@ func partitionSimpleParallelWithChunk(ctx context.Context, spec inputSpec, info 
 	}
 	return total, ctx.Err()
 }
+
+// guardedPartitionSimpleRange contains a panic raised on a parallel-parse
+// worker goroutine, which no caller-side recover can reach, so a malformed
+// range fails its own shard rather than the process (#137).
+func guardedPartitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, dataStart, nominalStart, nominalEnd int64, last bool) (rows uint64, err error) {
+	defer panicguard.Guard(&err)
+	return partitionSimpleRange(ctx, spec, info, mapping, keyIndexes, keyIsFullRow, cfg, set, p, dataStart, nominalStart, nominalEnd, last)
+}
+
 func partitionSimpleRange(ctx context.Context, spec inputSpec, info inspectedInput, mapping, keyIndexes []int, keyIsFullRow bool, cfg resolvedConfig, set *partitionSet, p *progressCounter, dataStart, nominalStart, nominalEnd int64, last bool) (uint64, error) {
 	f, err := os.Open(spec.Path)
 	if err != nil {

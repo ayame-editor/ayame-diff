@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hjosugi/ayame-diff/internal/atomicfile"
+	"github.com/hjosugi/ayame-diff/internal/panicguard"
 )
 
 func Run(ctx context.Context, cfg Config) (Summary, error) {
@@ -164,7 +165,7 @@ func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, c
 					results <- partitionResult{index: index, err: err}
 					continue
 				}
-				stats, path, err := processPartition(workerCtx, index, leftParts[index], rightParts[index], columnCount, keyIsFullRow, cfg, workRoot)
+				stats, path, err := guardedProcessPartition(workerCtx, index, leftParts[index], rightParts[index], columnCount, keyIsFullRow, cfg, workRoot)
 				if err != nil {
 					cancel()
 				}
@@ -191,6 +192,21 @@ func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, c
 		return partitionStats{}, nil, firstErr
 	}
 	return total, paths, nil
+}
+
+// processPartitionFn is the seam the partition workers call, so a test can
+// prove that a panicking partition fails one unit of work instead of the whole
+// process.
+var processPartitionFn = processPartition
+
+// guardedProcessPartition contains a panic raised on a partition worker
+// goroutine. Such a panic is unreachable from the caller's recover — it would
+// abort the CLI, or take down the local GUI server along with every other
+// in-flight comparison — so it is converted into this partition's error and
+// travels the existing failure path (#137).
+func guardedProcessPartition(ctx context.Context, index int, leftPart, rightPart string, columnCount int, keyIsFullRow bool, cfg resolvedConfig, workRoot string) (stats partitionStats, path string, err error) {
+	defer panicguard.Guard(&err)
+	return processPartitionFn(ctx, index, leftPart, rightPart, columnCount, keyIsFullRow, cfg, workRoot)
 }
 
 func processPartition(ctx context.Context, index int, leftPart, rightPart string, columnCount int, keyIsFullRow bool, cfg resolvedConfig, workRoot string) (partitionStats, string, error) {

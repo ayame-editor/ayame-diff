@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"math"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -1074,8 +1076,37 @@ const contentSecurityPolicy = "default-src 'self'; base-uri 'none'; connect-src 
 
 // Handler returns the HTTP handler wrapped in the security middleware, so every
 // route (the embedded UI and the JSON API) gets hardening headers and CSRF
-// protection whether it is served by `serve` or `gui`.
-func (s *Server) Handler() http.Handler { return secure(s.mux) }
+// protection whether it is served by `serve` or `gui`. The recovery wrapper is
+// outermost so a panic raised inside the security checks is caught too.
+func (s *Server) Handler() http.Handler { return recovered(secure(s.mux)) }
+
+// recovered turns a panic in a handler into a 500 with the same JSON error
+// shape as every other failure, instead of net/http silently closing the
+// connection and leaving the GUI waiting on a request that never answers
+// (#137). The process keeps serving; the stack goes to the server log so the
+// bug stays reportable.
+//
+// The panic value is deliberately not sent to the client: it can carry
+// filesystem paths or input fragments, and the user can do nothing with it. The
+// log line is the diagnosable copy.
+func recovered(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			value := recover()
+			if value == nil {
+				return
+			}
+			// A panic after the response started cannot be rewritten as a 500;
+			// aborting tells net/http not to pretend the reply was complete.
+			if value == http.ErrAbortHandler {
+				panic(value)
+			}
+			log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.Path, value, debug.Stack())
+			writeError(w, http.StatusInternalServerError, "internal error: the comparison could not be completed")
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
 
 // maxJSONBodyBytes caps every JSON request body so a huge or slow POST cannot
 // exhaust memory (#147). It is deliberately generous — real diff/merge requests

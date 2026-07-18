@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hjosugi/ayame-diff/internal/panicguard"
 )
 
 // source is a comparable tree of files with content, backed by either a
@@ -372,11 +374,7 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 			for index := range jobs {
 				equal, err := false, ctx.Err()
 				if err == nil {
-					if method == CompareHash {
-						equal, err = hashEqual(ctx, oldSrc, newSrc, res.Entries[index].Path, opts)
-					} else {
-						equal, err = contentEqual(oldSrc, newSrc, res.Entries[index].Path, opts)
-					}
+					equal, err = guardedFileEqual(ctx, method, oldSrc, newSrc, res.Entries[index].Path, opts)
 				}
 				results <- struct {
 					index int
@@ -435,6 +433,26 @@ func compareSources(ctx context.Context, oldSrc, newSrc source, opts Options) (*
 		}
 	}
 	return res, nil
+}
+
+// fileEqualFn is the seam the comparison workers call, so a test can prove that
+// a panicking file fails one entry rather than the whole process.
+var fileEqualFn = fileEqual
+
+// guardedFileEqual contains a panic raised while comparing one file on a worker
+// goroutine. A malformed archive member must not abort a directory comparison
+// of thousands of other files, and on the GUI server it must not take down
+// unrelated in-flight requests (#137).
+func guardedFileEqual(ctx context.Context, method CompareMethod, oldSrc, newSrc source, rel string, opts Options) (equal bool, err error) {
+	defer panicguard.Guard(&err)
+	return fileEqualFn(ctx, method, oldSrc, newSrc, rel, opts)
+}
+
+func fileEqual(ctx context.Context, method CompareMethod, oldSrc, newSrc source, rel string, opts Options) (bool, error) {
+	if method == CompareHash {
+		return hashEqual(ctx, oldSrc, newSrc, rel, opts)
+	}
+	return contentEqual(oldSrc, newSrc, rel, opts)
 }
 
 func hashEqual(ctx context.Context, oldSrc, newSrc source, rel string, opts Options) (bool, error) {

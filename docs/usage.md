@@ -436,14 +436,20 @@ and the cross-platform launch forms.
 Normally:
 
 - `0` — success
-- `2` — input, configuration or I/O error
+- `2` — usage error: bad flags, arguments, or incompatible options
+- `3` — runtime error: I/O, comparison, server, or update failure
 - `130` — interrupted or explicitly cancelled (for example, declining `remove`)
 
 With `--diff-exit-code` (`csv` and `dir`):
 
 - `0` — no differences
 - `1` — differences found
-- `2` — error
+- `2` / `3` — usage or runtime error, as above
+
+A usage error and a runtime failure are deliberately distinct, so a script can
+tell "you called it wrong" from "it could not finish". An internal crash is
+reported as `3` with a stack trace on stderr; it never exits `2` and so is never
+mistaken for a usage error.
 
 ---
 

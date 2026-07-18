@@ -9,6 +9,13 @@
   state when saving a three-way text merge, so a Shift_JIS/CRLF (or UTF-8-BOM,
   UTF-16, EUC-JP, ISO-2022-JP) file round-trips instead of being rewritten as
   BOM-less UTF-8 with LF and a forced trailing newline. (#159)
+- Contained panics so a bug in one comparison no longer kills the process: the
+  local GUI server answers with a 500 and keeps serving, the CLI reports the
+  documented runtime-failure code 3 with a reportable trace instead of colliding
+  with the usage code 2, and panics on partition, parallel-parse, progress, and
+  directory-comparison worker goroutines — which no caller-side recover could
+  reach — now fail their own unit of work. Corrected the documented exit codes,
+  which still described the pre-#113 scheme. (#137)
 - Fixed three-way CSV merge correctness: non-ASCII keys no longer fail to match
   (inputs are decoded before the byte-oriented engine, which reported raw bytes
   through JSONL and lost them to U+FFFD), the reconciled file keeps the base's
