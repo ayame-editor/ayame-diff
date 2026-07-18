@@ -249,6 +249,23 @@
 	  <div id="browserEntries" class="browser-entries"></div>
 	</dialog>
 
+    <dialog id="confirmDialog" class="app-dialog" aria-labelledby="confirmTitle">
+      <form method="dialog">
+        <h2 id="confirmTitle" data-i18n="confirmTitle">Confirm</h2>
+        <p id="confirmMessage"></p>
+        <menu>
+          <button id="confirmCancel" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+          <button id="confirmOk" value="ok" type="submit" class="primary" data-i18n="confirmProceed">Proceed</button>
+        </menu>
+      </form>
+    </dialog>
+    <dialog id="shortcutsDialog" class="app-dialog" aria-labelledby="shortcutsTitle">
+      <form method="dialog">
+        <h2 id="shortcutsTitle" data-i18n="keyboardShortcuts">Keyboard shortcuts</h2>
+        <dl id="shortcutsList" class="shortcuts"></dl>
+        <menu><button value="close" type="submit" class="primary" data-i18n="close">Close</button></menu>
+      </form>
+    </dialog>
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
