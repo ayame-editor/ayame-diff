@@ -9,7 +9,9 @@
   changed line shows as a removal above an addition, prefixed `-` and `+`. Word
   highlighting, syntax, whitespace, wrap, the minimap, difference navigation and
   merge selection all keep working, because the two views share one rendering
-  path and differ only in layout. (#115)
+  path and differ only in layout. The diff grid's metrics moved into shared
+  variables, since the base cell and the unified override both declare that grid
+  and a literal in either one would drift from the other. (#115)
 - Pinned the embedded web assets to LF. They were checked out as CRLF on
   Windows, so the server shipped different bytes there than everywhere else, and
   the tests that assert against those assets failed on that platform alone.

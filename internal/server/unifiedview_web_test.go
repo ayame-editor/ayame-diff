@@ -1,6 +1,7 @@
 package server
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -67,8 +68,56 @@ func TestUnifiedViewMarksRemovalsAndAdditions(t *testing.T) {
 		t.Error("the marker is not placed in its own column and will wrap")
 	}
 	track := sectionBetween(t, style, ".result.unified .cell[data-marker] {", "}")
-	if strings.Count(track, "rem") == 0 || !strings.Contains(track, "1ch") {
+	if !strings.Contains(track, "var(--diff-marker)") {
 		t.Errorf("the marker has no column of its own: %s", track)
+	}
+}
+
+// TestDiffGridMetricsComeFromTokens: the base cell and the unified override
+// both declare the same grid, so a literal in either one is a silent drift —
+// change the gutter in one place and unified stops lining up, with nothing to
+// catch it. Every rule that sets those tracks must read the shared variable.
+func TestDiffGridMetricsComeFromTokens(t *testing.T) {
+	t.Parallel()
+	style := readWebAsset(t, "style.css")
+
+	for _, name := range []string{"--diff-gutter", "--diff-gap", "--diff-marker"} {
+		if !strings.Contains(style, name+":") {
+			t.Errorf("%s is not defined", name)
+		}
+	}
+
+	// Every --diff-* that is read must also be declared. A misspelled custom
+	// property is not a CSS error: it resolves to nothing, the track silently
+	// collapses, and the layout is quietly wrong with no console warning.
+	used := regexp.MustCompile(`var\((--diff-[a-z-]+)\)`)
+	for _, match := range used.FindAllStringSubmatch(style, -1) {
+		if !strings.Contains(style, match[1]+":") {
+			t.Errorf("style.css reads %s but never defines it; the track will collapse silently", match[1])
+		}
+	}
+
+	// "\n.cell {" anchors the base rule at column 0; a bare ".cell {" would
+	// match the ".result.unified .cell {" override that appears earlier.
+	for _, rule := range []string{"\n.cell {", ".result.unified .cell[data-marker] {"} {
+		body := sectionBetween(t, style, rule, "}")
+		columns := ""
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "grid-template-columns") {
+				columns = line
+			}
+		}
+		if columns == "" {
+			t.Errorf("%s no longer declares grid-template-columns", rule)
+			continue
+		}
+		// "1fr" is a ratio rather than a metric, so it is not a drift risk.
+		for _, unit := range []string{"rem", "ch", "px", "em"} {
+			if strings.Contains(columns, unit) && !strings.Contains(columns, "var(--diff-") {
+				t.Errorf("%s hard-codes a %s track instead of using the shared variable: %s",
+					rule, unit, strings.TrimSpace(columns))
+			}
+		}
 	}
 }
 
