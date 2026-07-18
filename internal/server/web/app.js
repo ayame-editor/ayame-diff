@@ -71,6 +71,7 @@ const I18N = {
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+    conditionsGroup: "比較条件", conditionsHint: "差分と見なす基準を変えるため、変更すると比較をやり直します。",
     theme: "テーマ", themeSystem: "OS に合わせる", themeLight: "ライト", themeDark: "ダーク",
     jumpToKind: (v) => `${v.label}の差分へ移動`,
     confirmTitle: "確認", confirmProceed: "実行", cancel: "キャンセル", close: "閉じる",
@@ -164,6 +165,7 @@ const I18N = {
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+    conditionsGroup: "Comparison conditions", conditionsHint: "These change what counts as a difference, so a change re-runs the comparison.",
     theme: "Theme", themeSystem: "Match system", themeLight: "Light", themeDark: "Dark",
     jumpToKind: (v) => `Jump to ${v.label}`,
     confirmTitle: "Confirm", confirmProceed: "Proceed", cancel: "Cancel", close: "Close",
@@ -1766,7 +1768,7 @@ function changedControlCount(root) {
 
 // updateDetailsBadges keeps each collapsed group honest about what it hides.
 function updateDetailsBadges() {
-  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"]]) {
+  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"], ["compareConditions", "conditionsBadge"]]) {
     const group = $(groupID), badge = $(badgeID);
     if (!group || !badge) continue;
     const changed = changedControlCount(group);
@@ -2008,9 +2010,17 @@ function syncMoveMinLines() {
 	if (node) node.disabled = !$("detectMoves").checked;
 }
 
+// The patch format controls are only meaningful next to Export patch, so they
+// follow its visibility rather than sitting in the setup form (#86).
+function syncPatchSettingsVisibility() {
+  const patchSettings = $("patchSettings");
+  if (patchSettings) patchSettings.hidden = $("exportPatch").hidden;
+}
+
 function syncExportPatchVisibility() {
   const currentRequest = $("mode").value === "text" ? JSON.stringify(requestBody()) : null;
   $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
+  syncPatchSettingsVisibility();
 }
 
 function syncKeyMode() {
@@ -2291,6 +2301,11 @@ $("searchNext").addEventListener("click", () => stepSearch(1));
 $("searchPrev").addEventListener("click", () => stepSearch(-1));
 $("searchClose").addEventListener("click", closeSearch);
 $("swapSides").addEventListener("click", swapSides);
+captureControlDefaults($("compareConditions"));
+for (const control of $("compareConditions").querySelectorAll("input, select, textarea")) {
+  control.addEventListener("change", updateDetailsBadges);
+  control.addEventListener("input", updateDetailsBadges);
+}
 captureControlDefaults($("engineTuning"));
 for (const control of $("engineTuning").querySelectorAll("input, select")) {
   control.addEventListener("change", updateDetailsBadges);
