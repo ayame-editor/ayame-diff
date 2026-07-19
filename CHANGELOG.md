@@ -2,14 +2,6 @@
 
 ## Unreleased
 
-- Replaced the folder result's flat, fully expanded button list with a real
-  collapsible tree. Folder rows carry total and per-status counts; file rows
-  have labelled size and modified-time columns; status and path filters stay in
-  the sticky result toolbar; and a roving tab stop with arrow/Home/End keys
-  makes large trees navigable without tabbing through every file. Added and
-  removed files now open as one-sided text diffs instead of disabled rows, while
-  an explicit absent-side request keeps ordinary missing paths as errors.
-  (#104)
 - Added a unified (git-style) view to the text diff, switchable from the result
   toolbar and remembered across visits. The diff was side-by-side only, which
   reads badly in a narrow window and does not match how most tools present a

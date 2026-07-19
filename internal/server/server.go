@@ -1332,11 +1332,6 @@ type diffRequest struct {
 	Inline  bool   `json:"inline"`
 	OldText string `json:"oldText"`
 	NewText string `json:"newText"`
-	// A directory result can open an added or removed file even though the
-	// nominal path on one side does not exist (#104). The path remains present
-	// as its display/patch label; the explicit flag supplies an empty source.
-	OldAbsent bool `json:"oldAbsent,omitempty"`
-	NewAbsent bool `json:"newAbsent,omitempty"`
 }
 
 var positiveDiffNumberFields = []struct {
@@ -1445,8 +1440,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := validateDiffSources(req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if !req.Inline && (req.Old == "" || req.New == "") {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
 	window := req.Window
@@ -1505,8 +1500,8 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := validateDiffSources(req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if !req.Inline && (req.Old == "" || req.New == "") {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
 	if req.Mode == "sorted" {
@@ -1607,8 +1602,8 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "sorted comparisons cannot be merged back to the original order")
 		return
 	}
-	if err := validateDiffSources(req.diffRequest); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if !req.Inline && (req.Old == "" || req.New == "") {
+		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
 		return
 	}
 	oldLines, newLines, closeLines, err := openRequestLines(req.diffRequest)
@@ -1871,38 +1866,16 @@ func pathModTime(path string) time.Time {
 	return info.ModTime()
 }
 
-func validateDiffSources(req diffRequest) error {
-	if req.Inline {
-		if req.OldAbsent || req.NewAbsent {
-			return fmt.Errorf("absent sides are only valid for path comparisons")
-		}
-		return nil
-	}
-	if req.Old == "" || req.New == "" {
-		return fmt.Errorf("both 'old' and 'new' paths are required")
-	}
-	if req.OldAbsent && req.NewAbsent {
-		return fmt.Errorf("at least one comparison side must exist")
-	}
-	return nil
-}
-
 func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), error) {
 	if req.Inline {
 		return inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse),
 			inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse), func() {}, nil
 	}
-	openSide := func(path string, absent bool) (linediff.Lines, func(), error) {
-		if absent {
-			return inlineLines("", req.Mode, req.Numeric, req.Reverse), func() {}, nil
-		}
-		return openMode(path, req.Mode, req.Encoding, req.Numeric, req.Reverse)
-	}
-	oldLines, closeOld, err := openSide(req.Old, req.OldAbsent)
+	oldLines, closeOld, err := openMode(req.Old, req.Mode, req.Encoding, req.Numeric, req.Reverse)
 	if err != nil {
 		return nil, nil, func() {}, fmt.Errorf("old: %w", err)
 	}
-	newLines, closeNew, err := openSide(req.New, req.NewAbsent)
+	newLines, closeNew, err := openMode(req.New, req.Mode, req.Encoding, req.Numeric, req.Reverse)
 	if err != nil {
 		closeOld()
 		return nil, nil, func() {}, fmt.Errorf("new: %w", err)

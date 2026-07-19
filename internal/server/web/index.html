@@ -180,6 +180,7 @@
 		  <label class="opt"><span data-i18n="compareBy">compare by</span><select id="dirCompareBy"><option value="contents">contents</option><option value="quick">quick</option><option value="hash">hash</option><option value="date">date</option><option value="size">size</option></select></label>
 		  <label class="opt check"><input id="dirHidden" type="checkbox" /><span data-i18n="hiddenFiles">hidden files</span></label>
 		  <label class="opt"><span data-i18n="workers">workers</span><input id="dirWorkers" type="number" value="8" min="1" max="64" /></label>
+		  <label class="opt"><span data-i18n="statusFilter">statuses</span><select id="dirStatus"><option value="different" data-i18n="statusDifferent">different</option><option value="all" data-i18n="statusAll">all</option><option value="changed" data-i18n="changed">changed</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option></select></label>
 		</div><div class="csv-actions"><button id="dirPreview" type="button" data-i18n="filterPreview">Preview filter</button><span id="dirPreviewResult" aria-live="polite"></span></div>
 		<div class="project-actions"><input id="dirProjectPath" placeholder="folder.ayamediff.json" spellcheck="false" /><button id="loadDirProject" type="button" data-i18n="openProject">Open project</button><button id="saveDirProject" type="button" data-i18n="saveProject">Save project</button></div>
 		<small data-i18n="symlinkPolicy">Symbolic links are skipped. .gz files compare decompressed content.</small></fieldset>
@@ -199,14 +200,10 @@
         <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
         <span class="view-settings">
           <label class="opt" id="viewModeWrap" hidden><span data-i18n="view">view</span><select id="viewMode"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
-          <label class="opt" id="dirStatusWrap" hidden><span data-i18n="statusFilter">statuses</span><select id="dirStatus"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
-          <label class="opt" id="dirSearchWrap" hidden><span data-i18n="folderSearch">path search</span><input id="dirSearch" type="search" data-i18n-placeholder="folderSearchPlaceholder" placeholder="Search folder results" autocomplete="off" spellcheck="false" /></label>
-          <span id="textViewSettings">
           <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
           <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
           <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
           <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
-          </span>
           <label class="opt">
                       <span data-i18n="theme">theme</span>
                       <select id="theme">
@@ -305,7 +302,6 @@
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
-    <script src="directory.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
