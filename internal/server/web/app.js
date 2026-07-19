@@ -128,6 +128,7 @@ const I18N = {
 	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
 	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
 	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
+	folderName: "名前", folderSize: "サイズ", folderModified: "更新日時", folderSearch: "パス検索", folderSearchPlaceholder: "フォルダ結果を検索", folderFileCount: (v) => `${v.count} ファイル`,
 	filterExpression: "フィルタ式", filterFile: "フィルタファイル", filterSet: "フィルタセット", compareBy: "比較方法", filterPreview: "フィルタをプレビュー", filterPreviewResult: (v) => `左 ${v.old_count} / 右 ${v.new_count} / 合計 ${v.union_count}`,
     langButton: "日本語 → EN",
     langSwitchLabel: "言語を英語に切り替え",
@@ -224,6 +225,7 @@ const I18N = {
 	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
+	folderName: "Name", folderSize: "Size", folderModified: "Modified", folderSearch: "path search", folderSearchPlaceholder: "Search folder results", folderFileCount: (v) => `${v.count} files`,
 	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `old ${v.old_count} / new ${v.new_count} / union ${v.union_count}`,
     langButton: "English → 日本語",
     langSwitchLabel: "Switch language to Japanese",
@@ -256,6 +258,15 @@ function applyLang(next) {
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 // The word diff lives in worddiff.js so it can be tested without a DOM (#139).
 const { inlineWordDiff, inlineTokens, pushPart } = globalThis.AyameWordDiff;
+const {
+  DIR_MARKERS,
+  DIR_AUTO_EXPAND_LIMIT,
+  buildDirTree,
+  dirEntrySize,
+  dirEntryStamp,
+  directoryEntryRequest,
+  filterDirectoryEntries,
+} = globalThis.AyameDirectory;
 
 // In-flight request controller, so the Cancel button can abort a long compare.
 let currentAbort = null;
@@ -340,6 +351,11 @@ let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
 let directoryData = null, directoryBody = null;
+// Retains the explicit absent side when an added/removed folder entry opens as
+// a text diff. Exact path matching prevents later manual edits from inheriting
+// the flag accidentally.
+let directoryEntryView = null;
+let directorySearchTimer = 0;
 let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
 // Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
 // so the per-hunk adopt buttons and the merge panel stay hidden until the user
@@ -561,9 +577,7 @@ function renderSummary(res) {
     s.className = "stat " + cls + (jumpable ? " stat-jump" : "");
     const count = document.createElement("b");
     count.textContent = n.toLocaleString();
-    // No literal space: .summary .stat sets the gap, so the pair does not
-    // shift with the digit count.
-    s.append(count, label);
+    s.append(count, ` ${label}`);
     return s;
   };
   el.append(
@@ -1045,10 +1059,13 @@ function setupNavigation(data) {
   // A folder result borrows this bar and hides the parts that do not apply to
   // it (#104); a text result has to put them back.
   $("dirStatusWrap").hidden = true;
+  $("dirSearchWrap").hidden = true;
   $("textViewSettings").hidden = false;
   for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "diffCounter"]) {
     const node = $(id); if (node) node.hidden = false;
   }
+  $("addSync").hidden = false;
+  renderSyncPoints();
   minimapHasMarkers = hasHunks;
   if (hasHunks) buildMinimap(data);
   updateCounter();
@@ -1473,39 +1490,6 @@ async function runLoadDirectoryProject() {
 // path and faking depth with a left padding. Nothing could be folded away, so a
 // large comparison could only be scrolled, and the size and timestamp the server
 // already sends were reachable only as a hover tooltip.
-//
-// buildDirTree turns the flat entry list into real nodes. The server sends no
-// is_dir flag and no parent links, so the structure comes from splitting each
-// path; folders exist only as the prefixes their files share.
-function buildDirTree(entries) {
-  const root = { name: "", path: "", dirs: new Map(), files: [], counts: { added: 0, removed: 0, changed: 0, same: 0 } };
-  for (const entry of entries) {
-    const parts = entry.path.split("/");
-    const fileName = parts.pop();
-    let node = root;
-    node.counts[entry.status]++;
-    for (const part of parts) {
-      let child = node.dirs.get(part);
-      if (!child) {
-        child = { name: part, path: node.path ? `${node.path}/${part}` : part, dirs: new Map(), files: [], counts: { added: 0, removed: 0, changed: 0, same: 0 } };
-        node.dirs.set(part, child);
-      }
-      node = child;
-      // Counts aggregate up every ancestor, so a folded folder still reports
-      // what it hides — otherwise folding would conceal the very thing the
-      // reader folded it to summarise.
-      node.counts[entry.status]++;
-    }
-    node.files.push({ ...entry, name: fileName });
-  }
-  return root;
-}
-
-function dirTreeFileCount(node) {
-  let total = node.files.length;
-  for (const child of node.dirs.values()) total += dirTreeFileCount(child);
-  return total;
-}
 
 // Sizes and times are on the wire already but were only ever in a title. Bytes
 // arrive raw and timestamps as RFC3339Nano UTC, neither of which is readable in
@@ -1513,43 +1497,10 @@ function dirTreeFileCount(node) {
 // A size sits in a narrow column beside a name and a timestamp, so it is shown
 // with the symbol rather than the word: "7 B → 15 B" instead of spelling out
 // the unit twice. The row's tooltip carries the translated long form.
-function formatBytes(n) {
-  if (typeof n !== "number" || !isFinite(n) || n < 0) return "";
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = n / 1024, unit = 0;
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
-}
 function describeBytes(entry) {
   const sizes = entry.status === "removed" ? [entry.old_size] : entry.status === "added" ? [entry.new_size] : [entry.old_size, entry.new_size];
   return `${sizes.join(" → ")} ${t("bytes")}`;
 }
-function formatStamp(iso) {
-  if (!iso) return "";
-  const at = new Date(iso);
-  if (isNaN(at.getTime())) return "";
-  const pad = (v) => String(v).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
-// Which side's metadata describes the entry: a removed file has no new side, an
-// added one no old side, and for a change the size is worth showing as a move
-// from one to the other.
-function dirEntrySize(entry) {
-  if (entry.status === "removed") return formatBytes(entry.old_size);
-  if (entry.status === "changed" && entry.old_size !== entry.new_size) {
-    return `${formatBytes(entry.old_size)} → ${formatBytes(entry.new_size)}`;
-  }
-  return formatBytes(entry.new_size);
-}
-function dirEntryStamp(entry) {
-  return formatStamp(entry.status === "removed" ? entry.old_mtime : entry.new_mtime || entry.old_mtime);
-}
-
-const DIR_MARKERS = { added: "+", removed: "−", changed: "~", same: "=" };
-// Folding is pointless when everything fits, and expanding everything is what
-// makes a large result unusable, so the default follows the size of the result.
-const DIR_AUTO_EXPAND_LIMIT = 200;
 
 async function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
@@ -1560,6 +1511,7 @@ async function renderDirectory(data, body) {
   // show the parts that apply to a folder.
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
+  $("dirSearchWrap").hidden = false;
   $("textViewSettings").hidden = true;
   for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter"]) {
     const node = $(id); if (node) node.hidden = true;
@@ -1575,25 +1527,32 @@ async function renderDirectory(data, body) {
     const mark = document.createElement("span"); mark.className = "stat-marker"; mark.textContent = DIR_MARKERS[name];
     mark.setAttribute("aria-hidden", "true");
     const b = document.createElement("b"); b.textContent = data[name].toLocaleString();
-    item.append(mark, b, t(name)); summary.append(item);
+    item.append(mark, " ", b, ` ${t(name)}`); summary.append(item);
   }
   summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
   tree.setAttribute("role", "tree");
   tree.setAttribute("aria-label", t("folderSetup"));
+  const header = document.createElement("div"); header.className = "dir-entry dir-header";
+  header.setAttribute("role", "presentation");
+  for (const [cls, label] of [["dir-marker", ""], ["dir-name", t("folderName")], ["dir-size", t("folderSize")], ["dir-stamp", t("folderModified")]]) {
+    const cell = document.createElement("span"); cell.className = cls; cell.textContent = label; header.append(cell);
+  }
+  tree.append(header);
   const filter = $("dirStatus").value;
   // A folder comparison carries one entry per file with no cap, so a large
   // tree is exactly the case that must not arrive as one blocking loop (#127).
-  const visible = data.entries.filter((entry) =>
-    !((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)));
+  const visible = filterDirectoryEntries(data.entries, filter, $("dirSearch").value);
 
   const root = buildDirTree(visible);
   const expandByDefault = visible.length <= DIR_AUTO_EXPAND_LIMIT;
 
   const openFile = async (entry) => {
+    const view = directoryEntryRequest(entry, body.old, body.new);
+    directoryEntryView = entry.status === "added" || entry.status === "removed" ? view : null;
     $("mode").value = "text"; syncModeOpts();
-    $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`;
-    $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`;
+    $("old").value = view.old;
+    $("new").value = view.new;
     await compare();
   };
 
@@ -1601,6 +1560,7 @@ async function renderDirectory(data, body) {
     const row = document.createElement("button");
     row.type = "button"; row.className = `dir-entry ${entry.status}`;
     row.setAttribute("role", "treeitem");
+    row.tabIndex = -1;
     row.style.setProperty("--dir-depth", String(depth));
     const marker = document.createElement("span"); marker.className = "dir-marker"; marker.textContent = DIR_MARKERS[entry.status];
     marker.setAttribute("aria-hidden", "true");
@@ -1612,8 +1572,11 @@ async function renderDirectory(data, body) {
     row.append(marker, name, size, stamp);
     row.setAttribute("aria-label", `${t(entry.status)} ${entry.path}`);
     row.title = `${entry.path}\n${describeBytes(entry)}`;
-    if (entry.status === "changed") row.addEventListener("click", () => openFile(entry));
-    else row.classList.add("inert");
+    if (entry.status !== "same") row.addEventListener("click", () => openFile(entry));
+    else {
+      row.classList.add("inert");
+      row.setAttribute("aria-disabled", "true");
+    }
     return row;
   };
 
@@ -1625,10 +1588,16 @@ async function renderDirectory(data, body) {
     const row = document.createElement("button");
     row.type = "button"; row.className = "dir-entry dir-folder";
     row.setAttribute("role", "treeitem");
+    row.tabIndex = -1;
     row.style.setProperty("--dir-depth", String(depth));
     const twisty = document.createElement("span"); twisty.className = "dir-twisty"; twisty.setAttribute("aria-hidden", "true");
     const name = document.createElement("span"); name.className = "dir-name"; name.textContent = node.name;
     const badges = document.createElement("span"); badges.className = "dir-badges";
+    const total = document.createElement("span");
+    total.className = "dir-badge total";
+    total.textContent = node.total.toLocaleString();
+    total.title = t("folderFileCount", { count: node.total.toLocaleString() });
+    badges.append(total);
     for (const [status, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"]]) {
       if (!node.counts[status]) continue;
       const badge = document.createElement("span");
@@ -2038,12 +2007,23 @@ function updateDetailsBadges() {
 // when scratch mode is on — and re-runs only if a result is already showing, so
 // the button never starts work the user did not ask for.
 function swapSides() {
+  const activeDirectoryEntry = directoryEntryView
+    && $("old").value.trim() === directoryEntryView.old
+    && $("new").value.trim() === directoryEntryView.new;
   const pairs = $("scratch").checked
     ? [["oldText", "newText"]]
     : [["old", "new"]];
   for (const [left, right] of pairs) {
     const a = $(left), b = $(right);
     [a.value, b.value] = [b.value, a.value];
+  }
+  if (activeDirectoryEntry) {
+    directoryEntryView = {
+      old: directoryEntryView.new,
+      new: directoryEntryView.old,
+      oldAbsent: directoryEntryView.newAbsent,
+      newAbsent: directoryEntryView.oldAbsent,
+    };
   }
   // The inspection describes the previous pairing.
   csvInspection = null;
@@ -2180,10 +2160,18 @@ function makeCellExpandable(td, value) {
 
 function requestBody() {
   const scratch = $("scratch").checked;
+  const old = $("old").value.trim();
+  const newPath = $("new").value.trim();
+  const directoryView = !scratch && $("mode").value === "text"
+    && directoryEntryView?.old === old && directoryEntryView?.new === newPath
+    ? directoryEntryView
+    : null;
   return {
     inline: scratch,
-    old: $("old").value.trim(),
-    new: $("new").value.trim(),
+    old,
+    new: newPath,
+    oldAbsent: Boolean(directoryView?.oldAbsent),
+    newAbsent: Boolean(directoryView?.newAbsent),
     oldText: $("oldText").value,
     newText: $("newText").value,
     mode: $("mode").value,
@@ -2535,6 +2523,12 @@ $("browserGo").addEventListener("click", async () => { try { await loadBrowser($
 $("browserUp").addEventListener("click", async () => { try { await loadBrowser($("browserUp").dataset.path); } catch (err) { setStatus(String(err.message || err), "error"); } });
 $("chooseFolder").addEventListener("click", () => { if (browserTarget) $(browserTarget).value = $("browserPath").value; $("fileBrowser").close(); });
 $("dirStatus").addEventListener("change", () => { if (directoryData) renderDirectory(directoryData, directoryBody); });
+$("dirSearch").addEventListener("input", () => {
+  clearTimeout(directorySearchTimer);
+  directorySearchTimer = setTimeout(() => {
+    if (directoryData && $("mode").value === "dir") renderDirectory(directoryData, directoryBody);
+  }, 120);
+});
 $("dirPreview").addEventListener("click", previewDirectoryFilter);
 $("saveDirProject").addEventListener("click", saveDirectoryProject);
 $("loadDirProject").addEventListener("click", loadDirectoryProject);

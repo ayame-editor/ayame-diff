@@ -64,12 +64,7 @@ body.drag-active::after {
   border: 1px solid var(--border); border-radius: var(--radius-control);
   padding: 0.2rem 0.6rem; font-size: var(--fs-label); font-weight: 500;
 }
-/* No centred 1200px column. Horizontal space is the scarce resource in a diff
-   tool — it is what decides whether a side-by-side line wraps, how many folder
-   columns fit, and how much of a CSV row is visible — and this runs locally in
-   a window the reader already sized. Capping it left the content floating
-   between two empty margins while the diff below wrapped. */
-main { padding: 1rem; }
+main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 
 .setup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow); }
 .paths { display: grid; gap: 0.6rem; }
@@ -88,12 +83,7 @@ input[type="text"] {
 .project-actions { display: grid; grid-template-columns: minmax(12rem, 1fr) auto auto minmax(10rem, auto); gap: 0.5rem; margin-top: 0.6rem; }
 .project-actions button { margin: 0; }
 .csv-actions button, .key-toolbar button, .csv-options > button { margin: 0; }
-.csv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.65rem; margin-top: 0.7rem; align-items: end; }
-/* A checkbox has its label beside it, its neighbours have theirs above. Left to
-   centre themselves in the row the checkboxes floated at the mid-height of the
-   inputs next to them; sitting them on the same bottom edge puts every control
-   on one line. */
-.csv-grid .opt.check { align-self: end; min-height: 2rem; }
+.csv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.65rem; margin-top: 0.7rem; }
 .csv-grid .opt input:not([type="checkbox"]), .csv-grid .opt select { width: 100%; min-width: 0; padding: 0.35rem 0.45rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--fg); }
 .key-setup { margin-top: 0.8rem; }
 .key-toolbar .opt { margin-right: auto; }
@@ -124,10 +114,6 @@ input[type="text"] {
 button {
   margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;
-  /* A label is a phrase, not a paragraph: without this "マージモード" and
-     "patchを書き出す" broke across two lines in the toolbar, leaving buttons of
-     different heights sitting next to each other. */
-  white-space: nowrap;
 }
 button:disabled { opacity: 0.5; cursor: default; }
 :where(button, input, select, textarea, summary, a[href], [tabindex]):focus-visible {
@@ -182,12 +168,6 @@ button:active:not(:disabled) {
   margin-top: 0.9rem; display: flex; gap: 1.2rem; flex-wrap: wrap;
   font-variant-numeric: tabular-nums;
 }
-/* The count and its label were separated by a literal space in the markup, so
-   the distance between them moved with the digit count and the row read as
-   ragged. A baseline-aligned flex with one gap keeps every pair identical, and
-   aligning on the baseline settles the larger bold number against the smaller
-   label instead of letting the two font sizes jostle. */
-.summary .stat { display: inline-flex; align-items: baseline; gap: 0.3rem; }
 .summary .stat b { font-size: var(--fs-emphasis); }
 .summary .add b { color: var(--add-fg); }
 .summary .del b { color: var(--del-fg); }
@@ -209,6 +189,11 @@ button:active:not(:disabled) {
   color: var(--fg); border: 1px solid var(--border); font-weight: 600;
 }
 .diff-nav .nav-help { margin-left: 0.35rem; color: var(--muted); }
+#dirSearch {
+  width: min(16rem, 40vw); padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--bg); color: var(--fg);
+}
 .sync-panel {
   margin-top: 0.45rem; display: flex; align-items: center; gap: 0.5rem;
   color: var(--muted); font-size: var(--fs-label);
@@ -545,7 +530,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
    size and time the server sends were hidden in a title. Each row is now a grid
    of marker, name, size and time, indented by its depth, and folders nest for
    real so that hiding one hides its subtree. */
-.dir-tree { display: grid; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
+.dir-tree { display: grid; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: auto; }
 .dir-entry {
   display: grid;
   grid-template-columns: var(--dir-marker-col) minmax(0, 1fr) auto auto;
@@ -557,6 +542,11 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   padding-left: calc(0.65rem + var(--dir-depth, 0) * var(--dir-indent));
   background: var(--panel); color: var(--fg);
   border-bottom: 1px solid var(--border); font: var(--fs-data) var(--mono);
+}
+.dir-header {
+  position: sticky; top: 0; z-index: 2;
+  color: var(--muted); background: var(--bg); font-weight: 600;
+  cursor: default;
 }
 .dir-entry.added { color: var(--add-fg); }.dir-entry.removed { color: var(--del-fg); }.dir-entry.changed { color: var(--chg-fg); }.dir-entry.same { color: var(--muted); }
 /* Rows that cannot be opened stay in the tab order and keep their contrast —
@@ -573,6 +563,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .dir-folder[aria-expanded="true"] .dir-twisty::before { transform: rotate(90deg); }
 .dir-badges { display: flex; gap: 0.3rem; grid-column: 3 / span 2; justify-content: end; }
 .dir-badge { font-size: var(--fs-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dir-badge.total { color: var(--muted); }
 .dir-badge.add { color: var(--add-fg); } .dir-badge.del { color: var(--del-fg); } .dir-badge.chg { color: var(--chg-fg); }
 .summary .stat-marker { font-family: var(--mono); color: var(--muted); }
 
