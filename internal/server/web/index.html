@@ -200,7 +200,6 @@
 
       <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
 
-      <section class="summary" id="summary" hidden></section>
 
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
@@ -329,5 +328,14 @@
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
     <script src="app.js"></script>
+    <!-- Status bar. The counts and the detected encodings used to sit in a band
+         above the toolbar, taking a row from the result to say things that are
+         reference information rather than controls. WinMerge puts exactly this
+         at the bottom, and its panes are clickable — the counts here still jump
+         to the next difference of that kind (#110). -->
+    <footer class="statusbar" id="statusbar" hidden>
+      <span class="statusbar-paths" id="statusPaths"></span>
+      <section class="summary" id="summary" hidden></section>
+    </footer>
   </body>
 </html>

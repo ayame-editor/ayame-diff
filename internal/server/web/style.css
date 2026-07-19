@@ -38,12 +38,36 @@
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
 }
+/* Application shell: title bar, work area, status bar. The page used to be a
+   plain document, so the setup form and the result competed for one scroll and
+   the result never owned the window. Fixing the height and giving the middle row
+   the remaining space is what makes "the window belongs to the result" true
+   rather than aspirational. */
 body {
   margin: 0;
   font: var(--fs-ui)/1.5 var(--ui);
   background: var(--bg);
   color: var(--fg);
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
+
+.statusbar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.25rem 0.9rem; border-top: 1px solid var(--border);
+  background: var(--panel); font-size: var(--fs-caption);
+  /* One line, always. It reports state; it must never become a second toolbar
+     that grows and steals height back from the result. */
+  min-height: 1.9rem; overflow: hidden; white-space: nowrap;
+}
+.statusbar-paths {
+  color: var(--muted); font-family: var(--mono);
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+}
+.statusbar-paths .side { color: var(--fg); }
+.statusbar .summary { margin: 0; flex: 0 0 auto; gap: 0.9rem; }
 body.drag-active::after {
   content: "Drop OLD and NEW here / OLD と NEW をドロップ";
   position: fixed; inset: 1rem; z-index: 100; display: grid; place-items: center;
@@ -76,7 +100,35 @@ body.drag-active::after {
    tool — it decides whether a side-by-side line wraps, how many folder columns
    fit, how much of a CSV row is visible — and this runs locally in a window the
    reader already sized. */
-main { padding: 1rem; width: 100%; }
+main {
+  padding: 1rem; width: 100%;
+  /* The middle row of the shell. min-height:0 is what actually lets the result
+     shrink to fit instead of overflowing its track and pushing the status bar
+     off the bottom of the window. */
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+/* The one region that scrolls — and getting the chain right matters more than
+   it looks. #result is a grid item inside .diff-layout, not a flex child of
+   main, so flex properties on it are inert: the layout grew to its content
+   height inside a clipped main and the diff below the fold became unreachable.
+   The element that takes the remaining space has to be main's actual child, and
+   every link in the chain needs min-height:0 or it refuses to shrink. */
+.diff-layout, main > #result, main > .csv-table-wrap, main > .three-grid {
+  flex: 1 1 auto; min-height: 0;
+}
+/* .diff-layout sets align-items:start so the minimap hugs the top. That also
+   stops the result stretching to its track, so it sized to content and
+   overflowed no matter what min-height said — stretch it back explicitly. */
+.diff-layout > #result { align-self: stretch; }
+#result {
+  min-height: 0; overflow: auto;
+  /* .result is a grid, and giving it a definite height made its implicit rows
+     divide that height between them: 30 hunks in 698px collapsed every hunk to
+     11px and the diff rendered as blank strips. Rows must size to their content
+     and let the container scroll instead. align-content:start does not fix
+     this — it aligns the track group, it does not stop auto rows stretching. */
+  grid-auto-rows: min-content;
+}
 
 .setup {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -261,7 +313,7 @@ button:active:not(:disabled) {
 /* The minimap column was 18px, below the ~24px a pointer can reliably hit and
    well below a touch target. Widening it makes the markers clickable; drag-to-
    scroll is still missing, so #102 stays open. */
-.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 0.55rem; align-items: start; }
+.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
 /* Reclaim the map's column when it is hidden, so a short diff is not indented
    by a gutter leading to nothing (#102). */
 .diff-layout:has(.minimap[hidden]) { grid-template-columns: minmax(0, 1fr); }

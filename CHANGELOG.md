@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Moved the counts and detected encodings into a status bar at the bottom of the
+  window, and made the result its own scroll region so the shell keeps the title
+  bar, work area and status bar fixed. The counts remain clickable jump targets.
 - Folded the setup form once a comparison exists, and moved the display settings
   into menus. The form filled the viewport and pushed the diff entirely below the
   fold — the tool could not do the thing it exists for. It now collapses to a

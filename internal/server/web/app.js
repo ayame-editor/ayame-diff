@@ -2200,7 +2200,26 @@ function updateSetupSummary() {
   summary.title = `${$("old").value}\n${$("new").value}`;
   summary.hidden = false;
 }
+// The status bar answers "what am I looking at" without spending a row of the
+// result on it. It carries the two sides; the counts live beside it and stay
+// clickable jump targets (#110).
+function updateStatusBar() {
+  const bar = $("statusbar");
+  const paths = $("statusPaths");
+  const scratch = $("scratch").checked;
+  const left = scratch ? t("scratch") : $("old").value;
+  const right = scratch ? t("scratch") : $("new").value;
+  if (!left && !right) { bar.hidden = true; return; }
+  paths.innerHTML = "";
+  const a = document.createElement("span"); a.className = "side"; a.textContent = baseName(left) || left;
+  const b = document.createElement("span"); b.className = "side"; b.textContent = baseName(right) || right;
+  paths.append(a, " ⇄ ", b);
+  paths.title = `${left}\n${right}`;
+  bar.hidden = false;
+}
+
 function collapseSetupAfterCompare() {
+  updateStatusBar();
   updateSetupSummary();
   $("setupRecompare").hidden = false;
   setSetupCompact(true);
