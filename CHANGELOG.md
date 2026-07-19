@@ -12,6 +12,11 @@
   path and differ only in layout. The diff grid's metrics moved into shared
   variables, since the base cell and the unified override both declare that grid
   and a literal in either one would drift from the other. (#115)
+- Named the three display type steps that sat above the shared scale. Sizes
+  larger than body text had no token, so each site wrote its own rem value —
+  1.05, 1.1 and 1.15 across six rules with nothing tying them together. The
+  values are unchanged; the guard that caught small literal sizes now catches
+  any literal size, which is why these went unnoticed.
 - Pinned the embedded web assets to LF. They were checked out as CRLF on
   Windows, so the server shipped different bytes there than everywhere else, and
   the tests that assert against those assets failed on that platform alone.

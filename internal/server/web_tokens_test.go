@@ -44,10 +44,25 @@ func TestWebStylesUseAyameTokens(t *testing.T) {
 		t.Error("tokens.css must load before the rules that consume it")
 	}
 
-	legacyType := regexp.MustCompile(`font(?:-size|):\s*0\.(?:72|75|78|8|82)rem`)
+	// The display steps above body size. tokens.css stops at --fs-ui and has
+	// nothing larger, so these had been written as bare rem at each site — 1.05,
+	// 1.1 and 1.15 across six rules with nothing tying them together. They live
+	// in style.css because tokens.css mirrors ayame-editor and is synced by
+	// review; adding steps there would diverge from its source.
+	for _, token := range []string{"--fs-title:", "--fs-heading:", "--fs-emphasis:"} {
+		if !strings.Contains(style, token) {
+			t.Errorf("style.css missing display type step %q", token)
+		}
+	}
+
+	// Any literal font size is a bypass now, not just the small legacy ones the
+	// original rule listed: sizes above body text were unguarded, which is how
+	// three of them accumulated unnoticed.
+	legacyType := regexp.MustCompile(`font(?:-size)?:\s*[\d.]+(?:rem|px|em)\b`)
 	legacyRadius := regexp.MustCompile(`border-radius:\s*(?:5|6|7|8|10)px`)
 	if legacyType.MatchString(style) {
-		t.Errorf("style.css bypasses the shared type scale: %q", legacyType.FindString(style))
+		t.Errorf("style.css bypasses the shared type scale: %q — add a step to the :root block instead",
+			legacyType.FindString(style))
 	}
 	if legacyRadius.MatchString(style) {
 		t.Errorf("style.css bypasses radius tokens: %q", legacyRadius.FindString(style))

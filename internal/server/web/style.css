@@ -13,6 +13,21 @@
   --diff-gap: 0.5rem;      /* gutter-to-text gap */
   --diff-marker: 1ch;      /* unified -/+ column */
 }
+
+/* Display sizes, above the body text. tokens.css defines the scale from body
+   size down (--fs-ui, --fs-data, --fs-label, --fs-caption) and nothing above it,
+   so anything larger had been written as a bare rem at each site: 1.05, 1.1 and
+   1.15 spread over six rules with nothing tying them together. These name the
+   three steps that were actually in use — the values are unchanged.
+
+   They sit here rather than in tokens.css because that file mirrors
+   ayame-editor and is synced by review; adding steps there would diverge from
+   its source. If the editor grows the same steps, these should move up. */
+:root {
+  --fs-title: 1.15rem;     /* the app title */
+  --fs-heading: 1.1rem;    /* section and overlay headings */
+  --fs-emphasis: 1.05rem;  /* dialog headings, emphasised numbers */
+}
 body {
   margin: 0;
   font: var(--fs-ui)/1.5 var(--ui);
@@ -24,7 +39,7 @@ body.drag-active::after {
   position: fixed; inset: 1rem; z-index: 100; display: grid; place-items: center;
   border: 3px dashed var(--accent); border-radius: var(--radius);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
-  color: var(--accent-bright); font-size: 1.1rem; font-weight: 700;
+  color: var(--accent-bright); font-size: var(--fs-heading); font-weight: 700;
   pointer-events: none;
 }
 .topbar {
@@ -34,7 +49,7 @@ body.drag-active::after {
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--border);
 }
-.topbar h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.01em; }
+.topbar h1 { margin: 0; font-size: var(--fs-title); letter-spacing: 0.01em; }
 .tag {
   font-size: var(--fs-caption);
   color: var(--muted);
@@ -151,7 +166,7 @@ button:active:not(:disabled) {
   margin-top: 0.9rem; display: flex; gap: 1.2rem; flex-wrap: wrap;
   font-variant-numeric: tabular-nums;
 }
-.summary .stat b { font-size: 1.05rem; }
+.summary .stat b { font-size: var(--fs-emphasis); }
 .summary .add b { color: var(--add-fg); }
 .summary .del b { color: var(--del-fg); }
 .summary .move b { color: var(--move-fg); }
@@ -325,7 +340,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 }
 .app-dialog::backdrop { background: rgb(0 0 0 / 45%); }
 .app-dialog form { padding: 1rem 1.1rem; margin: 0; }
-.app-dialog h2 { margin: 0 0 0.6rem; font-size: 1.05rem; }
+.app-dialog h2 { margin: 0 0 0.6rem; font-size: var(--fs-emphasis); }
 .app-dialog p { margin: 0 0 1rem; white-space: pre-wrap; }
 .app-dialog menu { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0; padding: 0; }
 .app-dialog menu button { margin: 0; }
@@ -455,14 +470,14 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 }
 .empty-state { color: var(--muted); text-align: center; padding: 2rem; }
 .result-empty { border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
-.result-empty strong { display: block; color: var(--fg); font-size: 1.1rem; }
+.result-empty strong { display: block; color: var(--fg); font-size: var(--fs-heading); }
 .result-empty p { margin: 0.35rem 0 0; }
 .result-match { border-color: var(--add-fg); background: var(--add-bg); }
 .result-match strong { color: var(--add-fg); }
 .result-partial { border-color: var(--gold); background: var(--chg-bg); }
 .result-partial strong { color: var(--chg-fg); }
 .initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
-.initial-empty strong { color: var(--fg); font-size: 1.05rem; }
+.initial-empty strong { color: var(--fg); font-size: var(--fs-emphasis); }
 .initial-empty p { margin: 0.35rem 0 0; }
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
