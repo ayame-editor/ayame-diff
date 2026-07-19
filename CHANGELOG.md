@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Folded the setup form once a comparison exists, and moved the display settings
+  into menus. The form filled the viewport and pushed the diff entirely below the
+  fold — the tool could not do the thing it exists for. It now collapses to a
+  47px bar carrying both file names and a one-click re-run, and the eighteen
+  controls that shared the result toolbar are down to navigation, the view
+  switch, sync and merge, with wrap/word/syntax/whitespace/theme/colours behind a
+  View menu and the patch controls behind an Export menu. The centred 1200px
+  column is gone as well: horizontal space is what decides whether a diff line
+  wraps.
+
 - Added a unified (git-style) view to the text diff, switchable from the result
   toolbar and remembered across visits. The diff was side-by-side only, which
   reads badly in a narrow window and does not match how most tools present a

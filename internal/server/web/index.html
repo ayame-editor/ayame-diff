@@ -17,6 +17,17 @@
 
     <main>
       <section class="setup" id="setup">
+        <!-- Once a comparison exists the form has done its job, and the window
+             belongs to the result. Expanded, this section filled the viewport
+             and pushed the diff entirely below the fold. The bar keeps the two
+             file names and a one-click re-run visible, because hiding refresh is
+             precisely the mistake Meld's headerbar redesign made. -->
+        <div class="setup-bar">
+          <button id="setupToggle" class="setup-toggle" type="button" aria-expanded="true" aria-controls="setupBody" data-i18n="setupSettings">Settings</button>
+          <span class="setup-summary" id="setupSummary" hidden></span>
+          <button id="setupRecompare" class="setup-recompare" type="button" data-i18n="recompare" hidden>Re-compare</button>
+        </div>
+        <div id="setupBody">
         <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
         <div class="paths" id="paths">
           <label id="basePathRow" hidden>
@@ -184,6 +195,7 @@
 		</div><div class="csv-actions"><button id="dirPreview" type="button" data-i18n="filterPreview">Preview filter</button><span id="dirPreviewResult" aria-live="polite"></span></div>
 		<div class="project-actions"><input id="dirProjectPath" placeholder="folder.ayamediff.json" spellcheck="false" /><button id="loadDirProject" type="button" data-i18n="openProject">Open project</button><button id="saveDirProject" type="button" data-i18n="saveProject">Save project</button></div>
 		<small data-i18n="symlinkPolicy">Symbolic links are skipped. .gz files compare decompressed content.</small></fieldset>
+        </div>
       </section>
 
       <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
@@ -196,44 +208,58 @@
         <span id="diffCounter" aria-live="polite"></span>
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
-        <button id="addSync" type="button" data-i18n="addSync" disabled>Add sync</button>
-        <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
-        <span class="view-settings">
-          <label class="opt" id="viewModeWrap" hidden><span data-i18n="view">view</span><select id="viewMode"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
-          <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
-          <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
-          <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
-          <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
-          <label class="opt">
-                      <span data-i18n="theme">theme</span>
-                      <select id="theme">
-                        <option value="system" data-i18n="themeSystem">match system</option>
-                        <option value="light" data-i18n="themeLight">light</option>
-                        <option value="dark" data-i18n="themeDark">dark</option>
-                      </select>
-                    </label>
-          <label class="opt">
-                      <span data-i18n="scheme">colors</span>
-                      <select id="scheme">
-                        <option value="default">default</option>
-                        <option value="colorblind">colorblind</option>
-                      </select>
-                    </label>
-        </span>
-        <button id="navHelp" type="button" class="nav-help" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
+        <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
+        <button id="addSync" type="button" class="icon-btn" data-i18n-title="addSync" data-i18n-aria-label="addSync" disabled><span aria-hidden="true">⚓</span></button>
+        <button id="clearSync" type="button" class="icon-btn" data-i18n-title="clearSync" data-i18n-aria-label="clearSync" hidden><span aria-hidden="true">⌫</span></button>
         <button id="mergeMode" type="button" class="merge-toggle" data-i18n="mergeMode" aria-pressed="false" hidden>Merge mode</button>
-        <span class="patch-settings" id="patchSettings" hidden>
-          <label class="opt">
-                      <span data-i18n="patchFormat">patch format</span>
-                      <select id="patchFormat">
-                        <option value="unified">unified</option>
-                        <option value="context">context</option>
-                        <option value="normal">normal</option>
-                      </select>
-                    </label>
-          <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
-        </span>
-        <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+
+        <!-- Menus (#104 follow-up). Eighteen controls sat in this bar, each with
+             its own visible label, so it wrapped to two ragged rows and the
+             navigation it exists for was lost among settings. Everything that is
+             not touched while reading a diff now lives behind a menu. <details>
+             gives the disclosure and keyboard handling natively; the IDs are
+             unchanged so every existing listener still resolves. -->
+        <div class="menubar" id="menubar" role="menubar" data-i18n-aria-label="menuBar" aria-label="メニュー">
+          <details class="menu" id="menuView">
+            <summary data-i18n="menuViewLabel">View</summary>
+            <div class="menu-panel">
+              <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
+              <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
+              <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
+              <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+              <hr />
+              <label class="opt"><span data-i18n="theme">theme</span>
+                <select id="theme">
+                  <option value="system" data-i18n="themeSystem">match system</option>
+                  <option value="light" data-i18n="themeLight">light</option>
+                  <option value="dark" data-i18n="themeDark">dark</option>
+                </select>
+              </label>
+              <label class="opt"><span data-i18n="scheme">colors</span>
+                <select id="scheme">
+                  <option value="default">default</option>
+                  <option value="colorblind">colorblind</option>
+                </select>
+              </label>
+            </div>
+          </details>
+          <details class="menu" id="menuExport" hidden>
+            <summary data-i18n="menuExportLabel">Export</summary>
+            <div class="menu-panel" id="patchSettings">
+              <label class="opt"><span data-i18n="patchFormat">patch format</span>
+                <select id="patchFormat">
+                  <option value="unified">unified</option>
+                  <option value="context">context</option>
+                  <option value="normal">normal</option>
+                </select>
+              </label>
+              <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
+              <hr />
+              <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+            </div>
+          </details>
+        </div>
+        <button id="navHelp" type="button" class="nav-help icon-btn" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
       </nav>
       <section class="result-search" id="resultSearch" hidden role="search" data-i18n-aria-label="searchResults" aria-label="結果内を検索">
         <input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="結果内を検索" autocomplete="off" spellcheck="false" />

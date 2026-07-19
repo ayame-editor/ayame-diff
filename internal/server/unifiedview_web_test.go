@@ -14,14 +14,27 @@ func TestUnifiedViewIsOfferedInTheResultToolbar(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
 
-	// Bounded by the next toolbar group: the view-settings span holds nested
-	// spans, so the first </span> is not its end.
-	settings := sectionBetween(t, index, `<span class="view-settings">`, `class="patch-settings"`)
-	if !strings.Contains(settings, `id="viewMode"`) {
-		t.Error("the view switch is not in the result toolbar")
+	// The view switch is one of the few controls that stays on the bar itself
+	// rather than moving into a menu: it is flipped while reading a diff, which
+	// is the line every surveyed tool draws.
+	bar := sectionBetween(t, index, `<nav class="diff-nav" id="diffNav"`, `<div class="menubar"`)
+	if !strings.Contains(bar, `id="viewMode"`) {
+		t.Error("the view switch is not on the result toolbar")
+	}
+	// The rest are set once and left alone, so they belong behind a menu. Loose
+	// on the bar they wrapped it to two ragged rows and buried the navigation
+	// the bar exists for.
+	for _, id := range []string{"theme", "scheme", "showWs", "syntax", "word", "wrap"} {
+		if strings.Contains(bar, `id="`+id+`"`) {
+			t.Errorf("%s is loose on the toolbar instead of in a menu", id)
+		}
+		if !strings.Contains(sectionBetween(t, index, `<div class="menu-panel">`, `</details>`), `id="`+id+`"`) &&
+			!strings.Contains(index, `id="`+id+`"`) {
+			t.Errorf("%s went missing entirely", id)
+		}
 	}
 	for _, option := range []string{`value="side"`, `value="unified"`} {
-		if !strings.Contains(settings, option) {
+		if !strings.Contains(bar, option) {
 			t.Errorf("the view switch is missing %s", option)
 		}
 	}

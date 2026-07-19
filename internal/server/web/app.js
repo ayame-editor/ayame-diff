@@ -43,6 +43,8 @@ const I18N = {
 	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
+    menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
+    setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
@@ -142,6 +144,8 @@ const I18N = {
 	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
+    menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
+    setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
@@ -1566,7 +1570,13 @@ async function runCompare() {
 // actual work. Wrapping here rather than at each button covers the callers
 // that never touch a button — drag and drop, folder-entry clicks, sync-point
 // edits, and the Enter key (#128).
-async function compare() { return runExclusive("compare", runCompare); }
+async function compare() {
+  const result = await runExclusive("compare", runCompare);
+  // Only fold once something is actually on screen. A failed or cancelled run
+  // leaves the form open, because the inputs are then what needs attention.
+  if (!$("status").classList.contains("error") && $("result").children.length) collapseSetupAfterCompare();
+  return result;
+}
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
 async function exportCSV() { return runExclusive("exportCSV", runExportCSV); }
 async function saveProject() { return runExclusive("saveProject", runSaveProject); }
@@ -2072,8 +2082,14 @@ function syncMoveMinLines() {
 // The patch format controls are only meaningful next to Export patch, so they
 // follow its visibility rather than sitting in the setup form (#86).
 function syncPatchSettingsVisibility() {
-  const patchSettings = $("patchSettings");
-  if (patchSettings) patchSettings.hidden = $("exportPatch").hidden;
+  // The patch controls now live inside the Export menu, so the whole menu
+  // disappears when there is nothing to export rather than leaving an empty
+  // menu title in the bar.
+  const menuExport = $("menuExport");
+  if (menuExport) {
+    menuExport.hidden = $("exportPatch").hidden;
+    if (menuExport.hidden) menuExport.open = false;
+  }
 }
 
 // Unified only means anything for the two-way text diff: the three-way view is
@@ -2154,6 +2170,40 @@ async function openBrowser(target) {
 }
 function syncPatchOpts() {
   $("patchContextWrap").hidden = $("patchFormat").value === "normal";
+}
+
+// ---- Setup collapse ----
+// Expanded, the form filled the window and left the diff below the fold: the
+// tool was unusable for the thing it exists for. A comparison means the inputs
+// have done their job, so the form folds to one line carrying the two names and
+// a re-run. It never folds on a failure, where the inputs are what needs fixing.
+function setSetupCompact(compact) {
+  const setup = $("setup");
+  setup.classList.toggle("compact", compact);
+  $("setupToggle").setAttribute("aria-expanded", String(!compact));
+}
+function baseName(path) {
+  const cleaned = String(path || "").replace(/[\\/]+$/, "");
+  const cut = Math.max(cleaned.lastIndexOf("/"), cleaned.lastIndexOf("\\"));
+  return cut >= 0 ? cleaned.slice(cut + 1) : cleaned;
+}
+function updateSetupSummary() {
+  const summary = $("setupSummary");
+  const scratch = $("scratch").checked;
+  const left = scratch ? t("scratch") : baseName($("old").value);
+  const right = scratch ? t("scratch") : baseName($("new").value);
+  if (!left && !right) { summary.hidden = true; return; }
+  summary.innerHTML = "";
+  const a = document.createElement("span"); a.className = "side"; a.textContent = left;
+  const b = document.createElement("span"); b.className = "side"; b.textContent = right;
+  summary.append(a, " ⇄ ", b);
+  summary.title = `${$("old").value}\n${$("new").value}`;
+  summary.hidden = false;
+}
+function collapseSetupAfterCompare() {
+  updateSetupSummary();
+  $("setupRecompare").hidden = false;
+  setSetupCompact(true);
 }
 
 // Display preferences (color scheme + line wrap), persisted across visits.
@@ -2281,6 +2331,20 @@ document.addEventListener("drop", async (event) => {
 });
 
 $("compare").addEventListener("click", compare);
+$("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
+$("setupRecompare").addEventListener("click", compare);
+for (const id of ["old", "new", "base", "scratch"]) $(id)?.addEventListener("change", updateSetupSummary);
+// A menu should close when the pointer goes elsewhere; <details> alone keeps it
+// open until its own summary is clicked again.
+document.addEventListener("click", (event) => {
+  for (const menu of document.querySelectorAll(".menubar .menu[open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const menu of document.querySelectorAll(".menubar .menu[open]")) menu.open = false;
+});
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
