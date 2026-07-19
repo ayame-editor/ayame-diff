@@ -561,7 +561,9 @@ function renderSummary(res) {
     s.className = "stat " + cls + (jumpable ? " stat-jump" : "");
     const count = document.createElement("b");
     count.textContent = n.toLocaleString();
-    s.append(count, ` ${label}`);
+    // No literal space: .summary .stat sets the gap, so the pair does not
+    // shift with the digit count.
+    s.append(count, label);
     return s;
   };
   el.append(
@@ -1040,6 +1042,13 @@ function setupNavigation(data) {
   readHunks = new Set();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
+  // A folder result borrows this bar and hides the parts that do not apply to
+  // it (#104); a text result has to put them back.
+  $("dirStatusWrap").hidden = true;
+  $("textViewSettings").hidden = false;
+  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "diffCounter"]) {
+    const node = $(id); if (node) node.hidden = false;
+  }
   minimapHasMarkers = hasHunks;
   if (hasHunks) buildMinimap(data);
   updateCounter();
@@ -1459,31 +1468,255 @@ async function runLoadDirectoryProject() {
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
+// ---- Folder result tree (#104) ----
+// The result was a flat list of buttons, one per file, each repeating its whole
+// path and faking depth with a left padding. Nothing could be folded away, so a
+// large comparison could only be scrolled, and the size and timestamp the server
+// already sends were reachable only as a hover tooltip.
+//
+// buildDirTree turns the flat entry list into real nodes. The server sends no
+// is_dir flag and no parent links, so the structure comes from splitting each
+// path; folders exist only as the prefixes their files share.
+function buildDirTree(entries) {
+  const root = { name: "", path: "", dirs: new Map(), files: [], counts: { added: 0, removed: 0, changed: 0, same: 0 } };
+  for (const entry of entries) {
+    const parts = entry.path.split("/");
+    const fileName = parts.pop();
+    let node = root;
+    node.counts[entry.status]++;
+    for (const part of parts) {
+      let child = node.dirs.get(part);
+      if (!child) {
+        child = { name: part, path: node.path ? `${node.path}/${part}` : part, dirs: new Map(), files: [], counts: { added: 0, removed: 0, changed: 0, same: 0 } };
+        node.dirs.set(part, child);
+      }
+      node = child;
+      // Counts aggregate up every ancestor, so a folded folder still reports
+      // what it hides — otherwise folding would conceal the very thing the
+      // reader folded it to summarise.
+      node.counts[entry.status]++;
+    }
+    node.files.push({ ...entry, name: fileName });
+  }
+  return root;
+}
+
+function dirTreeFileCount(node) {
+  let total = node.files.length;
+  for (const child of node.dirs.values()) total += dirTreeFileCount(child);
+  return total;
+}
+
+// Sizes and times are on the wire already but were only ever in a title. Bytes
+// arrive raw and timestamps as RFC3339Nano UTC, neither of which is readable in
+// a list.
+// A size sits in a narrow column beside a name and a timestamp, so it is shown
+// with the symbol rather than the word: "7 B → 15 B" instead of spelling out
+// the unit twice. The row's tooltip carries the translated long form.
+function formatBytes(n) {
+  if (typeof n !== "number" || !isFinite(n) || n < 0) return "";
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = n / 1024, unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+function describeBytes(entry) {
+  const sizes = entry.status === "removed" ? [entry.old_size] : entry.status === "added" ? [entry.new_size] : [entry.old_size, entry.new_size];
+  return `${sizes.join(" → ")} ${t("bytes")}`;
+}
+function formatStamp(iso) {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (isNaN(at.getTime())) return "";
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+// Which side's metadata describes the entry: a removed file has no new side, an
+// added one no old side, and for a change the size is worth showing as a move
+// from one to the other.
+function dirEntrySize(entry) {
+  if (entry.status === "removed") return formatBytes(entry.old_size);
+  if (entry.status === "changed" && entry.old_size !== entry.new_size) {
+    return `${formatBytes(entry.old_size)} → ${formatBytes(entry.new_size)}`;
+  }
+  return formatBytes(entry.new_size);
+}
+function dirEntryStamp(entry) {
+  return formatStamp(entry.status === "removed" ? entry.old_mtime : entry.new_mtime || entry.old_mtime);
+}
+
+const DIR_MARKERS = { added: "+", removed: "−", changed: "~", same: "=" };
+// Folding is pointless when everything fits, and expanding everything is what
+// makes a large result unusable, so the default follows the size of the result.
+const DIR_AUTO_EXPAND_LIMIT = 200;
+
 async function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
-  csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  // The toolbar used to be hidden outright for a folder result, which took the
+  // theme and colour choices with it and left the status filter stranded in the
+  // setup form, reachable only by scrolling back up (#104). Keep the bar and
+  // show the parts that apply to a folder.
+  $("diffNav").hidden = false;
+  $("dirStatusWrap").hidden = false;
+  $("textViewSettings").hidden = true;
+  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter"]) {
+    const node = $(id); if (node) node.hidden = true;
+  }
   syncExportPatchVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
-  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${t(name)}`); summary.append(item); } summary.hidden = false;
+  // The rows are marked + − ~ =, which nothing explained. Putting each marker on
+  // the count it belongs to makes the summary the legend, rather than adding a
+  // second thing to read.
+  for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) {
+    const item = document.createElement("span"); item.className = `stat ${cls}`;
+    const mark = document.createElement("span"); mark.className = "stat-marker"; mark.textContent = DIR_MARKERS[name];
+    mark.setAttribute("aria-hidden", "true");
+    const b = document.createElement("b"); b.textContent = data[name].toLocaleString();
+    item.append(mark, b, t(name)); summary.append(item);
+  }
+  summary.hidden = false;
   const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
+  tree.setAttribute("role", "tree");
+  tree.setAttribute("aria-label", t("folderSetup"));
   const filter = $("dirStatus").value;
   // A folder comparison carries one entry per file with no cap, so a large
   // tree is exactly the case that must not arrive as one blocking loop (#127).
   const visible = data.entries.filter((entry) =>
     !((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)));
-  const buildEntry = (entry) => {
-    const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
-    const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
-    const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
-    row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
-    if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
-    else row.disabled = true;
+
+  const root = buildDirTree(visible);
+  const expandByDefault = visible.length <= DIR_AUTO_EXPAND_LIMIT;
+
+  const openFile = async (entry) => {
+    $("mode").value = "text"; syncModeOpts();
+    $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`;
+    $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`;
+    await compare();
+  };
+
+  const fileRow = (entry, depth) => {
+    const row = document.createElement("button");
+    row.type = "button"; row.className = `dir-entry ${entry.status}`;
+    row.setAttribute("role", "treeitem");
+    row.style.setProperty("--dir-depth", String(depth));
+    const marker = document.createElement("span"); marker.className = "dir-marker"; marker.textContent = DIR_MARKERS[entry.status];
+    marker.setAttribute("aria-hidden", "true");
+    // The name alone, not the whole path: the path is what the nesting says.
+    const name = document.createElement("span"); name.className = "dir-name"; name.textContent = entry.name;
+    const size = document.createElement("span"); size.className = "dir-size"; size.textContent = dirEntrySize(entry);
+    const stamp = document.createElement("span"); stamp.className = "dir-stamp"; stamp.textContent = dirEntryStamp(entry);
+    // The marker carries meaning that colour alone would not convey.
+    row.append(marker, name, size, stamp);
+    row.setAttribute("aria-label", `${t(entry.status)} ${entry.path}`);
+    row.title = `${entry.path}\n${describeBytes(entry)}`;
+    if (entry.status === "changed") row.addEventListener("click", () => openFile(entry));
+    else row.classList.add("inert");
     return row;
   };
+
+  // A folder's children are built the first time it opens. Expanding everything
+  // up front is exactly what made a large result expensive, and a folded folder
+  // that has never been opened should cost nothing but its own row.
+  const folderRow = (node, depth) => {
+    const group = document.createElement("div"); group.className = "dir-group";
+    const row = document.createElement("button");
+    row.type = "button"; row.className = "dir-entry dir-folder";
+    row.setAttribute("role", "treeitem");
+    row.style.setProperty("--dir-depth", String(depth));
+    const twisty = document.createElement("span"); twisty.className = "dir-twisty"; twisty.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span"); name.className = "dir-name"; name.textContent = node.name;
+    const badges = document.createElement("span"); badges.className = "dir-badges";
+    for (const [status, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"]]) {
+      if (!node.counts[status]) continue;
+      const badge = document.createElement("span");
+      badge.className = `dir-badge ${cls}`;
+      badge.textContent = `${DIR_MARKERS[status]}${node.counts[status]}`;
+      badge.title = `${node.counts[status]} ${t(status)}`;
+      badges.append(badge);
+    }
+    row.append(twisty, name, badges);
+    const children = document.createElement("div"); children.className = "dir-children";
+    children.setAttribute("role", "group");
+    let built = false;
+    const setOpen = (open) => {
+      row.setAttribute("aria-expanded", String(open));
+      children.hidden = !open;
+      if (open && !built) { built = true; fillChildren(children, node, depth + 1); }
+    };
+    row.addEventListener("click", () => setOpen(row.getAttribute("aria-expanded") !== "true"));
+    row.dataset.dirPath = node.path;
+    row._setOpen = setOpen;
+    setOpen(expandByDefault);
+    group.append(row, children);
+    return group;
+  };
+
+  function fillChildren(target, node, depth) {
+    for (const child of [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+      target.append(folderRow(child, depth));
+    }
+    for (const file of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
+      target.append(fileRow(file, depth));
+    }
+  }
+
   result.append(tree);
-  if (visible.length && !(await renderInSlices(tree, visible, buildEntry))) return;
+  if (visible.length) {
+    // Slice the top level so a wide root still yields to the browser (#127).
+    const top = [
+      ...[...root.dirs.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => ({ dir: n })),
+      ...root.files.sort((a, b) => a.name.localeCompare(b.name)).map((f) => ({ file: f })),
+    ];
+    if (!(await renderInSlices(tree, top, (item) => (item.dir ? folderRow(item.dir, 0) : fileRow(item.file, 0))))) return;
+    initDirKeyboard(tree);
+  }
   setStatus("");
+}
+
+// initDirKeyboard gives the tree the one-tab-stop, arrow-driven model a tree is
+// expected to have. Every row used to be a separate tab stop, and rows that
+// could not be opened were disabled, which dropped them out of the tab order
+// entirely — so on a large result the keyboard was no way through it at all.
+function initDirKeyboard(tree) {
+  const rows = () => [...tree.querySelectorAll('[role="treeitem"]')].filter((row) => row.offsetParent !== null);
+  const focus = (row) => {
+    if (!row) return;
+    for (const other of tree.querySelectorAll('[role="treeitem"]')) other.tabIndex = -1;
+    row.tabIndex = 0; row.focus();
+  };
+  const first = tree.querySelector('[role="treeitem"]');
+  if (first) first.tabIndex = 0;
+  tree.addEventListener("keydown", (event) => {
+    const current = event.target.closest('[role="treeitem"]');
+    if (!current) return;
+    const list = rows();
+    const at = list.indexOf(current);
+    const open = current.getAttribute("aria-expanded");
+    switch (event.key) {
+      case "ArrowDown": focus(list[at + 1]); break;
+      case "ArrowUp": focus(list[at - 1]); break;
+      case "ArrowRight":
+        if (open === "false") current._setOpen(true);
+        else if (open === "true") focus(list[at + 1]);
+        else return;
+        break;
+      case "ArrowLeft":
+        if (open === "true") current._setOpen(false);
+        else {
+          // Leaving a leaf or a closed folder means going up to the parent row.
+          const parent = current.closest(".dir-children")?.parentElement?.querySelector('[role="treeitem"]');
+          focus(parent);
+        }
+        break;
+      case "Home": focus(list[0]); break;
+      case "End": focus(list[list.length - 1]); break;
+      default: return;
+    }
+    event.preventDefault();
+  });
 }
 
 async function compareDirectory() {
