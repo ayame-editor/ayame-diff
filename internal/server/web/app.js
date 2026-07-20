@@ -1611,7 +1611,10 @@ async function compare() {
   const result = await runExclusive("compare", runCompare);
   // Only fold once something is actually on screen. A failed or cancelled run
   // leaves the form open, because the inputs are then what needs attention.
-  if (!$("status").classList.contains("error") && $("result").children.length) collapseSetupAfterCompare();
+  if (!$("status").classList.contains("error") && $("result").children.length) {
+    collapseSetupAfterCompare();
+    rememberPaths();
+  }
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
@@ -2276,6 +2279,46 @@ function markSidebarCurrent() {
   }
 }
 
+// ---- Path history ----
+// WinMerge puts an MRU dropdown on every path field, and it is the affordance
+// that makes re-running a comparison cheap. The existing recent list only ever
+// recorded CSV and project flows and lived inside a collapsed group, so an
+// ordinary text comparison left no trace. This keeps one list per side.
+const PATH_HISTORY_KEY = "ayame-recent-paths";
+const PATH_HISTORY_MAX = 12;
+function pathHistory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(PATH_HISTORY_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch (_) { return {}; }
+}
+function renderPathHistory() {
+  const store = pathHistory();
+  for (const side of ["old", "new", "base"]) {
+    const list = $(`${side}History`);
+    if (!list) continue;
+    list.innerHTML = "";
+    for (const path of store[side] || []) {
+      const option = document.createElement("option");
+      option.value = path;
+      list.append(option);
+    }
+  }
+}
+function rememberPaths() {
+  if ($("scratch").checked) return;  // pasted text has no path to remember
+  const store = pathHistory();
+  for (const side of ["old", "new", "base"]) {
+    const value = $(side)?.value.trim();
+    if (!value) continue;
+    // Most-recent-first, and a repeat moves to the top rather than duplicating.
+    const rest = (store[side] || []).filter((item) => item !== value);
+    store[side] = [value, ...rest].slice(0, PATH_HISTORY_MAX);
+  }
+  try { localStorage.setItem(PATH_HISTORY_KEY, JSON.stringify(store)); } catch (_) { /* storage full or blocked */ }
+  renderPathHistory();
+}
+
 // syncCompareReady mirrors WinMerge's Select-Files screen: Compare stays
 // disabled until the inputs make sense, and a line under the form says which
 // one is wrong. Refusing up front beats accepting the click and returning an
@@ -2462,6 +2505,7 @@ for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]
   node.addEventListener("change", syncCompareReady);
 }
 syncCompareReady();
+renderPathHistory();
 $("sidebarToggle").addEventListener("click", () => {
   const sidebar = $("sidebar");
   sidebar.hidden = !sidebar.hidden;

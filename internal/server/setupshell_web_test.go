@@ -79,3 +79,42 @@ func TestCompareRefusesBeforeItIsAsked(t *testing.T) {
 		t.Error("the readiness check is never run")
 	}
 }
+
+// TestPathFieldsRememberWhatWasCompared covers the MRU dropdown WinMerge puts on
+// every path field. Re-running a comparison is the common case, and without
+// history it means retyping a path that was typed an hour ago.
+func TestPathFieldsRememberWhatWasCompared(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+
+	for _, side := range []string{"old", "new", "base"} {
+		field := sectionBetween(t, index, `<input id="`+side+`"`, `/>`)
+		if !strings.Contains(field, `list="`+side+`History"`) {
+			t.Errorf("the %s field has no history list", side)
+		}
+		if !strings.Contains(index, `<datalist id="`+side+`History">`) {
+			t.Errorf("no datalist backing the %s field", side)
+		}
+	}
+
+	body := renderFunctionBody(t, app, "function rememberPaths(")
+	// Pasted text has no path; recording an empty one would poison the list.
+	if !strings.Contains(body, `$("scratch").checked`) {
+		t.Error("pasted text is recorded as a path")
+	}
+	if !strings.Contains(body, "filter((item) => item !== value)") {
+		t.Error("a repeated path is duplicated instead of moving to the top")
+	}
+	if !strings.Contains(body, "PATH_HISTORY_MAX") {
+		t.Error("the history is unbounded")
+	}
+	// localStorage throws when full or blocked, and losing history must never
+	// take the comparison down with it.
+	if !strings.Contains(body, "catch (_)") {
+		t.Error("a failed write to localStorage is not contained")
+	}
+	if !strings.Contains(app, "rememberPaths();") {
+		t.Error("history is never recorded")
+	}
+}
