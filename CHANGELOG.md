@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Gave each path field a history dropdown of what has been compared before, most
+  recent first. Re-running a comparison is the common case, and the existing
+  recent list only ever recorded CSV and project flows and sat inside a collapsed
+  group, so an ordinary text comparison left no trace.
 - Moved the comparison conditions and engine tuning off the setup form and
   behind one "comparison settings" button. They decide what counts as a
   difference and how much is computed — set once and left alone — so they do not

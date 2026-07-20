@@ -28,20 +28,26 @@
           <button id="openSettings" class="setup-settings" type="button" data-i18n="compareSettings">Comparison settings</button>
           <button id="setupRecompare" class="setup-recompare" type="button" data-i18n="recompare" hidden>Re-compare</button>
         </div>
+        <!-- Path history, the equivalent of WinMerge's MRU dropdown on each
+             field. datalist gives a native, keyboard-navigable dropdown with no
+             widget to build or to get wrong. -->
+        <datalist id="oldHistory"></datalist>
+        <datalist id="newHistory"></datalist>
+        <datalist id="baseHistory"></datalist>
         <div id="setupBody">
         <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
         <div class="paths" id="paths">
           <label id="basePathRow" hidden>
             <span>BASE</span>
-            <span class="path-control"><input id="base" type="text" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+            <span class="path-control"><input id="base" type="text" list="baseHistory" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
           </label>
           <label>
             <span>OLD</span>
-			<span class="path-control"><input id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+			<span class="path-control"><input id="old" type="text" list="oldHistory" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
           </label>
           <label>
             <span>NEW</span>
-			<span class="path-control"><input id="new" type="text" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+			<span class="path-control"><input id="new" type="text" list="newHistory" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
           </label>
           <div class="path-swap">
             <button id="swapSides" type="button" data-i18n-title="swapSides" data-i18n-aria-label="swapSides" title="OLD と NEW を入れ替え" aria-label="OLD と NEW を入れ替え"><span aria-hidden="true">⇅</span> <span data-i18n="swap">Swap</span></button>

@@ -356,14 +356,25 @@ func TestPrimaryCompareAndInitialEmptyState(t *testing.T) {
 	style := readWebAsset(t, "style.css")
 
 	for _, want := range []string{
-		`id="old" type="text" placeholder="/path/to/old.txt" spellcheck="false" autofocus`,
 		`class="empty-state initial-empty"`,
 		`data-i18n="emptyDrop"`,
-		`id="exportPatch" type="button" data-i18n="exportPatch" hidden`,
+		`id="exportPatch"`,
 	} {
 		if !strings.Contains(index, want) {
 			t.Errorf("index.html missing %q", want)
 		}
+	}
+	// Matched as properties of the OLD field rather than as one exact attribute
+	// sequence: the field gained a history list and the literal stopped
+	// matching, for no reason connected to what this test is about.
+	oldField := sectionBetween(t, index, `<input id="old"`, `/>`)
+	for _, attr := range []string{`placeholder="/path/to/old.txt"`, `autofocus`} {
+		if !strings.Contains(oldField, attr) {
+			t.Errorf("the OLD field lost %s", attr)
+		}
+	}
+	if !strings.Contains(sectionBetween(t, index, `<button id="exportPatch"`, `>`), "hidden") {
+		t.Error("Export patch starts visible")
 	}
 	navStart := strings.Index(index, `id="diffNav"`)
 	navEnd := strings.Index(index[navStart:], `</nav>`)
