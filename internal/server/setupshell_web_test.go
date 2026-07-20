@@ -118,3 +118,41 @@ func TestPathFieldsRememberWhatWasCompared(t *testing.T) {
 		t.Error("history is never recorded")
 	}
 }
+
+// TestOpeningAFileKeepsTheFolderResult covers the drill-in path. Opening a file
+// overwrote the mode and both paths and re-ran, which threw the folder
+// comparison away — checking a hundred files meant re-scanning the tree a
+// hundred times. The result is already in memory, so returning is a re-render.
+func TestOpeningAFileKeepsTheFolderResult(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	index := readWebAsset(t, "index.html")
+
+	if !strings.Contains(index, `id="backToFolder"`) {
+		t.Fatal("no way back to the folder list")
+	}
+
+	open := renderFunctionBody(t, app, "async function openFromFolder(")
+	if !strings.Contains(open, "folderReturn = {") {
+		t.Error("the folder result is not kept when opening a file")
+	}
+	// Losing your place in a long list is most of the cost of going back.
+	if !strings.Contains(open, "scroll:") {
+		t.Error("the scroll position in the folder list is not kept")
+	}
+
+	back := renderFunctionBody(t, app, "async function returnToFolder(")
+	if !strings.Contains(back, "renderDirectory(data, body)") {
+		t.Error("returning re-runs the comparison instead of re-rendering what is held")
+	}
+	if strings.Contains(back, "compareDirectory(") || strings.Contains(back, "apiFetch(") {
+		t.Error("returning to the folder list hits the server again")
+	}
+	if !strings.Contains(back, "scrollTop = scroll") {
+		t.Error("returning drops the reader at the top of the list")
+	}
+	// A fresh folder comparison must not offer a stale way back.
+	if !strings.Contains(renderFunctionBody(t, app, "async function renderDirectory("), "folderReturn = null") {
+		t.Error("a new folder comparison keeps the previous return target")
+	}
+}
