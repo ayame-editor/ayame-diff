@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Labelled each pane with its full path, pinned to the top of the result. With
+  the setup form folded, the panes themselves have to say which side is which;
+  in unified view the two collapse to one heading, since the sides are stacked
+  rather than side by side.
 - Added a difference index down the left side, listing every hunk by kind and
   line and jumping to it on click, with the current one marked. Reaching a
   particular difference among thirty previously meant stepping through them or

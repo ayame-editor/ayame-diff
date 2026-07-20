@@ -560,6 +560,37 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
+/* Pane headers. Sticky inside the result so the two sides stay identified
+   however far you scroll — the setup form is folded and cannot answer that. The
+   column split matches .row exactly, so each header sits over its own pane. */
+.pane-heads {
+  position: sticky; top: 0; z-index: 3;
+  display: grid; grid-template-columns: 1fr 1fr;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+}
+.pane-head {
+  display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
+  padding: 0.3rem 0.6rem; font-size: var(--fs-caption);
+}
+.pane-head + .pane-head { border-left: 1px solid var(--border); }
+.pane-head-label { color: var(--muted); font-weight: 700; flex: none; }
+.pane-head-path {
+  font-family: var(--mono); color: var(--fg);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* The end of a path identifies the file; the start is usually shared, so
+     truncate from the left by making the box RTL. unicode-bidi: plaintext is
+     required with it — without that the string itself is reordered and
+     "/tmp/…/old.txt" renders as "tmp/…/old.txt/", with the leading slash
+     dragged to the end. */
+  direction: rtl; unicode-bidi: plaintext; text-align: left;
+}
+/* One column means one header, and the two sides are stacked rather than side
+   by side, so a split header would be a lie. */
+.result.unified .pane-heads { grid-template-columns: 1fr; }
+.result.unified .pane-head.new { display: none; }
+.result.unified .pane-head.old .pane-head-label::after { content: " ⇄ NEW"; }
+
 .rows { overflow-x: auto; }
 .row { display: grid; grid-template-columns: 1fr 1fr; }
 .cell {

@@ -717,6 +717,31 @@ function showResultSkeleton() {
   result.append(wrap);
 }
 
+// paneHeads labels each side with its full path, sticky at the top of the
+// result. This is what makes folding the setup form safe: once the path fields
+// are out of sight, the panes themselves have to say which side is which —
+// every tool surveyed does this, and it is the half people miss when they hide
+// the inputs.
+function paneHeads() {
+  const heads = document.createElement("div");
+  heads.className = "pane-heads";
+  const scratch = $("scratch").checked;
+  for (const [side, path] of [["old", $("old").value], ["new", $("new").value]]) {
+    const head = document.createElement("div");
+    head.className = `pane-head ${side}`;
+    const label = document.createElement("span");
+    label.className = "pane-head-label";
+    label.textContent = side === "old" ? "OLD" : "NEW";
+    const name = document.createElement("span");
+    name.className = "pane-head-path";
+    name.textContent = scratch ? t("scratch") : path;
+    name.title = path;
+    head.append(label, name);
+    heads.append(head);
+  }
+  return heads;
+}
+
 // renderResult draws a diff response once. Display preferences only toggle
 // classes on the completed DOM via applyDisplayPreferences.
 async function renderResult(data) {
@@ -731,6 +756,7 @@ async function renderResult(data) {
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
+  result.append(paneHeads());
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
   if (!complete) return;
   setStatus("");
