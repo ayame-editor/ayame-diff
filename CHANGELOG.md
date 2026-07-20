@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stopped opening a file from a folder comparison destroying that comparison.
+  Clicking an entry overwrote the mode and both paths and re-ran, so checking a
+  hundred files meant re-scanning the tree a hundred times. The result is already
+  held in memory: a back control returns to it with no server round trip, at the
+  position in the list you left from.
 - Gave each path field a history dropdown of what has been compared before, most
   recent first. Re-running a comparison is the common case, and the existing
   recent list only ever recorded CSV and project flows and sat inside a collapsed

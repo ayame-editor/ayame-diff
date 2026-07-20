@@ -46,6 +46,7 @@ const I18N = {
     menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
     hunkList: "差分一覧",
     compareSettings: "比較設定", needPaths: "{fields} を指定してください",
+    backToFolder: "フォルダ一覧へ戻る",
     setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
@@ -149,6 +150,7 @@ const I18N = {
     menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
     hunkList: "Difference list",
     compareSettings: "Comparison settings", needPaths: "Specify {fields}",
+    backToFolder: "Back to the folder list",
     setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
@@ -1500,8 +1502,38 @@ async function runLoadDirectoryProject() {
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
+// Opening a file from a folder result used to overwrite the mode and both paths
+// and re-run, which threw the folder comparison away. Checking a hundred files
+// meant re-scanning the tree a hundred times. The result is still in memory, so
+// going back is a re-render, not another scan.
+let folderReturn = null;
+async function openFromFolder(entry, body) {
+  folderReturn = { data: directoryData, body: directoryBody, scroll: $("result").scrollTop };
+  $("mode").value = "text"; syncModeOpts();
+  $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`;
+  $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`;
+  await compare();
+  syncFolderReturn();
+}
+function syncFolderReturn() {
+  const button = $("backToFolder");
+  if (button) button.hidden = !folderReturn;
+}
+async function returnToFolder() {
+  if (!folderReturn) return;
+  const { data, body, scroll } = folderReturn;
+  folderReturn = null;
+  $("mode").value = "dir"; syncModeOpts();
+  $("old").value = body.old; $("new").value = body.new;
+  await renderDirectory(data, body);
+  // Put the reader back where they were in the list, not at the top of it.
+  $("result").scrollTop = scroll;
+  syncFolderReturn();
+}
+
 async function renderDirectory(data, body) {
   directoryData = data; directoryBody = body;
+  folderReturn = null; syncFolderReturn();
   csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("diffNav").hidden = true; $("minimap").hidden = true; $("syncPanel").hidden = true;
   syncExportPatchVisibility();
   $("mergePanel").hidden = true;
@@ -1518,7 +1550,7 @@ async function renderDirectory(data, body) {
     const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
     const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
     row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
-    if (entry.status === "changed") row.addEventListener("click", async () => { $("mode").value = "text"; syncModeOpts(); $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`; $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`; await compare(); });
+    if (entry.status === "changed") row.addEventListener("click", () => openFromFolder(entry, body));
     else row.disabled = true;
     return row;
   };
@@ -2497,6 +2529,7 @@ document.addEventListener("drop", async (event) => {
 $("compare").addEventListener("click", compare);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
+$("backToFolder").addEventListener("click", returnToFolder);
 // Every input that decides whether a comparison is possible re-checks it.
 for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]) {
   const node = $(id);
