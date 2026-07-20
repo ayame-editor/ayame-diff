@@ -17,6 +17,18 @@
 
     <main>
       <section class="setup" id="setup">
+        <!-- Once a comparison exists the form has done its job, and the window
+             belongs to the result. Expanded, this section filled the viewport
+             and pushed the diff entirely below the fold. The bar keeps the two
+             file names and a one-click re-run visible, because hiding refresh is
+             precisely the mistake Meld's headerbar redesign made. -->
+        <div class="setup-bar">
+          <button id="setupToggle" class="setup-toggle" type="button" aria-expanded="true" aria-controls="setupBody" data-i18n="setupSettings">Settings</button>
+          <span class="setup-summary" id="setupSummary" hidden></span>
+          <button id="openSettings" class="setup-settings" type="button" data-i18n="compareSettings">Comparison settings</button>
+          <button id="setupRecompare" class="setup-recompare" type="button" data-i18n="recompare" hidden>Re-compare</button>
+        </div>
+        <div id="setupBody">
         <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
         <div class="paths" id="paths">
           <label id="basePathRow" hidden>
@@ -82,35 +94,11 @@
           <button id="cancel" type="button" class="cancel" data-i18n="cancel" hidden>Cancel</button>
           <button id="compare" type="button" data-i18n="compare">Compare</button>
         </div>
-<details class="csv-advanced" id="compareConditions" open>
-          <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
-          <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
-          <div class="opts">
-            <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
-            <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
-            <label class="opt check"><input id="ignoreTrailingEOL" type="checkbox" /><span data-i18n="ignoreTrailingEOL">ignore trailing EOL</span></label>
-            <label class="opt">
-                        <span data-i18n="whitespace">whitespace</span>
-                        <select id="whitespace">
-                          <option value="none">none</option>
-                          <option value="change">change</option>
-                          <option value="all">all</option>
-                        </select>
-                      </label>
-            <label class="opt filter-input"><span data-i18n="lineFilters">line filters</span><textarea id="lineFilters" rows="2" data-i18n-placeholder="lineFiltersPlaceholder" placeholder="1行に1つの正規表現" spellcheck="false"></textarea></label>
-            <label class="opt check"><input id="detectMoves" type="checkbox" /><span data-i18n="detectMoves">detect moves</span></label>
-          </div>
-        </details>
-<details class="csv-advanced" id="engineTuning">
-          <summary><span data-i18n="engineTuning">Engine tuning</span><span class="details-badge" id="engineTuningBadge" hidden></span></summary>
-          <p class="details-hint" data-i18n="engineTuningHint">Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.</p>
-          <div class="opts">
-            <label class="opt"><span data-i18n="window">window</span><input id="window" type="number" value="128" min="1" /></label>
-            <label class="opt"><span data-i18n="maxHunks">max hunks</span><input id="maxHunks" type="number" value="200" min="1" /></label>
-            <label class="opt"><span data-i18n="maxLines">max lines/hunk</span><input id="maxLines" type="number" value="200" min="1" /></label>
-            <label class="opt"><span data-i18n="moveMinLines">move min lines</span><input id="moveMinLines" type="number" value="2" min="1" /></label>
-          </div>
-        </details>
+        <!-- Says why Compare is unavailable, where WinMerge puts its
+             "両側のパスは不正なパスです!" status line. -->
+        <p class="setup-note" id="setupNote" role="status" hidden></p>
+
+
 
 		<fieldset id="csvOptions" class="csv-options" hidden>
 		  <legend data-i18n="csvSetup">CSV / TSV setup</legend>
@@ -184,11 +172,11 @@
 		</div><div class="csv-actions"><button id="dirPreview" type="button" data-i18n="filterPreview">Preview filter</button><span id="dirPreviewResult" aria-live="polite"></span></div>
 		<div class="project-actions"><input id="dirProjectPath" placeholder="folder.ayamediff.json" spellcheck="false" /><button id="loadDirProject" type="button" data-i18n="openProject">Open project</button><button id="saveDirProject" type="button" data-i18n="saveProject">Save project</button></div>
 		<small data-i18n="symlinkPolicy">Symbolic links are skipped. .gz files compare decompressed content.</small></fieldset>
+        </div>
       </section>
 
       <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
 
-      <section class="summary" id="summary" hidden></section>
 
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
@@ -196,44 +184,59 @@
         <span id="diffCounter" aria-live="polite"></span>
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
-        <button id="addSync" type="button" data-i18n="addSync" disabled>Add sync</button>
-        <button id="clearSync" type="button" data-i18n="clearSync" hidden>Clear sync</button>
-        <span class="view-settings">
-          <label class="opt" id="viewModeWrap" hidden><span data-i18n="view">view</span><select id="viewMode"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
-          <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
-          <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
-          <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
-          <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
-          <label class="opt">
-                      <span data-i18n="theme">theme</span>
-                      <select id="theme">
-                        <option value="system" data-i18n="themeSystem">match system</option>
-                        <option value="light" data-i18n="themeLight">light</option>
-                        <option value="dark" data-i18n="themeDark">dark</option>
-                      </select>
-                    </label>
-          <label class="opt">
-                      <span data-i18n="scheme">colors</span>
-                      <select id="scheme">
-                        <option value="default">default</option>
-                        <option value="colorblind">colorblind</option>
-                      </select>
-                    </label>
-        </span>
-        <button id="navHelp" type="button" class="nav-help" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
+        <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
+        <button id="sidebarToggle" type="button" class="icon-btn" data-i18n-title="hunkList" data-i18n-aria-label="hunkList" aria-pressed="false" hidden><span aria-hidden="true">☰</span></button>
+        <button id="addSync" type="button" class="icon-btn" data-i18n-title="addSync" data-i18n-aria-label="addSync" disabled><span aria-hidden="true">⚓</span></button>
+        <button id="clearSync" type="button" class="icon-btn" data-i18n-title="clearSync" data-i18n-aria-label="clearSync" hidden><span aria-hidden="true">⌫</span></button>
         <button id="mergeMode" type="button" class="merge-toggle" data-i18n="mergeMode" aria-pressed="false" hidden>Merge mode</button>
-        <span class="patch-settings" id="patchSettings" hidden>
-          <label class="opt">
-                      <span data-i18n="patchFormat">patch format</span>
-                      <select id="patchFormat">
-                        <option value="unified">unified</option>
-                        <option value="context">context</option>
-                        <option value="normal">normal</option>
-                      </select>
-                    </label>
-          <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
-        </span>
-        <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+
+        <!-- Menus (#104 follow-up). Eighteen controls sat in this bar, each with
+             its own visible label, so it wrapped to two ragged rows and the
+             navigation it exists for was lost among settings. Everything that is
+             not touched while reading a diff now lives behind a menu. <details>
+             gives the disclosure and keyboard handling natively; the IDs are
+             unchanged so every existing listener still resolves. -->
+        <div class="menubar" id="menubar" role="menubar" data-i18n-aria-label="menuBar" aria-label="メニュー">
+          <details class="menu" id="menuView">
+            <summary data-i18n="menuViewLabel">View</summary>
+            <div class="menu-panel">
+              <label class="opt check"><input id="word" type="checkbox" checked /><span data-i18n="word">word highlight</span></label>
+              <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
+              <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
+              <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+              <hr />
+              <label class="opt"><span data-i18n="theme">theme</span>
+                <select id="theme">
+                  <option value="system" data-i18n="themeSystem">match system</option>
+                  <option value="light" data-i18n="themeLight">light</option>
+                  <option value="dark" data-i18n="themeDark">dark</option>
+                </select>
+              </label>
+              <label class="opt"><span data-i18n="scheme">colors</span>
+                <select id="scheme">
+                  <option value="default">default</option>
+                  <option value="colorblind">colorblind</option>
+                </select>
+              </label>
+            </div>
+          </details>
+          <details class="menu" id="menuExport" hidden>
+            <summary data-i18n="menuExportLabel">Export</summary>
+            <div class="menu-panel" id="patchSettings">
+              <label class="opt"><span data-i18n="patchFormat">patch format</span>
+                <select id="patchFormat">
+                  <option value="unified">unified</option>
+                  <option value="context">context</option>
+                  <option value="normal">normal</option>
+                </select>
+              </label>
+              <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
+              <hr />
+              <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+            </div>
+          </details>
+        </div>
+        <button id="navHelp" type="button" class="nav-help icon-btn" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
       </nav>
       <section class="result-search" id="resultSearch" hidden role="search" data-i18n-aria-label="searchResults" aria-label="結果内を検索">
         <input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="結果内を検索" autocomplete="off" spellcheck="false" />
@@ -262,6 +265,13 @@
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
       <div class="diff-layout">
+        <!-- Index of the differences. With thirty hunks the only way to reach a
+             particular one was to step through them or scroll; this lists them
+             all with their kind and line, and jumps on click. Hidden by default
+             so it costs nothing until asked for. -->
+        <aside class="sidebar" id="sidebar" data-i18n-aria-label="hunkList" aria-label="差分一覧" hidden>
+          <ol class="sidebar-list" id="sidebarList"></ol>
+        </aside>
         <section class="result" id="result">
           <div class="empty-state initial-empty">
             <strong data-i18n="emptyTitle">比較を始める</strong>
@@ -274,6 +284,49 @@
         </aside>
       </div>
     </main>
+
+    <!-- Comparison settings. These decide what counts as a difference and how
+         much is computed; they are set once and left alone, so they do not
+         belong on the screen you read a diff from. WinMerge draws exactly this
+         line: its Select-Files screen carries paths and nothing else, and every
+         ignore option sits behind one Options button. -->
+    <dialog id="settingsDialog" class="app-dialog settings-dialog" aria-labelledby="settingsTitle">
+      <form method="dialog">
+        <header><strong id="settingsTitle" data-i18n="compareSettings">Comparison settings</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header>
+      </form>
+      <div class="settings-body">
+<details class="csv-advanced" id="compareConditions" open>
+          <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
+          <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
+          <div class="opts">
+            <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
+            <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
+            <label class="opt check"><input id="ignoreTrailingEOL" type="checkbox" /><span data-i18n="ignoreTrailingEOL">ignore trailing EOL</span></label>
+            <label class="opt">
+                        <span data-i18n="whitespace">whitespace</span>
+                        <select id="whitespace">
+                          <option value="none">none</option>
+                          <option value="change">change</option>
+                          <option value="all">all</option>
+                        </select>
+                      </label>
+            <label class="opt filter-input"><span data-i18n="lineFilters">line filters</span><textarea id="lineFilters" rows="2" data-i18n-placeholder="lineFiltersPlaceholder" placeholder="1行に1つの正規表現" spellcheck="false"></textarea></label>
+            <label class="opt check"><input id="detectMoves" type="checkbox" /><span data-i18n="detectMoves">detect moves</span></label>
+          </div>
+        </details>
+<details class="csv-advanced" id="engineTuning">
+          <summary><span data-i18n="engineTuning">Engine tuning</span><span class="details-badge" id="engineTuningBadge" hidden></span></summary>
+          <p class="details-hint" data-i18n="engineTuningHint">Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.</p>
+          <div class="opts">
+            <label class="opt"><span data-i18n="window">window</span><input id="window" type="number" value="128" min="1" /></label>
+            <label class="opt"><span data-i18n="maxHunks">max hunks</span><input id="maxHunks" type="number" value="200" min="1" /></label>
+            <label class="opt"><span data-i18n="maxLines">max lines/hunk</span><input id="maxLines" type="number" value="200" min="1" /></label>
+            <label class="opt"><span data-i18n="moveMinLines">move min lines</span><input id="moveMinLines" type="number" value="2" min="1" /></label>
+          </div>
+        </details>
+      </div>
+      <form method="dialog" class="settings-actions"><button value="ok" data-i18n="close">Close</button></form>
+    </dialog>
 
 	<dialog id="fileBrowser" class="file-browser">
 	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
@@ -303,5 +356,14 @@
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
     <script src="app.js"></script>
+    <!-- Status bar. The counts and the detected encodings used to sit in a band
+         above the toolbar, taking a row from the result to say things that are
+         reference information rather than controls. WinMerge puts exactly this
+         at the bottom, and its panes are clickable — the counts here still jump
+         to the next difference of that kind (#110). -->
+    <footer class="statusbar" id="statusbar" hidden>
+      <span class="statusbar-paths" id="statusPaths"></span>
+      <section class="summary" id="summary" hidden></section>
+    </footer>
   </body>
 </html>

@@ -19,13 +19,21 @@ func TestLongOperationsAreMutuallyExclusive(t *testing.T) {
 	// Wrapping the flows rather than the buttons is the point: drag and drop,
 	// folder-entry clicks, sync-point edits, and the Enter key all reach
 	// compare() without touching #compare.
+	// Matched on the runExclusive call rather than the whole function body: what
+	// matters is that the entry point takes the lock, not how many lines it
+	// spans. compare() gained a post-run step and a one-line match broke on it.
 	for _, entry := range []string{
-		`async function compare() { return runExclusive("compare", runCompare); }`,
-		`async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }`,
-		`async function saveMergeResult() { return runExclusive("saveMerge", runSaveMergeResult); }`,
+		`runExclusive("compare", runCompare)`,
+		`runExclusive("exportPatch", runExportPatch)`,
+		`runExclusive("saveMerge", runSaveMergeResult)`,
 	} {
 		if !strings.Contains(app, entry) {
 			t.Errorf("missing exclusive entry point: %s", entry)
+		}
+	}
+	for _, fn := range []string{"async function compare(", "async function exportPatch(", "async function saveMergeResult("} {
+		if !strings.Contains(app, fn) {
+			t.Errorf("missing entry point %s", fn)
 		}
 	}
 	// Cancel must stay reachable; locking it would strand a running operation.

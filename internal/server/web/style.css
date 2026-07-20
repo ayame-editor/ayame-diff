@@ -12,6 +12,7 @@
   --diff-gutter: 3.2rem;   /* line-number column */
   --diff-gap: 0.5rem;      /* gutter-to-text gap */
   --diff-marker: 1ch;      /* unified -/+ column */
+  --sidebar-w: 5.5rem;     /* difference index column */
 }
 
 /* Display sizes, above the body text. tokens.css defines the scale from body
@@ -27,13 +28,47 @@
   --fs-title: 1.15rem;     /* the app title */
   --fs-heading: 1.1rem;    /* section and overlay headings */
   --fs-emphasis: 1.05rem;  /* dialog headings, emphasised numbers */
+  /* Disclosure marks and similar glyphs, sized against the label beside them
+     rather than the root — hence em, not rem. */
+  --fs-glyph: 0.8em;
 }
+
+/* Visible to assistive technology only: a control whose visible label would
+   duplicate something already on screen still needs an accessible name. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+/* Application shell: title bar, work area, status bar. The page used to be a
+   plain document, so the setup form and the result competed for one scroll and
+   the result never owned the window. Fixing the height and giving the middle row
+   the remaining space is what makes "the window belongs to the result" true
+   rather than aspirational. */
 body {
   margin: 0;
   font: var(--fs-ui)/1.5 var(--ui);
   background: var(--bg);
   color: var(--fg);
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
+
+.statusbar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.25rem 0.9rem; border-top: 1px solid var(--border);
+  background: var(--panel); font-size: var(--fs-caption);
+  /* One line, always. It reports state; it must never become a second toolbar
+     that grows and steals height back from the result. */
+  min-height: 1.9rem; overflow: hidden; white-space: nowrap;
+}
+.statusbar-paths {
+  color: var(--muted); font-family: var(--mono);
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+}
+.statusbar-paths .side { color: var(--fg); }
+.statusbar .summary { margin: 0; flex: 0 0 auto; gap: 0.9rem; }
 body.drag-active::after {
   content: "Drop OLD and NEW here / OLD と NEW をドロップ";
   position: fixed; inset: 1rem; z-index: 100; display: grid; place-items: center;
@@ -62,9 +97,74 @@ body.drag-active::after {
   border: 1px solid var(--border); border-radius: var(--radius-control);
   padding: 0.2rem 0.6rem; font-size: var(--fs-label); font-weight: 500;
 }
-main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
+/* No centred 1200px column. Horizontal space is the scarce resource in a diff
+   tool — it decides whether a side-by-side line wraps, how many folder columns
+   fit, how much of a CSV row is visible — and this runs locally in a window the
+   reader already sized. */
+main {
+  padding: 1rem; width: 100%;
+  /* The middle row of the shell. min-height:0 is what actually lets the result
+     shrink to fit instead of overflowing its track and pushing the status bar
+     off the bottom of the window. */
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+/* The one region that scrolls — and getting the chain right matters more than
+   it looks. #result is a grid item inside .diff-layout, not a flex child of
+   main, so flex properties on it are inert: the layout grew to its content
+   height inside a clipped main and the diff below the fold became unreachable.
+   The element that takes the remaining space has to be main's actual child, and
+   every link in the chain needs min-height:0 or it refuses to shrink. */
+.diff-layout, main > #result {
+  flex: 1 1 auto; min-height: 0;
+}
+/* .diff-layout sets align-items:start so the minimap hugs the top. That also
+   stops the result stretching to its track, so it sized to content and
+   overflowed no matter what min-height said — stretch it back explicitly. */
+.diff-layout > #result { align-self: stretch; }
+#result {
+  min-height: 0; overflow: auto;
+  /* .result is a grid, and giving it a definite height made its implicit rows
+     divide that height between them: 30 hunks in 698px collapsed every hunk to
+     11px and the diff rendered as blank strips. Rows must size to their content
+     and let the container scroll instead. align-content:start does not fix
+     this — it aligns the track group, it does not stop auto rows stretching. */
+  grid-auto-rows: min-content;
+}
 
-.setup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow); }
+.setup {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; box-shadow: var(--shadow);
+  /* Never taller than half the window, and never the reason the diff is off
+     screen: expanded it used to fill the viewport entirely. */
+  flex: 0 0 auto; max-height: 50vh; overflow-y: auto;
+}
+/* Collapsed: everything but the one-line bar goes. */
+.setup.compact { padding: 0.45rem 0.7rem; max-height: none; overflow: visible; }
+.setup.compact #setupBody { display: none; }
+.setup.compact .setup-bar { margin-bottom: 0; }
+.setup-bar { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 0.8rem; }
+.setup-toggle {
+  display: inline-flex; align-items: center; gap: 0.45rem; flex: none;
+  margin: 0; padding: 0.35rem 0.75rem; font-size: var(--fs-label); font-weight: 600;
+  color: var(--muted); background: var(--bg);
+}
+.setup-toggle::before { content: "▾"; font-size: var(--fs-glyph); line-height: 1; }
+.setup.compact .setup-toggle::before { content: "▸"; }
+.setup-summary {
+  color: var(--muted); font: var(--fs-label) var(--mono); min-width: 0; flex: 1 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.setup-summary .side { color: var(--fg); font-weight: 600; }
+.setup-settings { margin: 0 0 0 auto; padding: 0.35rem 0.9rem; font-size: var(--fs-label); flex: none; }
+.setup-recompare { margin: 0; padding: 0.35rem 0.9rem; font-size: var(--fs-label); flex: none; }
+/* Why Compare is unavailable, stated before the click rather than after. */
+.setup-note { margin: 0.5rem 0 0; color: var(--del-fg); font-size: var(--fs-label); }
+.settings-dialog { max-width: min(48rem, 92vw); }
+.settings-body { display: grid; gap: 0.6rem; }
+/* Inside the dialog the groups are the content, not an aside to it, so they
+   stand open rather than as things to go hunting behind. */
+.settings-body > details { margin: 0; }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
 .paths { display: grid; gap: 0.6rem; }
 .paths label { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: 0.6rem; }
 .paths span { color: var(--muted); font-size: var(--fs-label); }
@@ -223,7 +323,34 @@ button:active:not(:disabled) {
 /* The minimap column was 18px, below the ~24px a pointer can reliably hit and
    well below a touch target. Widening it makes the markers clickable; drag-to-
    scroll is still missing, so #102 stays open. */
-.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 0.55rem; align-items: start; }
+.diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
+/* With the index open the layout gains a leading column. Declared here rather
+   than as a width on .sidebar so the result's track shrinks by exactly the same
+   amount and nothing overflows. */
+.diff-layout:has(.sidebar:not([hidden])) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 28px; }
+.diff-layout:has(.sidebar:not([hidden])):has(.minimap[hidden]) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+.sidebar {
+  align-self: stretch; min-height: 0; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+  background: var(--panel);
+}
+.sidebar-list { list-style: none; margin: 0; padding: 0.25rem; display: grid; gap: 0.1rem; }
+.sidebar-item {
+  display: grid; grid-template-columns: 1ch 1fr; gap: 0.4rem; align-items: baseline;
+  width: 100%; margin: 0; padding: 0.2rem 0.4rem; border: 0; border-radius: var(--radius-control);
+  background: transparent; font: var(--fs-caption) var(--mono); text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-item.insert .sidebar-mark { color: var(--add-fg); }
+.sidebar-item.delete .sidebar-mark { color: var(--del-fg); }
+.sidebar-item.replace .sidebar-mark { color: var(--chg-fg); }
+.sidebar-line { color: var(--muted); }
+/* Read and current are different states and must not be confused: read is
+   history, current is where you are. */
+.sidebar-item.read .sidebar-line { opacity: 0.55; }
+.sidebar-item.ignored { text-decoration: line-through; opacity: 0.5; }
+.sidebar-item.current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.sidebar-item.current .sidebar-line { color: var(--fg); opacity: 1; font-weight: 700; }
 /* Reclaim the map's column when it is hidden, so a short diff is not indented
    by a gutter leading to nothing (#102). */
 .diff-layout:has(.minimap[hidden]) { grid-template-columns: minmax(0, 1fr); }
@@ -308,6 +435,35 @@ button:active:not(:disabled) {
    same way a patch would rather than as one ambiguous "changed" block. */
 .result.unified .cell.chg[data-marker="-"] { background: var(--del-bg); }
 .result.unified .cell.chg[data-marker="+"] { background: var(--add-bg); }
+
+/* Menus. Settings that are not touched while reading a diff live here instead of
+   as labelled controls in the bar — eighteen of those wrapped to two ragged rows
+   and buried the navigation the bar exists for. */
+.menubar { display: flex; align-items: center; gap: 0.15rem; }
+.menu { position: relative; }
+.menu > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 0.3rem 0.7rem; border-radius: var(--radius-control);
+  font-size: var(--fs-label); font-weight: 600; color: var(--fg);
+}
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.menu[open] > summary { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.menu > summary:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.menu-panel {
+  position: absolute; top: calc(100% + 0.3rem); left: 0; z-index: 20;
+  display: grid; gap: 0.55rem; min-width: 13rem; padding: 0.7rem 0.8rem;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.menu-panel hr { width: 100%; height: 1px; margin: 0.15rem 0; border: 0; background: var(--border); }
+.menu-panel .opt { font-size: var(--fs-label); }
+.menu-panel .opt select { width: 100%; }
+.menu-panel button { margin: 0; width: 100%; }
+/* Icon-only controls: the label survives as the tooltip and the accessible name. */
+.icon-btn { min-width: 2rem; padding: 0.25rem 0.5rem; }
+.opt.inline { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-label); }
+.opt.inline select { width: auto; min-width: 5.5rem; }
 
 .view-settings, .patch-settings {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
@@ -413,6 +569,37 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
+/* Pane headers. Sticky inside the result so the two sides stay identified
+   however far you scroll — the setup form is folded and cannot answer that. The
+   column split matches .row exactly, so each header sits over its own pane. */
+.pane-heads {
+  position: sticky; top: 0; z-index: 3;
+  display: grid; grid-template-columns: 1fr 1fr;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+}
+.pane-head {
+  display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
+  padding: 0.3rem 0.6rem; font-size: var(--fs-caption);
+}
+.pane-head + .pane-head { border-left: 1px solid var(--border); }
+.pane-head-label { color: var(--muted); font-weight: 700; flex: none; }
+.pane-head-path {
+  font-family: var(--mono); color: var(--fg);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* The end of a path identifies the file; the start is usually shared, so
+     truncate from the left by making the box RTL. unicode-bidi: plaintext is
+     required with it — without that the string itself is reordered and
+     "/tmp/…/old.txt" renders as "tmp/…/old.txt/", with the leading slash
+     dragged to the end. */
+  direction: rtl; unicode-bidi: plaintext; text-align: left;
+}
+/* One column means one header, and the two sides are stacked rather than side
+   by side, so a split header would be a lie. */
+.result.unified .pane-heads { grid-template-columns: 1fr; }
+.result.unified .pane-head.new { display: none; }
+.result.unified .pane-head.old .pane-head-label::after { content: " ⇄ NEW"; }
+
 .rows { overflow-x: auto; }
 .row { display: grid; grid-template-columns: 1fr 1fr; }
 .cell {
@@ -482,7 +669,11 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
 .csv-page-input { width: 4.5rem; padding: 0.25rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--fg); text-align: right; }
-.csv-table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
+/* The result is the scroll container now, so a 70vh cap here made two nested
+   vertical scrollbars and left the last row unreachable. Vertical scrolling
+   belongs to the result; this keeps only the horizontal axis, which a wide
+   table still needs. */
+.csv-table-wrap { overflow-x: auto; overflow-y: hidden; max-height: none; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
 .csv-table { border-collapse: separate; border-spacing: 0; min-width: 100%; font: var(--fs-data) var(--mono); }
 .csv-table th, .csv-table td { padding: 0.3rem 0.5rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
 /* A long value was readable only as a hover tooltip, so on a touch screen it

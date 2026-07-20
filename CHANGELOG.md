@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Moved the comparison conditions and engine tuning off the setup form and
+  behind one "comparison settings" button. They decide what counts as a
+  difference and how much is computed — set once and left alone — so they do not
+  belong on the screen a diff is read from. This is the split WinMerge draws:
+  its file-selection screen carries paths and an Options button, and not one
+  ignore checkbox.
+- Compare is now disabled until the inputs make sense, with a line saying which
+  field is missing, instead of accepting the click and returning an error.
+- Labelled each pane with its full path, pinned to the top of the result. With
+  the setup form folded, the panes themselves have to say which side is which;
+  in unified view the two collapse to one heading, since the sides are stacked
+  rather than side by side.
+- Added a difference index down the left side, listing every hunk by kind and
+  line and jumping to it on click, with the current one marked. Reaching a
+  particular difference among thirty previously meant stepping through them or
+  scrolling. Hidden by default and remembered once opened.
+- Fixed jumping to a difference doing nothing. The hunks carry
+  content-visibility, so their heights change as a smooth-scroll animation
+  realizes content and the target is invalidated mid-flight; the scroll silently
+  never happened. Navigation is instant now, which is also what every diff tool
+  surveyed does.
+- Moved the counts and detected encodings into a status bar at the bottom of the
+  window, and made the result its own scroll region so the shell keeps the title
+  bar, work area and status bar fixed. The counts remain clickable jump targets.
+- Folded the setup form once a comparison exists, and moved the display settings
+  into menus. The form filled the viewport and pushed the diff entirely below the
+  fold — the tool could not do the thing it exists for. It now collapses to a
+  47px bar carrying both file names and a one-click re-run, and the eighteen
+  controls that shared the result toolbar are down to navigation, the view
+  switch, sync and merge, with wrap/word/syntax/whitespace/theme/colours behind a
+  View menu and the patch controls behind an Export menu. The centred 1200px
+  column is gone as well: horizontal space is what decides whether a diff line
+  wraps.
+
 - Added a unified (git-style) view to the text diff, switchable from the result
   toolbar and remembered across visits. The diff was side-by-side only, which
   reads badly in a narrow window and does not match how most tools present a

@@ -43,6 +43,10 @@ const I18N = {
 	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
+    menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
+    hunkList: "差分一覧",
+    compareSettings: "比較設定", needPaths: "{fields} を指定してください",
+    setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
     exporting: "patch生成中…", exported: "patchを書き出しました",
@@ -142,6 +146,10 @@ const I18N = {
 	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
+    menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
+    hunkList: "Difference list",
+    compareSettings: "Comparison settings", needPaths: "Specify {fields}",
+    setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
     exporting: "Exporting patch…", exported: "Patch exported",
@@ -711,6 +719,31 @@ function showResultSkeleton() {
   result.append(wrap);
 }
 
+// paneHeads labels each side with its full path, sticky at the top of the
+// result. This is what makes folding the setup form safe: once the path fields
+// are out of sight, the panes themselves have to say which side is which —
+// every tool surveyed does this, and it is the half people miss when they hide
+// the inputs.
+function paneHeads() {
+  const heads = document.createElement("div");
+  heads.className = "pane-heads";
+  const scratch = $("scratch").checked;
+  for (const [side, path] of [["old", $("old").value], ["new", $("new").value]]) {
+    const head = document.createElement("div");
+    head.className = `pane-head ${side}`;
+    const label = document.createElement("span");
+    label.className = "pane-head-label";
+    label.textContent = side === "old" ? "OLD" : "NEW";
+    const name = document.createElement("span");
+    name.className = "pane-head-path";
+    name.textContent = scratch ? t("scratch") : path;
+    name.title = path;
+    head.append(label, name);
+    heads.append(head);
+  }
+  return heads;
+}
+
 // renderResult draws a diff response once. Display preferences only toggle
 // classes on the completed DOM via applyDisplayPreferences.
 async function renderResult(data) {
@@ -725,6 +758,7 @@ async function renderResult(data) {
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
+  result.append(paneHeads());
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
   if (!complete) return;
   setStatus("");
@@ -960,10 +994,16 @@ function jumpToHunk(index) {
   document.querySelector(".minimap-marker.current")?.classList.remove("current");
   currentHunk = index;
   readHunks.add(index);
+  markSidebarCurrent();
   const hunk = $(`hunk-${index}`);
   hunk.classList.add("current", "read");
   hunk.focus({ preventScroll: true });
-  hunk.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Instant, not smooth. The hunks carry content-visibility:auto, so their
+  // heights change as a scroll animation realizes content, which invalidates
+  // the target mid-flight — smooth scrolling silently did nothing and jumping
+  // to a difference simply failed. Measured: behavior "auto" reaches 1807,
+  // "smooth" leaves scrollTop at 0.
+  hunk.scrollIntoView({ block: "center" });
   document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("current", "read");
   updateCounter();
 }
@@ -1040,6 +1080,7 @@ function setupNavigation(data) {
   readHunks = new Set();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
+  buildSidebar(data);
   minimapHasMarkers = hasHunks;
   if (hasHunks) buildMinimap(data);
   updateCounter();
@@ -1566,7 +1607,13 @@ async function runCompare() {
 // actual work. Wrapping here rather than at each button covers the callers
 // that never touch a button — drag and drop, folder-entry clicks, sync-point
 // edits, and the Enter key (#128).
-async function compare() { return runExclusive("compare", runCompare); }
+async function compare() {
+  const result = await runExclusive("compare", runCompare);
+  // Only fold once something is actually on screen. A failed or cancelled run
+  // leaves the form open, because the inputs are then what needs attention.
+  if (!$("status").classList.contains("error") && $("result").children.length) collapseSetupAfterCompare();
+  return result;
+}
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
 async function exportCSV() { return runExclusive("exportCSV", runExportCSV); }
 async function saveProject() { return runExclusive("saveProject", runSaveProject); }
@@ -1742,7 +1789,7 @@ function focusSearchHit() {
   const hit = searchHits[searchIndex];
   if (!hit) return;
   hit.classList.add("current");
-  hit.scrollIntoView({ behavior: "smooth", block: "center" });
+  hit.scrollIntoView({ block: "center" });  // see jumpToHunk: smooth fails under content-visibility
   setSearchCounter(searchIndex + 1, searchHits.length);
 }
 
@@ -2072,8 +2119,14 @@ function syncMoveMinLines() {
 // The patch format controls are only meaningful next to Export patch, so they
 // follow its visibility rather than sitting in the setup form (#86).
 function syncPatchSettingsVisibility() {
-  const patchSettings = $("patchSettings");
-  if (patchSettings) patchSettings.hidden = $("exportPatch").hidden;
+  // The patch controls now live inside the Export menu, so the whole menu
+  // disappears when there is nothing to export rather than leaving an empty
+  // menu title in the bar.
+  const menuExport = $("menuExport");
+  if (menuExport) {
+    menuExport.hidden = $("exportPatch").hidden;
+    if (menuExport.hidden) menuExport.open = false;
+  }
 }
 
 // Unified only means anything for the two-way text diff: the three-way view is
@@ -2154,6 +2207,124 @@ async function openBrowser(target) {
 }
 function syncPatchOpts() {
   $("patchContextWrap").hidden = $("patchFormat").value === "normal";
+}
+
+// ---- Setup collapse ----
+// Expanded, the form filled the window and left the diff below the fold: the
+// tool was unusable for the thing it exists for. A comparison means the inputs
+// have done their job, so the form folds to one line carrying the two names and
+// a re-run. It never folds on a failure, where the inputs are what needs fixing.
+function setSetupCompact(compact) {
+  const setup = $("setup");
+  setup.classList.toggle("compact", compact);
+  $("setupToggle").setAttribute("aria-expanded", String(!compact));
+}
+function baseName(path) {
+  const cleaned = String(path || "").replace(/[\\/]+$/, "");
+  const cut = Math.max(cleaned.lastIndexOf("/"), cleaned.lastIndexOf("\\"));
+  return cut >= 0 ? cleaned.slice(cut + 1) : cleaned;
+}
+function updateSetupSummary() {
+  const summary = $("setupSummary");
+  const scratch = $("scratch").checked;
+  const left = scratch ? t("scratch") : baseName($("old").value);
+  const right = scratch ? t("scratch") : baseName($("new").value);
+  if (!left && !right) { summary.hidden = true; return; }
+  summary.innerHTML = "";
+  const a = document.createElement("span"); a.className = "side"; a.textContent = left;
+  const b = document.createElement("span"); b.className = "side"; b.textContent = right;
+  summary.append(a, " ⇄ ", b);
+  summary.title = `${$("old").value}\n${$("new").value}`;
+  summary.hidden = false;
+}
+// ---- Difference index (sidebar) ----
+// Reaching a particular difference among thirty meant stepping through them or
+// scrolling. This lists them by kind and line and jumps on click, and marks the
+// current one so the list doubles as a position indicator.
+const HUNK_KIND_MARK = { insert: "+", delete: "−", replace: "~" };
+function buildSidebar(data) {
+  const list = $("sidebarList");
+  list.innerHTML = "";
+  const hunks = data?.hunks || [];
+  $("sidebarToggle").hidden = hunks.length === 0;
+  if (!hunks.length) { $("sidebar").hidden = true; return; }
+  hunks.forEach((hunk, index) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `sidebar-item ${hunk.kind}`;
+    button.dataset.hunk = String(index);
+    const mark = document.createElement("span");
+    mark.className = "sidebar-mark"; mark.textContent = HUNK_KIND_MARK[hunk.kind] || "~";
+    mark.setAttribute("aria-hidden", "true");
+    const line = document.createElement("span");
+    line.className = "sidebar-line"; line.textContent = String(hunk.new_start + 1);
+    button.append(mark, line);
+    button.setAttribute("aria-label", `${t(hunk.kind === "insert" ? "added" : hunk.kind === "delete" ? "deleted" : "modified")} ${hunk.new_start + 1}`);
+    button.addEventListener("click", () => jumpToHunk(index));
+    item.append(button);
+    list.append(item);
+  });
+  markSidebarCurrent();
+}
+function markSidebarCurrent() {
+  for (const button of $("sidebarList").querySelectorAll(".sidebar-item")) {
+    const index = Number(button.dataset.hunk);
+    button.classList.toggle("current", index === currentHunk);
+    button.classList.toggle("read", readHunks.has(index));
+    button.classList.toggle("ignored", ignoredHunks.has(index));
+  }
+}
+
+// syncCompareReady mirrors WinMerge's Select-Files screen: Compare stays
+// disabled until the inputs make sense, and a line under the form says which
+// one is wrong. Refusing up front beats accepting the click and returning an
+// error, because the answer is always "fix the path you already typed".
+function syncCompareReady() {
+  const scratch = $("scratch").checked;
+  const mode = $("mode").value;
+  const needsBase = mode === "threeway" || mode === "threeway-csv";
+  const missing = [];
+  if (scratch) {
+    if (!$("oldText").value && !$("newText").value) missing.push("OLD / NEW");
+  } else {
+    if (!$("old").value.trim()) missing.push("OLD");
+    if (!$("new").value.trim()) missing.push("NEW");
+    if (needsBase && !$("base").value.trim()) missing.push("BASE");
+  }
+  const ready = missing.length === 0;
+  $("compare").disabled = !ready;
+  const note = $("setupNote");
+  if (note) {
+    note.textContent = ready ? "" : t("needPaths", { fields: missing.join(" / ") });
+    note.hidden = ready;
+  }
+  return ready;
+}
+
+// The status bar answers "what am I looking at" without spending a row of the
+// result on it. It carries the two sides; the counts live beside it and stay
+// clickable jump targets (#110).
+function updateStatusBar() {
+  const bar = $("statusbar");
+  const paths = $("statusPaths");
+  const scratch = $("scratch").checked;
+  const left = scratch ? t("scratch") : $("old").value;
+  const right = scratch ? t("scratch") : $("new").value;
+  if (!left && !right) { bar.hidden = true; return; }
+  paths.innerHTML = "";
+  const a = document.createElement("span"); a.className = "side"; a.textContent = baseName(left) || left;
+  const b = document.createElement("span"); b.className = "side"; b.textContent = baseName(right) || right;
+  paths.append(a, " ⇄ ", b);
+  paths.title = `${left}\n${right}`;
+  bar.hidden = false;
+}
+
+function collapseSetupAfterCompare() {
+  updateStatusBar();
+  updateSetupSummary();
+  $("setupRecompare").hidden = false;
+  setSetupCompact(true);
 }
 
 // Display preferences (color scheme + line wrap), persisted across visits.
@@ -2281,6 +2452,35 @@ document.addEventListener("drop", async (event) => {
 });
 
 $("compare").addEventListener("click", compare);
+$("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
+$("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
+// Every input that decides whether a comparison is possible re-checks it.
+for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]) {
+  const node = $(id);
+  if (!node) continue;
+  node.addEventListener("input", syncCompareReady);
+  node.addEventListener("change", syncCompareReady);
+}
+syncCompareReady();
+$("sidebarToggle").addEventListener("click", () => {
+  const sidebar = $("sidebar");
+  sidebar.hidden = !sidebar.hidden;
+  $("sidebarToggle").setAttribute("aria-pressed", String(!sidebar.hidden));
+  localStorage.setItem("ayame-sidebar", sidebar.hidden ? "0" : "1");
+});
+$("setupRecompare").addEventListener("click", compare);
+for (const id of ["old", "new", "base", "scratch"]) $(id)?.addEventListener("change", updateSetupSummary);
+// A menu should close when the pointer goes elsewhere; <details> alone keeps it
+// open until its own summary is clicked again.
+document.addEventListener("click", (event) => {
+  for (const menu of document.querySelectorAll(".menubar .menu[open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const menu of document.querySelectorAll(".menubar .menu[open]")) menu.open = false;
+});
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
