@@ -45,6 +45,7 @@ const I18N = {
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
     menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
     hunkList: "差分一覧",
+    compareSettings: "比較設定", needPaths: "{fields} を指定してください",
     setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
@@ -147,6 +148,7 @@ const I18N = {
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
     menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
     hunkList: "Difference list",
+    compareSettings: "Comparison settings", needPaths: "Specify {fields}",
     setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
@@ -2274,6 +2276,32 @@ function markSidebarCurrent() {
   }
 }
 
+// syncCompareReady mirrors WinMerge's Select-Files screen: Compare stays
+// disabled until the inputs make sense, and a line under the form says which
+// one is wrong. Refusing up front beats accepting the click and returning an
+// error, because the answer is always "fix the path you already typed".
+function syncCompareReady() {
+  const scratch = $("scratch").checked;
+  const mode = $("mode").value;
+  const needsBase = mode === "threeway" || mode === "threeway-csv";
+  const missing = [];
+  if (scratch) {
+    if (!$("oldText").value && !$("newText").value) missing.push("OLD / NEW");
+  } else {
+    if (!$("old").value.trim()) missing.push("OLD");
+    if (!$("new").value.trim()) missing.push("NEW");
+    if (needsBase && !$("base").value.trim()) missing.push("BASE");
+  }
+  const ready = missing.length === 0;
+  $("compare").disabled = !ready;
+  const note = $("setupNote");
+  if (note) {
+    note.textContent = ready ? "" : t("needPaths", { fields: missing.join(" / ") });
+    note.hidden = ready;
+  }
+  return ready;
+}
+
 // The status bar answers "what am I looking at" without spending a row of the
 // result on it. It carries the two sides; the counts live beside it and stay
 // clickable jump targets (#110).
@@ -2425,6 +2453,15 @@ document.addEventListener("drop", async (event) => {
 
 $("compare").addEventListener("click", compare);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
+$("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
+// Every input that decides whether a comparison is possible re-checks it.
+for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]) {
+  const node = $(id);
+  if (!node) continue;
+  node.addEventListener("input", syncCompareReady);
+  node.addEventListener("change", syncCompareReady);
+}
+syncCompareReady();
 $("sidebarToggle").addEventListener("click", () => {
   const sidebar = $("sidebar");
   sidebar.hidden = !sidebar.hidden;

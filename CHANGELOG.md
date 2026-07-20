@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Moved the comparison conditions and engine tuning off the setup form and
+  behind one "comparison settings" button. They decide what counts as a
+  difference and how much is computed — set once and left alone — so they do not
+  belong on the screen a diff is read from. This is the split WinMerge draws:
+  its file-selection screen carries paths and an Options button, and not one
+  ignore checkbox.
+- Compare is now disabled until the inputs make sense, with a line saying which
+  field is missing, instead of accepting the click and returning an error.
 - Labelled each pane with its full path, pinned to the top of the result. With
   the setup form folded, the panes themselves have to say which side is which;
   in unified view the two collapse to one heading, since the sides are stacked

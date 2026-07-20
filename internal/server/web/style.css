@@ -155,7 +155,16 @@ main {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .setup-summary .side { color: var(--fg); font-weight: 600; }
-.setup-recompare { margin: 0 0 0 auto; padding: 0.35rem 0.9rem; font-size: var(--fs-label); flex: none; }
+.setup-settings { margin: 0 0 0 auto; padding: 0.35rem 0.9rem; font-size: var(--fs-label); flex: none; }
+.setup-recompare { margin: 0; padding: 0.35rem 0.9rem; font-size: var(--fs-label); flex: none; }
+/* Why Compare is unavailable, stated before the click rather than after. */
+.setup-note { margin: 0.5rem 0 0; color: var(--del-fg); font-size: var(--fs-label); }
+.settings-dialog { max-width: min(48rem, 92vw); }
+.settings-body { display: grid; gap: 0.6rem; }
+/* Inside the dialog the groups are the content, not an aside to it, so they
+   stand open rather than as things to go hunting behind. */
+.settings-body > details { margin: 0; }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
 .paths { display: grid; gap: 0.6rem; }
 .paths label { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: 0.6rem; }
 .paths span { color: var(--muted); font-size: var(--fs-label); }
