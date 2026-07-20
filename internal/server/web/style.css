@@ -114,7 +114,7 @@ main {
    height inside a clipped main and the diff below the fold became unreachable.
    The element that takes the remaining space has to be main's actual child, and
    every link in the chain needs min-height:0 or it refuses to shrink. */
-.diff-layout, main > #result, main > .csv-table-wrap, main > .three-grid {
+.diff-layout, main > #result {
   flex: 1 1 auto; min-height: 0;
 }
 /* .diff-layout sets align-items:start so the minimap hugs the top. That also
@@ -660,7 +660,11 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
 .csv-page-input { width: 4.5rem; padding: 0.25rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--fg); text-align: right; }
-.csv-table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
+/* The result is the scroll container now, so a 70vh cap here made two nested
+   vertical scrollbars and left the last row unreachable. Vertical scrolling
+   belongs to the result; this keeps only the horizontal axis, which a wide
+   table still needs. */
+.csv-table-wrap { overflow-x: auto; overflow-y: hidden; max-height: none; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); }
 .csv-table { border-collapse: separate; border-spacing: 0; min-width: 100%; font: var(--fs-data) var(--mono); }
 .csv-table th, .csv-table td { padding: 0.3rem 0.5rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; }
 /* A long value was readable only as a hover tooltip, so on a touch screen it
