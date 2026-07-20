@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added a difference index down the left side, listing every hunk by kind and
+  line and jumping to it on click, with the current one marked. Reaching a
+  particular difference among thirty previously meant stepping through them or
+  scrolling. Hidden by default and remembered once opened.
+- Fixed jumping to a difference doing nothing. The hunks carry
+  content-visibility, so their heights change as a smooth-scroll animation
+  realizes content and the target is invalidated mid-flight; the scroll silently
+  never happened. Navigation is instant now, which is also what every diff tool
+  surveyed does.
 - Moved the counts and detected encodings into a status bar at the bottom of the
   window, and made the result its own scroll region so the shell keeps the title
   bar, work area and status bar fixed. The counts remain clickable jump targets.

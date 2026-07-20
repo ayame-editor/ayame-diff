@@ -12,6 +12,7 @@
   --diff-gutter: 3.2rem;   /* line-number column */
   --diff-gap: 0.5rem;      /* gutter-to-text gap */
   --diff-marker: 1ch;      /* unified -/+ column */
+  --sidebar-w: 5.5rem;     /* difference index column */
 }
 
 /* Display sizes, above the body text. tokens.css defines the scale from body
@@ -314,6 +315,33 @@ button:active:not(:disabled) {
    well below a touch target. Widening it makes the markers clickable; drag-to-
    scroll is still missing, so #102 stays open. */
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
+/* With the index open the layout gains a leading column. Declared here rather
+   than as a width on .sidebar so the result's track shrinks by exactly the same
+   amount and nothing overflows. */
+.diff-layout:has(.sidebar:not([hidden])) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 28px; }
+.diff-layout:has(.sidebar:not([hidden])):has(.minimap[hidden]) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+.sidebar {
+  align-self: stretch; min-height: 0; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+  background: var(--panel);
+}
+.sidebar-list { list-style: none; margin: 0; padding: 0.25rem; display: grid; gap: 0.1rem; }
+.sidebar-item {
+  display: grid; grid-template-columns: 1ch 1fr; gap: 0.4rem; align-items: baseline;
+  width: 100%; margin: 0; padding: 0.2rem 0.4rem; border: 0; border-radius: var(--radius-control);
+  background: transparent; font: var(--fs-caption) var(--mono); text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-item.insert .sidebar-mark { color: var(--add-fg); }
+.sidebar-item.delete .sidebar-mark { color: var(--del-fg); }
+.sidebar-item.replace .sidebar-mark { color: var(--chg-fg); }
+.sidebar-line { color: var(--muted); }
+/* Read and current are different states and must not be confused: read is
+   history, current is where you are. */
+.sidebar-item.read .sidebar-line { opacity: 0.55; }
+.sidebar-item.ignored { text-decoration: line-through; opacity: 0.5; }
+.sidebar-item.current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.sidebar-item.current .sidebar-line { color: var(--fg); opacity: 1; font-weight: 700; }
 /* Reclaim the map's column when it is hidden, so a short diff is not indented
    by a gutter leading to nothing (#102). */
 .diff-layout:has(.minimap[hidden]) { grid-template-columns: minmax(0, 1fr); }

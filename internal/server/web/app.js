@@ -44,6 +44,7 @@ const I18N = {
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
     menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
+    hunkList: "差分一覧",
     setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
     patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
@@ -145,6 +146,7 @@ const I18N = {
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
     menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
+    hunkList: "Difference list",
     setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
     patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
@@ -964,10 +966,16 @@ function jumpToHunk(index) {
   document.querySelector(".minimap-marker.current")?.classList.remove("current");
   currentHunk = index;
   readHunks.add(index);
+  markSidebarCurrent();
   const hunk = $(`hunk-${index}`);
   hunk.classList.add("current", "read");
   hunk.focus({ preventScroll: true });
-  hunk.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Instant, not smooth. The hunks carry content-visibility:auto, so their
+  // heights change as a scroll animation realizes content, which invalidates
+  // the target mid-flight — smooth scrolling silently did nothing and jumping
+  // to a difference simply failed. Measured: behavior "auto" reaches 1807,
+  // "smooth" leaves scrollTop at 0.
+  hunk.scrollIntoView({ block: "center" });
   document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("current", "read");
   updateCounter();
 }
@@ -1044,6 +1052,7 @@ function setupNavigation(data) {
   readHunks = new Set();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
+  buildSidebar(data);
   minimapHasMarkers = hasHunks;
   if (hasHunks) buildMinimap(data);
   updateCounter();
@@ -1752,7 +1761,7 @@ function focusSearchHit() {
   const hit = searchHits[searchIndex];
   if (!hit) return;
   hit.classList.add("current");
-  hit.scrollIntoView({ behavior: "smooth", block: "center" });
+  hit.scrollIntoView({ block: "center" });  // see jumpToHunk: smooth fails under content-visibility
   setSearchCounter(searchIndex + 1, searchHits.length);
 }
 
@@ -2200,6 +2209,45 @@ function updateSetupSummary() {
   summary.title = `${$("old").value}\n${$("new").value}`;
   summary.hidden = false;
 }
+// ---- Difference index (sidebar) ----
+// Reaching a particular difference among thirty meant stepping through them or
+// scrolling. This lists them by kind and line and jumps on click, and marks the
+// current one so the list doubles as a position indicator.
+const HUNK_KIND_MARK = { insert: "+", delete: "−", replace: "~" };
+function buildSidebar(data) {
+  const list = $("sidebarList");
+  list.innerHTML = "";
+  const hunks = data?.hunks || [];
+  $("sidebarToggle").hidden = hunks.length === 0;
+  if (!hunks.length) { $("sidebar").hidden = true; return; }
+  hunks.forEach((hunk, index) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `sidebar-item ${hunk.kind}`;
+    button.dataset.hunk = String(index);
+    const mark = document.createElement("span");
+    mark.className = "sidebar-mark"; mark.textContent = HUNK_KIND_MARK[hunk.kind] || "~";
+    mark.setAttribute("aria-hidden", "true");
+    const line = document.createElement("span");
+    line.className = "sidebar-line"; line.textContent = String(hunk.new_start + 1);
+    button.append(mark, line);
+    button.setAttribute("aria-label", `${t(hunk.kind === "insert" ? "added" : hunk.kind === "delete" ? "deleted" : "modified")} ${hunk.new_start + 1}`);
+    button.addEventListener("click", () => jumpToHunk(index));
+    item.append(button);
+    list.append(item);
+  });
+  markSidebarCurrent();
+}
+function markSidebarCurrent() {
+  for (const button of $("sidebarList").querySelectorAll(".sidebar-item")) {
+    const index = Number(button.dataset.hunk);
+    button.classList.toggle("current", index === currentHunk);
+    button.classList.toggle("read", readHunks.has(index));
+    button.classList.toggle("ignored", ignoredHunks.has(index));
+  }
+}
+
 // The status bar answers "what am I looking at" without spending a row of the
 // result on it. It carries the two sides; the counts live beside it and stay
 // clickable jump targets (#110).
@@ -2351,6 +2399,12 @@ document.addEventListener("drop", async (event) => {
 
 $("compare").addEventListener("click", compare);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
+$("sidebarToggle").addEventListener("click", () => {
+  const sidebar = $("sidebar");
+  sidebar.hidden = !sidebar.hidden;
+  $("sidebarToggle").setAttribute("aria-pressed", String(!sidebar.hidden));
+  localStorage.setItem("ayame-sidebar", sidebar.hidden ? "0" : "1");
+});
 $("setupRecompare").addEventListener("click", compare);
 for (const id of ["old", "new", "base", "scratch"]) $(id)?.addEventListener("change", updateSetupSummary);
 // A menu should close when the pointer goes elsewhere; <details> alone keeps it
