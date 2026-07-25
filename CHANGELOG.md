@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.8.1 - 2026-07-25
 
+- Preserved the logical row and its screen offset when re-running a comparison,
+  changing a comparison or display option, or adding/removing sync points. If
+  the row disappears, restoration chooses the nearest remaining row
+  deterministically instead of jumping to the top. The same anchor model covers
+  text, CSV, three-way, and folder results. (#249)
 - Stopped opening a file from a folder comparison destroying that comparison.
   Clicking an entry overwrote the mode and both paths and re-ran, so checking a
   hundred files meant re-scanning the tree a hundred times. The result is already
@@ -19,10 +24,11 @@
   ignore checkbox.
 - Compare is now disabled until the inputs make sense, with a line saying which
   field is missing, instead of accepting the click and returning an error.
-- Labelled each pane with its full path, pinned to the top of the result. With
-  the setup form folded, the panes themselves have to say which side is which;
-  in unified view the two collapse to one heading, since the sides are stacked
-  rather than side by side.
+- Made each pane's full path an editable control pinned to the result, with a
+  server-side browse button, encoding and line-count context, and the two-way
+  swap control between sides. The initial path rail now disappears after the
+  first comparison, while text, CSV, three-way, and folder results can all
+  replace a side and re-run in place. (#252)
 - Added a difference index down the left side, listing every hunk by kind and
   line and jumping to it on click, with the current one marked. Reaching a
   particular difference among thirty previously meant stepping through them or
@@ -35,6 +41,8 @@
 - Moved the counts and detected encodings into a status bar at the bottom of the
   window, and made the result its own scroll region so the shell keeps the title
   bar, work area and status bar fixed. The counts remain clickable jump targets.
+  A regression test now fixes the full `100dvh`/`min-height: 0`/overflow chain
+  that lets the result retain the viewport even when setup expands. (#250)
 - Folded the setup form once a comparison exists, and moved the display settings
   into menus. The form filled the viewport and pushed the diff entirely below the
   fold — the tool could not do the thing it exists for. It now collapses to a
