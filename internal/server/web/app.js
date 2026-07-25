@@ -1,6 +1,28 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+const {
+  captureScrollAnchor,
+  restoreScrollAnchor,
+} = globalThis.AyameScrollAnchor;
+
+function resultScrollInset() {
+  return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
+}
+
+function captureResultScrollAnchor() {
+  return captureScrollAnchor($("result"), resultScrollInset());
+}
+
+function restoreResultScrollAnchor(anchor, announceFailure = false) {
+  const restored = restoreScrollAnchor($("result"), anchor, resultScrollInset());
+  // A result with no logical rows already explains itself with an empty/match
+  // state card. Otherwise make the unavoidable jump to the top explicit.
+  if (!restored && anchor && announceFailure && $("result").querySelector("[data-scroll-anchor]")) {
+    setStatus(t("scrollRestoreUnavailable"), "");
+  }
+  return restored;
+}
 
 // ---- API token (#108) ----
 // The server requires this token on every /api call. It arrives once in the
@@ -64,6 +86,7 @@ const I18N = {
     ignoreHunk: "この差分を無視", restoreHunk: "無視を解除", ignored: "無視",
     syncSelect: "左右から対応させる行を1行ずつ選択してください。",
     syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
+    scrollRestoreUnavailable: "前の表示位置がなくなったため、結果の先頭を表示しています。",
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     // mode select + folder status-filter options, translated so JA follows (#125)
     modeText: "テキスト", modeSorted: "ソート済み", modeCsv: "CSV / TSV",
@@ -120,8 +143,9 @@ const I18N = {
 	memory: "メモリ", tempDir: "一時ディレクトリ", partitions: "パーティション", parseWorkers: "入力リーダー", workers: "ワーカー",
 	mergeFanIn: "マージ fan-in", partitionBuffer: "分割バッファ", maxRecordBytes: "最大レコード", keepTemp: "一時ファイルを保持",
 	changedColumnsOnly: "変更列だけ表示", outputPath: "出力パス", outputFormat: "出力形式", outputHeader: "ヘッダーを出力",
-	review: "設定レビュー", runExport: "実行して書き出す", chooseFile: "ファイルを選択", open: "開く",
-	browseFile: "ファイルを参照", close: "閉じる", parentFolder: "親フォルダ",
+		review: "設定レビュー", runExport: "実行して書き出す", chooseFile: "ファイルを選択", open: "開く",
+		browseFile: "ファイルを参照", close: "閉じる", parentFolder: "親フォルダ",
+		panePath: (v) => `${v.side} のパス`, lineCount: (v) => `${v.count} 行`,
 	inspectionDone: (v) => `${v.column_count} 列 — 左 ${v.left_format}/${v.left_parser}、右 ${v.right_format}/${v.right_parser}`,
 	csvNoDiff: "CSV 差分はありません。", csvTruncated: "表示上限に達しました。全件は書き出しを使用してください。",
 	selectKey: "キー列を1つ以上選択してください。",
@@ -168,6 +192,7 @@ const I18N = {
     ignoreHunk: "Ignore this difference", restoreHunk: "Restore difference", ignored: "ignored",
     syncSelect: "Select one corresponding line on each side.",
     syncOrderError: "Sync points must increase on both sides.",
+    scrollRestoreUnavailable: "The previous position no longer exists; showing the start of the result.",
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     modeText: "text", modeSorted: "sorted", modeCsv: "csv / tsv",
     modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
@@ -221,8 +246,9 @@ const I18N = {
 	memory: "memory", tempDir: "temp directory", partitions: "partitions", parseWorkers: "input readers", workers: "workers",
 	mergeFanIn: "merge fan-in", partitionBuffer: "partition buffer", maxRecordBytes: "max record size", keepTemp: "keep temporary files",
 	changedColumnsOnly: "changed columns only", outputPath: "output path", outputFormat: "output format", outputHeader: "output header",
-	review: "Review settings", runExport: "Run and export", chooseFile: "Choose a file", open: "Open",
-	browseFile: "Browse for a file", close: "Close", parentFolder: "Parent folder",
+		review: "Review settings", runExport: "Run and export", chooseFile: "Choose a file", open: "Open",
+		browseFile: "Browse for a file", close: "Close", parentFolder: "Parent folder",
+		panePath: (v) => `${v.side} path`, lineCount: (v) => `${v.count} lines`,
 	inspectionDone: (v) => `${v.column_count} columns — left ${v.left_format}/${v.left_parser}, right ${v.right_format}/${v.right_parser}`,
 	csvNoDiff: "No CSV differences.", csvTruncated: "Display limit reached. Use export for the complete result.",
 	selectKey: "Select at least one key column.",
@@ -349,6 +375,7 @@ let csvData = null;
 let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
+let browserAfterSelect = null;
 let directoryData = null, directoryBody = null;
 let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
 // Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
@@ -451,6 +478,9 @@ function cell(cls, lineNo, node, side) {
     c.classList.add("selectable-line");
     c.dataset.side = side;
     c.dataset.line = String(lineNo - 1);
+    c.dataset.scrollAnchor = side;
+    c.dataset.scrollKey = String(lineNo - 1);
+    c.dataset.scrollOrder = String(lineNo - 1);
     c.tabIndex = 0;
     c.setAttribute("role", "button");
     c.setAttribute("aria-pressed", "false");
@@ -721,28 +751,105 @@ function showResultSkeleton() {
   result.append(wrap);
 }
 
-// paneHeads labels each side with its full path, sticky at the top of the
-// result. This is what makes folding the setup form safe: once the path fields
-// are out of sight, the panes themselves have to say which side is which —
-// every tool surveyed does this, and it is the half people miss when they hide
-// the inputs.
-function paneHeads() {
+// commitPanePath makes the header the working path control after a comparison.
+// The setup form remains the empty-state entry point, but changing one side no
+// longer means expanding it, finding the same field, and re-running by hand.
+async function commitPanePath(input, side, comparedPath) {
+  const value = input.value.trim();
+  if (value === comparedPath || busyOperation) return;
+  $(side).value = value;
+  csvInspection = null;
+  $("inspection").textContent = "";
+  $("keySetup").hidden = true;
+  syncCompareReady();
+  if (!value || $("compare").disabled) {
+    setStatus(t("enterPaths"), "error");
+    input.focus();
+    return;
+  }
+  await compare();
+}
+
+// paneHeads keeps every input identified and editable at any scroll position.
+// Text, CSV, and folder comparisons have two sides; 3-way comparisons add BASE.
+// The full path, line count, and detected encoding remain available as a
+// tooltip even when the narrow input has to elide the path.
+function paneHeads(data = {}) {
   const heads = document.createElement("div");
   heads.className = "pane-heads";
   const scratch = $("scratch").checked;
-  for (const [side, path] of [["old", $("old").value], ["new", $("new").value]]) {
+  const threeWay = $("mode").value === "threeway" || $("mode").value === "threeway-csv";
+  const specs = threeWay
+    ? [["base", "BASE"], ["old", "LEFT"], ["new", "RIGHT"]]
+    : [["old", "OLD"], ["new", "NEW"]];
+  heads.classList.toggle("three", threeWay);
+  for (const [side, labelText] of specs) {
+    const path = $(side).value;
     const head = document.createElement("div");
     head.className = `pane-head ${side}`;
     const label = document.createElement("span");
     label.className = "pane-head-label";
-    label.textContent = side === "old" ? "OLD" : "NEW";
-    const name = document.createElement("span");
+    label.textContent = labelText;
+    const name = document.createElement(scratch ? "span" : "input");
     name.className = "pane-head-path";
-    name.textContent = scratch ? t("scratch") : path;
-    name.title = path;
+    if (scratch) {
+      name.textContent = t("scratch");
+    } else {
+      name.type = "text";
+      name.value = path;
+      name.setAttribute("list", `${side}History`);
+      name.setAttribute("aria-label", t("panePath", { side: labelText }));
+      name.spellcheck = false;
+      name.addEventListener("change", () => commitPanePath(name, side, path));
+      name.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) return;
+        event.preventDefault();
+        name.blur();
+      });
+    }
+    const encoding = data[`${side}_encoding`] || "";
+    const lines = data[`${side}_lines`];
+    const details = [path];
+    if (lines != null) details.push(t("lineCount", { count: Number(lines).toLocaleString() }));
+    if (encoding) details.push(`${t("encoding")}: ${encoding}`);
+    name.title = details.filter(Boolean).join("\n");
     head.append(label, name);
+    if (encoding || lines != null) {
+      const meta = document.createElement("span");
+      meta.className = "pane-head-meta";
+      meta.textContent = [
+        encoding,
+        lines != null ? t("lineCount", { count: Number(lines).toLocaleString() }) : "",
+      ].filter(Boolean).join(" · ");
+      head.append(meta);
+    }
+    if (!scratch) {
+      const browse = document.createElement("button");
+      browse.type = "button";
+      browse.className = "pane-head-browse";
+      browse.textContent = "…";
+      browse.title = t("browseFile");
+      browse.setAttribute("aria-label", t("browseFile"));
+      // Keep the input from committing its old typed value before the browser
+      // dialog gets a chance to return the selected path.
+      browse.addEventListener("pointerdown", (event) => event.preventDefault());
+      browse.addEventListener("click", () => openBrowser(side, async (selected) => {
+        name.value = selected;
+        await commitPanePath(name, side, path);
+      }));
+      head.append(browse);
+    }
     heads.append(head);
   }
+  const swap = document.createElement("button");
+  swap.type = "button";
+  swap.className = "pane-head-swap";
+  swap.textContent = "⇄";
+  swap.title = t("swapSides");
+  swap.setAttribute("aria-label", t("swapSides"));
+  if (threeWay) swap.style.left = "66.666%";
+  swap.addEventListener("click", swapSides);
+  heads.append(swap);
   return heads;
 }
 
@@ -755,12 +862,12 @@ async function renderResult(data) {
   result.innerHTML = "";
   setupNavigation(data);
   syncExportPatchVisibility();
+  result.append(paneHeads(data));
   if (!data.hunks.length) {
     const scope = t("textMatchScope", { old: data.old_lines.toLocaleString(), new: data.new_lines.toLocaleString() });
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
-  result.append(paneHeads());
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
   if (!complete) return;
   setStatus("");
@@ -877,6 +984,7 @@ async function renderThreeWay(data, csvMode) {
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
   add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); if (data.merged) add(t("autoMerged"), data.merged, "add"); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
+  result.append(paneHeads(data));
   resetMergeRowIndex();
   lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
   syncExportPatchVisibility();
@@ -884,6 +992,9 @@ async function renderThreeWay(data, csvMode) {
   const buildEvent = (event, index) => {
     const box = document.createElement("section");
     box.className = `hunk three-event ${event.kind}`; box.id = `hunk-${index}`; box.dataset.hunk = String(index); box.dataset.mergeId = String(event.id); box.tabIndex = -1;
+    box.dataset.scrollAnchor = csvMode ? "threeway-csv" : "threeway";
+    box.dataset.scrollKey = String(event.id);
+    box.dataset.scrollOrder = String(event.base_start ?? index);
     indexMergeRow(event.id, box);
     const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `BASE ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
@@ -1307,6 +1418,7 @@ function renderCSV(data) {
   resetMergeRowIndex();
   renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
+  result.append(paneHeads(data));
   if (!data.differences.length) {
     if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
     else {
@@ -1361,8 +1473,11 @@ function renderCSV(data) {
     }
     tbody.append(tr);
   };
-  for (const diff of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE)) {
+  for (const [pageIndex, diff] of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE).entries()) {
     const action = document.createElement("tr"); action.className = "csv-merge-choice"; action.dataset.mergeId = diff.id;
+    action.dataset.scrollAnchor = "csv";
+    action.dataset.scrollKey = String(diff.id);
+    action.dataset.scrollOrder = String(csvPage * CSV_PAGE_SIZE + pageIndex);
     indexMergeRow(diff.id, action);
     const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
     const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
@@ -1508,7 +1623,7 @@ async function runLoadDirectoryProject() {
 // going back is a re-render, not another scan.
 let folderReturn = null;
 async function openFromFolder(entry, body) {
-  folderReturn = { data: directoryData, body: directoryBody, scroll: $("result").scrollTop };
+  folderReturn = { data: directoryData, body: directoryBody, anchor: captureResultScrollAnchor() };
   $("mode").value = "text"; syncModeOpts();
   $("old").value = `${body.old.replace(/[\\/]$/, "")}/${entry.path}`;
   $("new").value = `${body.new.replace(/[\\/]$/, "")}/${entry.path}`;
@@ -1521,13 +1636,14 @@ function syncFolderReturn() {
 }
 async function returnToFolder() {
   if (!folderReturn) return;
-  const { data, body, scroll } = folderReturn;
+  const { data, body, anchor } = folderReturn;
   folderReturn = null;
   $("mode").value = "dir"; syncModeOpts();
   $("old").value = body.old; $("new").value = body.new;
   await renderDirectory(data, body);
-  // Put the reader back where they were in the list, not at the top of it.
-  $("result").scrollTop = scroll;
+  // The list may have changed height, so restore its logical path rather than
+  // the old pixel offset.
+  restoreResultScrollAnchor(anchor, true);
   syncFolderReturn();
 }
 
@@ -1539,14 +1655,19 @@ async function renderDirectory(data, body) {
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
   for (const [name, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"], ["same", ""]]) { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = data[name].toLocaleString(); item.append(b, ` ${t(name)}`); summary.append(item); } summary.hidden = false;
-  const result = $("result"); result.innerHTML = ""; const tree = document.createElement("div"); tree.className = "dir-tree";
+  const result = $("result"); result.innerHTML = "";
+  result.append(paneHeads(data));
+  const tree = document.createElement("div"); tree.className = "dir-tree";
   const filter = $("dirStatus").value;
   // A folder comparison carries one entry per file with no cap, so a large
   // tree is exactly the case that must not arrive as one blocking loop (#127).
   const visible = data.entries.filter((entry) =>
     !((filter === "different" && entry.status === "same") || (filter !== "all" && filter !== "different" && entry.status !== filter)));
-  const buildEntry = (entry) => {
+  const buildEntry = (entry, index) => {
     const row = document.createElement("button"); row.type = "button"; row.className = `dir-entry ${entry.status}`;
+    row.dataset.scrollAnchor = "directory";
+    row.dataset.scrollKey = entry.path;
+    row.dataset.scrollOrder = String(index);
     const depth = entry.path.split("/").length - 1; row.style.paddingLeft = `${0.65 + depth * 1.1}rem`;
     const marker = { added: "+", removed: "−", changed: "~", same: "=" }[entry.status];
     row.textContent = `${marker} ${entry.path}`; row.title = `${entry.old_size} → ${entry.new_size} ${t("bytes")}\n${entry.old_mtime || ""} → ${entry.new_mtime || ""}`;
@@ -1640,7 +1761,9 @@ async function runCompare() {
 // that never touch a button — drag and drop, folder-entry clicks, sync-point
 // edits, and the Enter key (#128).
 async function compare() {
+  const scrollAnchor = captureResultScrollAnchor();
   const result = await runExclusive("compare", runCompare);
+  if (result) restoreResultScrollAnchor(scrollAnchor, true);
   // Only fold once something is actually on screen. A failed or cancelled run
   // leaves the form open, because the inputs are then what needs attention.
   if (!$("status").classList.contains("error") && $("result").children.length) {
@@ -2228,13 +2351,32 @@ async function loadBrowser(path) {
     const button = document.createElement("button"); button.type = "button"; button.className = item.directory ? "directory" : "file";
     button.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
     const itemPath = item.Path || item.path;
-    button.addEventListener("click", async () => { if (item.directory) { await loadBrowser(itemPath); } else { $(browserTarget).value = itemPath; csvInspection = null; $("fileBrowser").close(); updateCSVReview(); } });
+    button.addEventListener("click", async () => {
+      if (item.directory) await loadBrowser(itemPath);
+      else await selectBrowserPath(itemPath);
+    });
     entries.append(button);
   }
 }
 
-async function openBrowser(target) {
+async function selectBrowserPath(path) {
+  if (!browserTarget) return;
+  const target = browserTarget;
+  const afterSelect = browserAfterSelect;
+  browserTarget = null;
+  browserAfterSelect = null;
+  $(target).value = path;
+  csvInspection = null;
+  $("fileBrowser").close();
+  updateCSVReview();
+  syncCompareReady();
+  updateSetupSummary();
+  if (afterSelect) await afterSelect(path);
+}
+
+async function openBrowser(target, afterSelect = null) {
   browserTarget = target;
+  browserAfterSelect = afterSelect;
   $("fileBrowser").showModal();
 	$("chooseFolder").hidden = $("mode").value !== "dir";
   try { await loadBrowser($(target).value ? $(target).value.replace(/[\\/][^\\/]*$/, "") : ""); }
@@ -2395,10 +2537,16 @@ function updateStatusBar() {
   bar.hidden = false;
 }
 
+function syncLaunchPathsVisibility() {
+  const hasResult = Boolean(lastData || csvData || threeWayData || directoryData);
+  $("paths").hidden = $("scratch").checked || hasResult;
+}
+
 function collapseSetupAfterCompare() {
   updateStatusBar();
   updateSetupSummary();
   $("setupRecompare").hidden = false;
+  syncLaunchPathsVisibility();
   setSetupCompact(true);
 }
 
@@ -2409,20 +2557,24 @@ function applyScheme(v) {
   $("scheme").value = v;
 }
 function applyWrap(on) {
+  const scrollAnchor = captureResultScrollAnchor();
   $("result").classList.toggle("nowrap", !on);
   localStorage.setItem("ayame-wrap", on ? "1" : "0");
   $("wrap").checked = on;
   document.querySelector(".csv-table")?.classList.toggle("wrap-cells", on);
+  restoreResultScrollAnchor(scrollAnchor);
 }
 // applyViewMode switches between side-by-side and the unified, git-style single
 // column (#115). Nothing is re-rendered: a changed row already carries both
 // cells, so the layout is entirely a CSS concern and every other feature
 // (word highlight, merge selection, the minimap, navigation) keeps working.
 function applyViewMode(mode) {
+  const scrollAnchor = captureResultScrollAnchor();
   const unified = mode === "unified";
   $("result").classList.toggle("unified", unified);
   localStorage.setItem("ayame-view", unified ? "unified" : "side");
   $("viewMode").value = unified ? "unified" : "side";
+  restoreResultScrollAnchor(scrollAnchor);
 }
 function applyDisplayPreferences() {
   const result = $("result");
@@ -2435,10 +2587,14 @@ function applyDisplayPreferences() {
 // changes which nodes are built. Whitespace markers and word-diff spans are no
 // longer created when their option is off (#127), so a class flip alone can no
 // longer reveal them.
-function rerenderForDisplayChange() {
+let displayRenderGeneration = 0;
+async function rerenderForDisplayChange() {
+  const generation = ++displayRenderGeneration;
+  const scrollAnchor = captureResultScrollAnchor();
   applyDisplayPreferences();
-  if (threeWayData) renderThreeWay(threeWayData, threeWayData.csvMode);
-  else if (lastData) renderResult(lastData);
+  if (threeWayData) await renderThreeWay(threeWayData, threeWayData.csvMode);
+  else if (lastData) await renderResult(lastData);
+  if (generation === displayRenderGeneration) restoreResultScrollAnchor(scrollAnchor, true);
 }
 
 function droppedPaths(dataTransfer) {
@@ -2573,12 +2729,23 @@ $("keyMode").addEventListener("change", syncKeyMode);
 $("columnSearch").addEventListener("input", filterColumns);
 $("selectAllColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = true; }); updateCSVReview(); });
 $("invertColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = !input.checked; }); updateCSVReview(); });
-$("changedColumnsOnly").addEventListener("change", () => { if (csvData) { csvPage = 0; renderCSV(csvData); } });
+$("changedColumnsOnly").addEventListener("change", () => {
+  if (!csvData) return;
+  const scrollAnchor = captureResultScrollAnchor();
+  csvPage = 0;
+  renderCSV(csvData);
+  restoreResultScrollAnchor(scrollAnchor, true);
+});
 document.querySelectorAll(".browse").forEach((button) => button.addEventListener("click", () => openBrowser(button.dataset.target)));
 $("browserGo").addEventListener("click", async () => { try { await loadBrowser($("browserPath").value); } catch (err) { setStatus(String(err.message || err), "error"); } });
 $("browserUp").addEventListener("click", async () => { try { await loadBrowser($("browserUp").dataset.path); } catch (err) { setStatus(String(err.message || err), "error"); } });
-$("chooseFolder").addEventListener("click", () => { if (browserTarget) $(browserTarget).value = $("browserPath").value; $("fileBrowser").close(); });
-$("dirStatus").addEventListener("change", () => { if (directoryData) renderDirectory(directoryData, directoryBody); });
+$("chooseFolder").addEventListener("click", () => selectBrowserPath($("browserPath").value));
+$("dirStatus").addEventListener("change", async () => {
+  if (!directoryData) return;
+  const scrollAnchor = captureResultScrollAnchor();
+  await renderDirectory(directoryData, directoryBody);
+  restoreResultScrollAnchor(scrollAnchor, true);
+});
 $("dirPreview").addEventListener("click", previewDirectoryFilter);
 $("saveDirProject").addEventListener("click", saveDirectoryProject);
 $("loadDirProject").addEventListener("click", loadDirectoryProject);
@@ -2660,7 +2827,6 @@ for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEv
 $("searchNext").addEventListener("click", () => stepSearch(1));
 $("searchPrev").addEventListener("click", () => stepSearch(-1));
 $("searchClose").addEventListener("click", closeSearch);
-$("swapSides").addEventListener("click", swapSides);
 captureControlDefaults($("compareConditions"));
 for (const control of $("compareConditions").querySelectorAll("input, select, textarea")) {
   control.addEventListener("change", updateDetailsBadges);
@@ -2687,7 +2853,9 @@ $("showWs").addEventListener("change", () => {
 });
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
+  const scrollAnchor = captureResultScrollAnchor();
   applyDisplayPreferences();
+  restoreResultScrollAnchor(scrollAnchor);
 });
 $("word").addEventListener("change", rerenderForDisplayChange);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
@@ -2696,7 +2864,7 @@ for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat
 }
 function applyScratch() {
   const on = $("scratch").checked;
-  $("paths").hidden = on;
+  syncLaunchPathsVisibility();
   $("scratchArea").hidden = !on;
 }
 $("scratch").addEventListener("change", applyScratch);
@@ -2719,6 +2887,8 @@ if (launch.has("old")) $("old").value = launch.get("old");
 if (launch.has("new")) $("new").value = launch.get("new");
 if (["text", "sorted", "csv", "threeway", "threeway-csv", "dir"].includes(launch.get("mode"))) $("mode").value = launch.get("mode");
 if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
+syncCompareReady();
+syncLaunchPathsVisibility();
 const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);
 if (launch.get("autorun") === "1" && launchReady) queueMicrotask(compare);
 

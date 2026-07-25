@@ -7,9 +7,10 @@
 browser instead of the terminal. The single-page app is embedded in the binary,
 so there is nothing extra to install and no network access to the outside world.
 
-![Comparison setup with file paths and comparison options](assets/screenshot-setup.png)
+![Initial comparison setup with file paths and mode options](assets/screenshot-setup.png)
 
-*The setup screen keeps the common choices visible; mode-specific settings appear only when needed.*
+*Paths are prominent before the first comparison; after that, editable sticky
+pane headers replace the initial path rail.*
 
 Two subcommands start it:
 
@@ -117,6 +118,13 @@ context-line count, then use **Export patch** to download an applyable
 `ayame.patch`. Patch export preserves CRLF and missing-final-newline markers and
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
+
+After a result appears, the initial path rail is removed from the work area.
+Each sticky pane header identifies its side and carries an editable path, a
+server-side browse button, detected encoding and line count where available.
+Press `Enter` or leave an edited field to compare that replacement immediately;
+the `⇄` control swaps OLD and NEW. Re-comparison restores the logical line that
+was in view rather than returning to the first difference.
 
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.

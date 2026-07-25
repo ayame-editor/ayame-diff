@@ -10,10 +10,6 @@ import (
 // paths, a control every comparable tool provides.
 func TestSwapSidesExists(t *testing.T) {
 	t.Parallel()
-	index := readWebAsset(t, "index.html")
-	if !strings.Contains(index, `id="swapSides"`) {
-		t.Fatal("index.html has no swap control")
-	}
 	app := readWebAsset(t, "app.js")
 	if !strings.Contains(app, "function swapSides()") {
 		t.Fatal("app.js has no swapSides")
@@ -32,8 +28,58 @@ func TestSwapSidesExists(t *testing.T) {
 	if !strings.Contains(body, "if (lastData || csvData || threeWayData || directoryData) compare()") {
 		t.Error("swapSides re-runs unconditionally, or never re-runs")
 	}
-	if !strings.Contains(app, `$("swapSides").addEventListener("click", swapSides)`) {
-		t.Error("the swap button is not wired")
+	header := renderFunctionBody(t, app, "function paneHeads(")
+	if !strings.Contains(header, `swap.className = "pane-head-swap"`) ||
+		!strings.Contains(header, `swap.addEventListener("click", swapSides)`) {
+		t.Error("the sticky pane header has no wired swap control")
+	}
+}
+
+// TestPaneHeadersOwnPathChanges covers #252. Once a result exists, its sticky
+// headers are the source controls: each side can be edited or browsed and
+// committed directly, without reopening the setup form.
+func TestPaneHeadersOwnPathChanges(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	header := renderFunctionBody(t, app, "function paneHeads(")
+	for _, want := range []string{
+		`? [["base", "BASE"], ["old", "LEFT"], ["new", "RIGHT"]]`,
+		`name = document.createElement(scratch ? "span" : "input")`,
+		`name.addEventListener("change"`,
+		`commitPanePath(name, side, path)`,
+		`openBrowser(side, async (selected)`,
+		`pane-head-meta`,
+		"data[`${side}_encoding`]",
+	} {
+		if !strings.Contains(header, want) {
+			t.Errorf("paneHeads is missing %q", want)
+		}
+	}
+	commit := renderFunctionBody(t, app, "async function commitPanePath(")
+	for _, want := range []string{`$(side).value = value`, "syncCompareReady()", "await compare()"} {
+		if !strings.Contains(commit, want) {
+			t.Errorf("editing a pane path does not commit through %q", want)
+		}
+	}
+	if strings.Count(app, "result.append(paneHeads(data))") != 4 {
+		t.Error("text, CSV, 3-way, and folder results must all carry pane headers")
+	}
+	visibility := renderFunctionBody(t, app, "function syncLaunchPathsVisibility(")
+	if !strings.Contains(visibility, "lastData || csvData || threeWayData || directoryData") ||
+		!strings.Contains(visibility, `$("paths").hidden`) {
+		t.Error("the initial path rail does not disappear after a result exists")
+	}
+	for _, want := range []string{
+		".pane-heads {\n  position: sticky",
+		".pane-heads.three { grid-template-columns: repeat(3",
+		"input.pane-head-path {",
+		".pane-head-swap {",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("pane header styling is missing %q", want)
+		}
 	}
 }
 
