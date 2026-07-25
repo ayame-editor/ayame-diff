@@ -183,6 +183,11 @@
       </section>
 
       <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
+      <section class="external-change-bar" id="externalChangeBar" role="alert" hidden>
+        <span data-i18n="externalChanged">A compared file changed outside ayame-diff. Keep the unsaved edits or reload it.</span>
+        <button id="externalReload" type="button" data-i18n="externalReload">Reload</button>
+        <button id="externalKeep" type="button" data-i18n="externalKeep">Keep current edits</button>
+      </section>
 
 
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
@@ -212,6 +217,7 @@
               <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
               <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
               <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+              <label class="opt check"><input id="autoReload" type="checkbox" checked /><span data-i18n="autoReload">auto-reload external changes</span></label>
               <hr />
               <label class="opt"><span data-i18n="theme">theme</span>
                 <select id="theme">
@@ -364,6 +370,7 @@
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
     <script src="scrollanchor.js"></script>
+    <script src="filewatch.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

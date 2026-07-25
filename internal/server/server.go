@@ -95,6 +95,7 @@ type Server struct {
 	dropMu       sync.Mutex
 	drops        map[string]*dropSession
 	compareSem   chan struct{} // bounds concurrent expensive comparisons (#170)
+	watchSem     chan struct{} // bounds authenticated long-poll file watches (#251)
 }
 
 // Options configures a Server.
@@ -141,6 +142,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 		version: opts.Version, token: token, allowedHosts: allowed,
 		mux: http.NewServeMux(), drops: make(map[string]*dropSession),
 		compareSem: make(chan struct{}, maxConcurrentComparisons),
+		watchSem:   make(chan struct{}, maxConcurrentWatchRequests),
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
@@ -161,6 +163,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s.mux.HandleFunc("/api/dir/diff", s.limited(s.handleDirDiff))
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/path-info", s.handlePathInfo)
+	s.mux.HandleFunc("/api/watch", s.handleWatch)
 	s.mux.HandleFunc("/api/drop", s.handleDrop)
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)

@@ -29,6 +29,7 @@ func TestAPIRequiresToken(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodGet, "/api/files?path=/", ""},
 		{http.MethodGet, "/api/path-info?path=/etc/passwd", ""},
+		{http.MethodPost, "/api/watch", `{"paths":["/etc/passwd"]}`},
 		{http.MethodPost, "/api/diff", `{}`},
 		{http.MethodPost, "/api/merge/text", `{}`},
 		{http.MethodPost, "/api/csv/export", `{}`},

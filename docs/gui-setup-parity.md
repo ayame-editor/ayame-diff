@@ -40,4 +40,5 @@ an interactive setting.
 
 The GUI additionally exposes case/whitespace/regex filters, ignored value
 columns, global and per-column numeric tolerances, cell-level output, display
-row limits, and TSV versus JSON Lines export.
+row limits, TSV versus JSON Lines export, and a persistent toggle for
+auto-reloading file-backed comparisons after external saves.

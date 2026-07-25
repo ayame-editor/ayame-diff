@@ -259,6 +259,7 @@ button:active:not(:disabled) {
 
 .status { margin-top: 0.9rem; padding: 0.6rem 0.8rem; border-radius: calc(var(--radius) - 2px); border: 1px solid var(--border); }
 .status.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }
+.status.warning { background: var(--chg-bg); color: var(--chg-fg); border-color: var(--chg-fg); }
 .status.busy { display: flex; align-items: center; gap: 0.55rem; color: var(--fg); }
 .status.busy::before {
   content: ""; width: 1rem; height: 1rem; flex: 0 0 auto;
@@ -266,6 +267,15 @@ button:active:not(:disabled) {
   border-radius: 50%; animation: status-spin 0.75s linear infinite;
 }
 @keyframes status-spin { to { transform: rotate(360deg); } }
+
+.external-change-bar {
+  display: flex; align-items: center; gap: 0.55rem;
+  margin-top: 0.6rem; padding: 0.5rem 0.7rem;
+  border: 1px solid var(--chg-fg); border-radius: calc(var(--radius) - 2px);
+  background: var(--chg-bg); color: var(--chg-fg);
+}
+.external-change-bar span { flex: 1 1 auto; }
+.external-change-bar button { margin: 0; flex: none; }
 
 .summary {
   margin-top: 0.9rem; display: flex; gap: 1.2rem; flex-wrap: wrap;

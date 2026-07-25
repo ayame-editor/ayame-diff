@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Followed external saves automatically in text, sorted, CSV, and three-way
+  comparisons. An authenticated long poll watches at most three source files,
+  coalesces atomic/multi-write saves, re-runs through the normal cancellation
+  and logical-scroll restoration path, and can be disabled from the View menu.
+  A dirty-result gate offers Reload or Keep instead of discarding future direct
+  edits. Folder and pasted-text comparisons remain manual so watching never
+  turns into an unbounded tree scan. (#251)
+
 ## v0.8.1 - 2026-07-25
 
 - Preserved the logical row and its screen offset when re-running a comparison,

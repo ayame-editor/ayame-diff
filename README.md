@@ -154,7 +154,7 @@ ayame-diff serve --addr 127.0.0.1:9000
 ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
-Specify paths for OLD / NEW and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with row numbers and word-level highlights for each hunk. After comparison, sticky pane headers let you edit or browse either path and re-run without returning to the initial setup.
+Specify paths for OLD / NEW and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with row numbers and word-level highlights for each hunk. After comparison, sticky pane headers let you edit or browse either path and re-run without returning to the initial setup. External saves automatically refresh file-backed comparisons at the same logical scroll position; this can be disabled from the View menu.
 
 ## How to Choose Keys
 

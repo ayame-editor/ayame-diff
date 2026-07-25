@@ -126,6 +126,26 @@ Press `Enter` or leave an edited field to compare that replacement immediately;
 the `⇄` control swaps OLD and NEW. Re-comparison restores the logical line that
 was in view rather than returning to the first difference.
 
+### External changes
+
+**Auto-reload external changes** is enabled by default in the View menu for
+file-backed `text`, `sorted`, `csv / tsv`, and three-way comparisons. Saving a
+compared file in another editor triggers one debounced re-comparison and keeps
+the same logical row at the same screen offset. Atomic-save sequences and
+several writes close together are coalesced before the comparison starts.
+
+The browser uses authenticated `fetch` long polls, so the watch request carries
+the same `X-Ayame-Token` as every other filesystem API. At most the three
+BASE/OLD/NEW paths are watched, and abandoned requests stop when the page,
+paths, mode, or preference changes. If a future editable result has unsaved
+changes, automatic replacement stops and a bar offers **Reload** or **Keep
+current edits**.
+
+Pasted text has no source file to watch. Folder comparison also stays manual:
+recursively polling an arbitrarily large tree on every save would violate the
+bounded-resource guarantees. Opening a changed folder entry as a text
+comparison watches that file pair normally.
+
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.
 
@@ -305,6 +325,12 @@ defaults to 3 when omitted.
 
 - `GET /api/files?path=...` lists up to 2,000 local directory entries for the
   setup file picker.
+- `POST /api/watch` accepts one to three file paths and an optional prior
+  `baseline`. With no baseline it returns the current snapshot immediately;
+  otherwise it waits up to 20 seconds and returns as soon as size, modified
+  time, or mode changes. Re-submit the returned `snapshot` as the next
+  baseline. Directories are rejected so one request cannot imply an unbounded
+  recursive scan.
 - `POST /api/csv/inspect` accepts CSV setup JSON and returns first-record schema
   inspection without scanning data rows.
 - `POST /api/csv/diff` runs the complete comparison and returns headers,

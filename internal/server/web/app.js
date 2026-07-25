@@ -5,6 +5,10 @@ const {
   captureScrollAnchor,
   restoreScrollAnchor,
 } = globalThis.AyameScrollAnchor;
+const {
+  watchPathsForMode,
+  createLongPollWatcher,
+} = globalThis.AyameFileWatch;
 
 function resultScrollInset() {
   return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
@@ -87,6 +91,12 @@ const I18N = {
     syncSelect: "左右から対応させる行を1行ずつ選択してください。",
     syncOrderError: "同期点は左右とも昇順になるよう選択してください。",
     scrollRestoreUnavailable: "前の表示位置がなくなったため、結果の先頭を表示しています。",
+    autoReload: "外部変更を自動反映",
+    externalChanged: "比較中のファイルが外部で変更されました。未保存の編集を保持するか、再読み込みしてください。",
+    externalReload: "再読み込み",
+    externalKeep: "現在の編集を保持",
+    externalReloaded: "外部変更を反映して比較結果を更新しました。",
+    watchFailed: (v) => `外部変更の監視を継続できません: ${v.message}`,
     hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
     // mode select + folder status-filter options, translated so JA follows (#125)
     modeText: "テキスト", modeSorted: "ソート済み", modeCsv: "CSV / TSV",
@@ -193,6 +203,12 @@ const I18N = {
     syncSelect: "Select one corresponding line on each side.",
     syncOrderError: "Sync points must increase on both sides.",
     scrollRestoreUnavailable: "The previous position no longer exists; showing the start of the result.",
+    autoReload: "Auto-reload external changes",
+    externalChanged: "A compared file changed outside ayame-diff. Keep the unsaved edits or reload it.",
+    externalReload: "Reload",
+    externalKeep: "Keep current edits",
+    externalReloaded: "Reloaded the external change and updated the comparison.",
+    watchFailed: (v) => `File watching could not continue: ${v.message}`,
     hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
     modeText: "text", modeSorted: "sorted", modeCsv: "csv / tsv",
     modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
@@ -348,12 +364,11 @@ async function runExclusive(name, fn) {
   busyOperation = name;
   lockExclusiveControls();
   try {
-    await fn();
+    return await fn();
   } finally {
     busyOperation = null;
     unlockExclusiveControls();
   }
-  return true;
 }
 
 // requestGeneration invalidates the result of a superseded request. Even with
@@ -389,6 +404,135 @@ function setMergeMode(on) {
   $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
 }
 let threeWayData = null;
+
+// ---- External file changes (#251) ----
+// The server long-polls with os.Stat while the browser keeps the authenticated
+// fetch open. EventSource is deliberately not used: it cannot attach the
+// X-Ayame-Token header that protects every filesystem API call.
+const AUTO_RELOAD_KEY = "ayame-auto-reload";
+const EXTERNAL_CHANGE_DEBOUNCE_MS = 350;
+let pendingExternalChange = null;
+let externalChangeTimer = 0;
+
+function currentWatchPaths() {
+  return watchPathsForMode($("mode").value, {
+    base: $("base").value,
+    old: $("old").value,
+    new: $("new").value,
+  }, $("scratch").checked);
+}
+
+function sameWatchPaths(left, right) {
+  return left.length === right.length && left.every((path, index) => path === right[index]);
+}
+
+async function requestFileWatch(paths, baseline = [], signal) {
+  const response = await apiFetch("/api/watch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths, baseline }),
+    signal,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+function hasUnsavedResultChanges() {
+  // Direct pane editing (#255) will own this flag. Keeping the gate here now
+  // means file watching cannot later start discarding edits merely because the
+  // editor and watcher were implemented in separate changes.
+  return document.body.dataset.unsavedChanges === "true";
+}
+
+function hideExternalChangeBar() {
+  $("externalChangeBar").hidden = true;
+}
+
+function showExternalChangeBar() {
+  $("externalChangeBar").hidden = false;
+}
+
+async function reloadExternalChange(change) {
+  hideExternalChangeBar();
+  pendingExternalChange = null;
+  // Refresh the snapshot after the debounce. Editors often save via several
+  // writes or an atomic replacement; this collapses them into one comparison.
+  let prepared = change;
+  try {
+    const current = await requestFileWatch(change.paths);
+    prepared = { ...change, snapshot: current.snapshot };
+  } catch (error) {
+    setStatus(t("watchFailed", { message: String(error.message || error) }), "warning");
+  }
+  if (!sameWatchPaths(prepared.paths, currentWatchPaths())) return false;
+  return compare({ watch: prepared, external: true });
+}
+
+async function flushExternalChange() {
+  externalChangeTimer = 0;
+  const change = pendingExternalChange;
+  if (!change || !$("autoReload").checked) return;
+  if (!sameWatchPaths(change.paths, currentWatchPaths())) {
+    pendingExternalChange = null;
+    return;
+  }
+  if (hasUnsavedResultChanges()) {
+    showExternalChangeBar();
+    return;
+  }
+  if (busyOperation) {
+    externalChangeTimer = setTimeout(flushExternalChange, EXTERNAL_CHANGE_DEBOUNCE_MS);
+    return;
+  }
+  await reloadExternalChange(change);
+}
+
+function queueExternalChange(change) {
+  pendingExternalChange = change;
+  clearTimeout(externalChangeTimer);
+  externalChangeTimer = setTimeout(flushExternalChange, EXTERNAL_CHANGE_DEBOUNCE_MS);
+}
+
+const fileWatcher = createLongPollWatcher({
+  request: requestFileWatch,
+  onChange: queueExternalChange,
+  onError: (error) => {
+    if ($("autoReload").checked) {
+      setStatus(t("watchFailed", { message: String(error.message || error) }), "warning");
+    }
+  },
+});
+
+function stopFileWatch() {
+  fileWatcher.stop();
+  clearTimeout(externalChangeTimer);
+  externalChangeTimer = 0;
+  pendingExternalChange = null;
+  hideExternalChangeBar();
+}
+
+async function prepareFileWatch() {
+  stopFileWatch();
+  if (!$("autoReload").checked) return null;
+  const paths = currentWatchPaths();
+  if (!paths.length) return null;
+  try {
+    const response = await requestFileWatch(paths);
+    return { paths, snapshot: response.snapshot };
+  } catch (error) {
+    setStatus(t("watchFailed", { message: String(error.message || error) }), "warning");
+    return null;
+  }
+}
+
+async function armFileWatchFromCurrentState() {
+  if (!(lastData || csvData || threeWayData) || !$("autoReload").checked) return;
+  const prepared = await prepareFileWatch();
+  if (prepared && sameWatchPaths(prepared.paths, currentWatchPaths())) {
+    fileWatcher.start(prepared.paths, prepared.snapshot);
+  }
+}
 
 // ---- rendering ----
 // appendText emits both the original whitespace and its visible representation.
@@ -1032,9 +1176,9 @@ function updateThreeWayMergeUI() {
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 async function compareThreeWay(csvMode) {
-  if (!$("base").value.trim() || !$("old").value.trim() || !$("new").value.trim()) { setStatus(t("enterPaths"), "error"); return; }
+  if (!$("base").value.trim() || !$("old").value.trim() || !$("new").value.trim()) { setStatus(t("enterPaths"), "error"); return false; }
   let body;
-  if (csvMode) { if (!csvInspection && !(await inspectCSV())) return; body = { ...csvRequestBody(), base: $("base").value.trim() }; }
+  if (csvMode) { if (!csvInspection && !(await inspectCSV())) return false; body = { ...csvRequestBody(), base: $("base").value.trim() }; }
   else body = threeWayRequestBody();
   // Same busy contract as the other compare paths: abortable, with an elapsed
   // counter and a working Cancel. This path had none of the three (#128).
@@ -1049,14 +1193,16 @@ async function compareThreeWay(csvMode) {
   try {
     const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    if (!isCurrentRequest(generation)) return;
+    if (!isCurrentRequest(generation)) return false;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
     clearInterval(timer);
     await renderThreeWay(data, csvMode);
+    return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
     else setStatus(String(err.message || err), "error");
+    return false;
   } finally {
     clearInterval(timer);
     $("cancel").hidden = true;
@@ -1497,10 +1643,10 @@ function renderCSV(data) {
 async function compareCSV() {
 	let body = csvRequestBody();
 	if (!csvInspection) {
-	  if (!validateInputs(body, false) || !(await inspectCSV())) return;
+	  if (!validateInputs(body, false) || !(await inspectCSV())) return false;
 	  body = csvRequestBody();
 	}
-	if (!validateInputs(body)) return;
+	if (!validateInputs(body)) return false;
   const ac = new AbortController(); currentAbort = ac; $("cancel").hidden = false;
   const generation = beginRequest();
   const started = Date.now(), tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy"); tick();
@@ -1508,13 +1654,13 @@ async function compareCSV() {
   try {
     const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    if (!isCurrentRequest(generation)) return;
+    if (!isCurrentRequest(generation)) return false;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
-    csvPage = 0; renderCSV(data); rememberComparison(body); setStatus("");
-  } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
+    csvPage = 0; renderCSV(data); rememberComparison(body); setStatus(""); return true;
+  } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); return false; }
   finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
 }
 
@@ -1681,7 +1827,7 @@ async function renderDirectory(data, body) {
 }
 
 async function compareDirectory() {
-  const body = dirRequestBody(); if (!validateInputs(body)) return;
+  const body = dirRequestBody(); if (!validateInputs(body)) return false;
   const ac = new AbortController(); currentAbort = ac; $("cancel").hidden = false;
   const generation = beginRequest();
   const started = Date.now();
@@ -1691,21 +1837,22 @@ async function compareDirectory() {
   try {
     const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    if (!isCurrentRequest(generation)) return;
+    if (!isCurrentRequest(generation)) return false;
     clearInterval(timer);
     await renderDirectory(data, body);
+    return true;
   }
-  catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); }
+  catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); return false; }
   finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
 }
 
 async function runCompare() {
-  if ($("mode").value === "threeway") { await compareThreeWay(false); return; }
-  if ($("mode").value === "threeway-csv") { await compareThreeWay(true); return; }
-  if ($("mode").value === "csv") { await compareCSV(); return; }
-	if ($("mode").value === "dir") { await compareDirectory(); return; }
+  if ($("mode").value === "threeway") return compareThreeWay(false);
+  if ($("mode").value === "threeway-csv") return compareThreeWay(true);
+  if ($("mode").value === "csv") return compareCSV();
+	if ($("mode").value === "dir") return compareDirectory();
   const body = requestBody();
-  if (!validateInputs(body)) return;
+  if (!validateInputs(body)) return false;
   ignoredHunks = new Set();
   resetSyncSelection();
   const ac = new AbortController();
@@ -1732,7 +1879,7 @@ async function runCompare() {
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     // Drag and drop, folder-entry clicks, and sync-point edits all call
     // compare() directly, so a newer comparison can already be running (#128).
-    if (!isCurrentRequest(generation)) return;
+    if (!isCurrentRequest(generation)) return false;
     lastData = data;
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
@@ -1746,9 +1893,11 @@ async function runCompare() {
     // slices, so the ticker would otherwise keep overwriting its progress.
     clearInterval(timer);
     await renderResult(data);
+    return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
     else setStatus(String(err.message || err), "error");
+    return false;
   } finally {
     clearInterval(timer);
     $("cancel").hidden = true;
@@ -1760,16 +1909,23 @@ async function runCompare() {
 // actual work. Wrapping here rather than at each button covers the callers
 // that never touch a button — drag and drop, folder-entry clicks, sync-point
 // edits, and the Enter key (#128).
-async function compare() {
+async function compare(options = {}) {
+  if (busyOperation) return false;
+  const preparedWatch = options.watch || await prepareFileWatch();
   const scrollAnchor = captureResultScrollAnchor();
   const result = await runExclusive("compare", runCompare);
   if (result) restoreResultScrollAnchor(scrollAnchor, true);
   // Only fold once something is actually on screen. A failed or cancelled run
   // leaves the form open, because the inputs are then what needs attention.
-  if (!$("status").classList.contains("error") && $("result").children.length) {
+  if (result && $("result").children.length) {
     collapseSetupAfterCompare();
     rememberPaths();
   }
+  if (preparedWatch && $("autoReload").checked &&
+      sameWatchPaths(preparedWatch.paths, currentWatchPaths())) {
+    fileWatcher.start(preparedWatch.paths, preparedWatch.snapshot);
+  }
+  if (options.external && result) setStatus(t("externalReloaded"), "");
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
@@ -2692,7 +2848,34 @@ for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]
   if (!node) continue;
   node.addEventListener("input", syncCompareReady);
   node.addEventListener("change", syncCompareReady);
+  node.addEventListener("input", stopFileWatch);
+  node.addEventListener("change", stopFileWatch);
 }
+$("autoReload").checked = localStorage.getItem(AUTO_RELOAD_KEY) !== "0";
+$("autoReload").addEventListener("change", () => {
+  localStorage.setItem(AUTO_RELOAD_KEY, $("autoReload").checked ? "1" : "0");
+  if ($("autoReload").checked) armFileWatchFromCurrentState();
+  else stopFileWatch();
+});
+$("externalReload").addEventListener("click", async () => {
+  const change = pendingExternalChange;
+  if (!change) return;
+  // Reload is an explicit discard decision. The future direct editor listens
+  // for this event to clear its own model before the comparison is replaced.
+  document.dispatchEvent(new CustomEvent("ayame:discard-unsaved-changes"));
+  document.body.dataset.unsavedChanges = "false";
+  await reloadExternalChange(change);
+});
+$("externalKeep").addEventListener("click", () => {
+  const change = pendingExternalChange;
+  pendingExternalChange = null;
+  hideExternalChangeBar();
+  if (change && $("autoReload").checked &&
+      sameWatchPaths(change.paths, currentWatchPaths())) {
+    fileWatcher.start(change.paths, change.snapshot);
+  }
+});
+window.addEventListener("pagehide", stopFileWatch);
 syncCompareReady();
 renderPathHistory();
 $("sidebarToggle").addEventListener("click", () => {

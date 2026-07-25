@@ -81,7 +81,7 @@ func TestStaleResponsesAreDiscarded(t *testing.T) {
 	if got := strings.Count(app, "beginRequest()"); got < 5 {
 		t.Errorf("beginRequest used %d times; the helper plus four compare paths are expected", got)
 	}
-	if got := strings.Count(app, "if (!isCurrentRequest(generation)) return;"); got < 4 {
+	if got := strings.Count(app, "if (!isCurrentRequest(generation)) return"); got < 4 {
 		t.Errorf("only %d paths discard a stale response; text, CSV, folder, and three-way all need it", got)
 	}
 }
