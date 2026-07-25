@@ -166,6 +166,11 @@ main {
 .settings-body > details { margin: 0; }
 .settings-actions { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
 .paths { display: grid; gap: 0.6rem; }
+.launch-paths {
+  flex: 0 0 auto; margin-bottom: 0.8rem; padding: 1rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
 .paths label { display: grid; grid-template-columns: 3.2rem 1fr; align-items: center; gap: 0.6rem; }
 .paths span { color: var(--muted); font-size: var(--fs-label); }
 .path-control { display: flex; gap: 0.35rem; }
@@ -505,8 +510,6 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .shortcuts dt { font-family: var(--mono); color: var(--accent-bright); white-space: nowrap; }
 .shortcuts dd { margin: 0; }
 
-.path-swap { display: flex; justify-content: flex-end; margin-top: -0.2rem; }
-.path-swap button { margin: 0; padding: 0.25rem 0.7rem; font-size: var(--fs-label); }
 
 .csv-advanced > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 .details-badge {
@@ -578,21 +581,43 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   background: var(--panel); border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 2px);
 }
+.pane-heads.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pane-head {
-  display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
+  display: flex; align-items: center; gap: 0.35rem; min-width: 0;
   padding: 0.3rem 0.6rem; font-size: var(--fs-caption);
 }
 .pane-head + .pane-head { border-left: 1px solid var(--border); }
 .pane-head-label { color: var(--muted); font-weight: 700; flex: none; }
 .pane-head-path {
   font-family: var(--mono); color: var(--fg);
+  flex: 1 1 auto;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+span.pane-head-path {
   /* The end of a path identifies the file; the start is usually shared, so
      truncate from the left by making the box RTL. unicode-bidi: plaintext is
      required with it — without that the string itself is reordered and
      "/tmp/…/old.txt" renders as "tmp/…/old.txt/", with the leading slash
      dragged to the end. */
   direction: rtl; unicode-bidi: plaintext; text-align: left;
+}
+input.pane-head-path {
+  width: auto; padding: 0.15rem 0.3rem;
+  border-color: transparent; background: transparent; direction: ltr;
+}
+input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--border); background: var(--bg); }
+.pane-head-meta { color: var(--muted); white-space: nowrap; flex: none; }
+.pane-head-browse {
+  margin: 0; padding: 0.1rem 0.4rem; flex: none; font-size: var(--fs-caption);
+}
+.pane-head.old { padding-right: 1.5rem; }
+.pane-head.new { padding-left: 1.5rem; }
+.pane-heads.three .pane-head.base { padding-right: 0.6rem; }
+.pane-head-swap {
+  position: absolute; left: 50%; top: 50%; z-index: 1;
+  width: 1.8rem; height: 1.8rem; margin: 0; padding: 0;
+  display: grid; place-items: center; transform: translate(-50%, -50%);
+  border-radius: 999px; background: var(--panel);
 }
 /* One column means one header, and the two sides are stacked rather than side
    by side, so a split header would be a lie. */
@@ -716,6 +741,10 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   .status.busy::before { animation: none; }
   button, .cell.selectable-line, .hunk, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }
+}
+
+@media (max-width: 960px) {
+  .pane-head-meta { display: none; }
 }
 
 @media (max-width: 720px) {

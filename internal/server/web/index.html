@@ -16,6 +16,24 @@
     </header>
 
     <main>
+      <!-- Initial-only path rail. After the first successful comparison the
+           sticky pane headers become the editable path controls, so this rail
+           disappears instead of duplicating the same fields above the result. -->
+      <div class="paths launch-paths" id="paths">
+        <label id="basePathRow" hidden>
+          <span>BASE</span>
+          <span class="path-control"><input id="base" type="text" list="baseHistory" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+        </label>
+        <label>
+          <span>OLD</span>
+          <span class="path-control"><input id="old" type="text" list="oldHistory" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+        </label>
+        <label>
+          <span>NEW</span>
+          <span class="path-control"><input id="new" type="text" list="newHistory" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+        </label>
+      </div>
+
       <section class="setup" id="setup">
         <!-- Once a comparison exists the form has done its job, and the window
              belongs to the result. Expanded, this section filled the viewport
@@ -36,23 +54,6 @@
         <datalist id="baseHistory"></datalist>
         <div id="setupBody">
         <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
-        <div class="paths" id="paths">
-          <label id="basePathRow" hidden>
-            <span>BASE</span>
-            <span class="path-control"><input id="base" type="text" list="baseHistory" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
-          </label>
-          <label>
-            <span>OLD</span>
-			<span class="path-control"><input id="old" type="text" list="oldHistory" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
-          </label>
-          <label>
-            <span>NEW</span>
-			<span class="path-control"><input id="new" type="text" list="newHistory" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
-          </label>
-          <div class="path-swap">
-            <button id="swapSides" type="button" data-i18n-title="swapSides" data-i18n-aria-label="swapSides" title="OLD と NEW を入れ替え" aria-label="OLD と NEW を入れ替え"><span aria-hidden="true">⇅</span> <span data-i18n="swap">Swap</span></button>
-          </div>
-        </div>
         <div class="scratch-area" id="scratchArea" hidden>
           <label><span>OLD</span><textarea id="oldText" rows="6" spellcheck="false"></textarea></label>
           <label><span>NEW</span><textarea id="newText" rows="6" spellcheck="false"></textarea></label>
@@ -362,6 +363,7 @@
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
+    <script src="scrollanchor.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

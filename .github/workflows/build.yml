@@ -9,26 +9,67 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CANDIDATE_VERSION: v0.0.0-ci.${{ github.run_number }}
 
 jobs:
-  test:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - run: go test ./...
+
+  race-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - run: go test -race ./...
+
+  linux-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true
-      - run: go test ./...
       - name: Patch compatibility (GNU patch + git apply)
         run: go test ./internal/diffout -run TestPatchFormatsApplyWithGNUAndGit -v
-      - run: go test -race ./...
-      - run: go vet ./...
       - run: make smoke
+
+  # Preserve the existing required-check name while the expensive checks above
+  # run concurrently.
+  test:
+    if: always()
+    needs:
+      - unit-tests
+      - race-tests
+      - linux-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Linux test jobs
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          RACE_RESULT: ${{ needs.race-tests.result }}
+          SMOKE_RESULT: ${{ needs.linux-smoke.result }}
+        run: |
+          test "$UNIT_RESULT" = success
+          test "$RACE_RESULT" = success
+          test "$SMOKE_RESULT" = success
 
   # Verify the minimum Go declared in go.mod actually builds and tests, so a
   # 1.24+ only feature can't slip in while every other job runs 1.26 (#172).
@@ -40,7 +81,7 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.23.x'
           cache: true
@@ -58,17 +99,26 @@ jobs:
           matrix=$(jq -Rsc 'split("\n") | map(select(length > 0 and (startswith("#") | not)) | split(" ") | {goos: .[0], goarch: .[1], ext: (if .[2] == "-" then "" else .[2] end)})' < scripts/targets.txt)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
-  windows-native:
+  windows-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - run: go test ./...
+
+  windows-build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true
-      - run: go test ./...
       - name: Build native Windows executable
         run: >-
           go build -trimpath
@@ -76,6 +126,23 @@ jobs:
           -o ayame-diff.exe
           ./cmd/ayame-diff
       - run: .\ayame-diff.exe --version
+
+  # Preserve the existing required-check name while native test and build run
+  # on separate Windows runners.
+  windows-native:
+    if: always()
+    needs:
+      - windows-tests
+      - windows-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify native Windows jobs
+        env:
+          TEST_RESULT: ${{ needs.windows-tests.result }}
+          BUILD_RESULT: ${{ needs.windows-build.result }}
+        run: |
+          test "$TEST_RESULT" = success
+          test "$BUILD_RESULT" = success
 
   build:
     needs: targets
@@ -88,7 +155,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true
@@ -104,17 +171,19 @@ jobs:
           -o "ayame-diff-${GOOS}-${GOARCH}${{ matrix.ext }}"
           ./cmd/ayame-diff
       - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           name: ayame-diff-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ayame-diff-*
           if-no-files-found: error
 
   package-candidate:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true

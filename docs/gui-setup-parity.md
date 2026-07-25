@@ -9,7 +9,7 @@ an interactive setting.
 
 | Former wizard screen / setting | GUI control |
 |---|---|
-| Left and right input paths | OLD / NEW inputs and server-side file browser |
+| Left and right input paths | Initial OLD / NEW rail; editable sticky pane headers and server-side file browser after comparison |
 | Output path | Output path under Comparison and performance |
 | Header present | Header row checkbox |
 | Align headers by name / position | Align by name checkbox |

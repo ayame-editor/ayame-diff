@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+// TestResultOwnsTheViewport pins the application shell from #250. Every
+// ancestor between the viewport and #result must be allowed to shrink; losing
+// one min-height/overflow rule silently returns the page to document scrolling
+// and can make the bottom of a long diff unreachable.
+func TestResultOwnsTheViewport(t *testing.T) {
+	t.Parallel()
+	style := readWebAsset(t, "style.css")
+
+	rules := []struct {
+		selector string
+		wants    []string
+	}{
+		{"body {", []string{"height: 100dvh", "display: grid", "grid-template-rows: auto minmax(0, 1fr) auto", "overflow: hidden"}},
+		{"main {", []string{"display: flex", "min-height: 0", "overflow: hidden"}},
+		{".diff-layout, main > #result {", []string{"flex: 1 1 auto", "min-height: 0"}},
+		{".diff-layout > #result {", []string{"align-self: stretch"}},
+		{"\n#result {", []string{"min-height: 0", "overflow: auto", "grid-auto-rows: min-content"}},
+		{".setup {", []string{"max-height: 50vh", "overflow-y: auto"}},
+	}
+	for _, rule := range rules {
+		body := sectionBetween(t, style, rule.selector, "}")
+		for _, want := range rule.wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s no longer contains %q", rule.selector, want)
+			}
+		}
+	}
+}
+
 // TestComparisonOptionsAreNotOnTheSetupForm pins the split every surveyed tool
 // draws: the screen you pick files on carries what to compare, and how to
 // compare it lives behind one button. WinMerge's Select-Files screen has three
@@ -18,6 +47,7 @@ func TestComparisonOptionsAreNotOnTheSetupForm(t *testing.T) {
 	index := readWebAsset(t, "index.html")
 
 	setup := sectionBetween(t, index, `<section class="setup" id="setup">`, `</section>`)
+	launchPaths := sectionBetween(t, index, `<div class="paths launch-paths" id="paths">`, `<section class="setup"`)
 	dialog := sectionBetween(t, index, `<dialog id="settingsDialog"`, `</dialog>`)
 
 	// What counts as a difference, and how much of one is computed.
@@ -35,10 +65,14 @@ func TestComparisonOptionsAreNotOnTheSetupForm(t *testing.T) {
 		}
 	}
 
-	// The paths are the one thing that must stay on the form.
+	// Paths are an initial-only rail, not part of the setup section that remains
+	// reachable while reading a result (#252).
 	for _, id := range []string{"old", "new", "base"} {
-		if !strings.Contains(setup, `id="`+id+`"`) {
-			t.Errorf("the %s path field left the setup form", id)
+		if strings.Contains(setup, `id="`+id+`"`) {
+			t.Errorf("the %s path field is still duplicated inside setup", id)
+		}
+		if !strings.Contains(launchPaths, `id="`+id+`"`) {
+			t.Errorf("the initial %s path field is missing from the launch rail", id)
 		}
 	}
 	if !strings.Contains(setup, `id="openSettings"`) {
@@ -136,9 +170,10 @@ func TestOpeningAFileKeepsTheFolderResult(t *testing.T) {
 	if !strings.Contains(open, "folderReturn = {") {
 		t.Error("the folder result is not kept when opening a file")
 	}
-	// Losing your place in a long list is most of the cost of going back.
-	if !strings.Contains(open, "scroll:") {
-		t.Error("the scroll position in the folder list is not kept")
+	// Losing your place in a long list is most of the cost of going back. Keep
+	// a logical path anchor rather than a pixel offset, since rows can resize.
+	if !strings.Contains(open, "anchor: captureResultScrollAnchor()") {
+		t.Error("the logical position in the folder list is not kept")
 	}
 
 	back := renderFunctionBody(t, app, "async function returnToFolder(")
@@ -148,7 +183,7 @@ func TestOpeningAFileKeepsTheFolderResult(t *testing.T) {
 	if strings.Contains(back, "compareDirectory(") || strings.Contains(back, "apiFetch(") {
 		t.Error("returning to the folder list hits the server again")
 	}
-	if !strings.Contains(back, "scrollTop = scroll") {
+	if !strings.Contains(back, "restoreResultScrollAnchor(anchor") {
 		t.Error("returning drops the reader at the top of the list")
 	}
 	// A fresh folder comparison must not offer a stale way back.

@@ -8,15 +8,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
+  format-and-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
-          cache: true
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
@@ -29,10 +32,47 @@ jobs:
         # node --test needs no dependencies; the web assets are plain scripts
         # with no build step, and this keeps it that way (#139).
         run: node --test internal/server/web/test/*.test.js
+
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
       - run: go vet ./...
+
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
       - name: staticcheck
         # Pinned so an unrelated PR never breaks when a new staticcheck ships;
         # bump deliberately. v0.7.0 == staticcheck 2026.1.
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
           staticcheck ./...
+
+  # Preserve the existing required-check name while lint jobs run concurrently.
+  lint:
+    if: always()
+    needs:
+      - format-and-web
+      - vet
+      - staticcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify lint jobs
+        env:
+          FORMAT_RESULT: ${{ needs.format-and-web.result }}
+          VET_RESULT: ${{ needs.vet.result }}
+          STATICCHECK_RESULT: ${{ needs.staticcheck.result }}
+        run: |
+          test "$FORMAT_RESULT" = success
+          test "$VET_RESULT" = success
+          test "$STATICCHECK_RESULT" = success
