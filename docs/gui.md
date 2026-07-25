@@ -199,7 +199,9 @@ use the modification color, header badges show per-column change counts, and
 browser response at 5,000 logical differences; **Run and export** writes the
 complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
 
-See the [former TUI parity checklist](gui-setup-parity.md) for the full mapping.
+See the [GUI reachability and placement policy](gui-setup-parity.md) for the
+full mapping and the rules that keep advanced settings reachable without
+promoting every engine option onto the result screen.
 
 ### Folder comparison
 

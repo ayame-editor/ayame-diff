@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Reframed the retired-wizard parity policy around GUI reachability rather than
+  one permanently visible control per setting. Every migrated setting now has
+  an explicit input-rail, result-toolbar, settings-dialog, or automatic
+  placement, with operational CSV tuning marked for the #261 automation path.
+  (#253)
+
 - Followed external saves automatically in text, sorted, CSV, and three-way
   comparisons. An authenticated long poll watches at most three source files,
   coalesces atomic/multi-write saves, re-runs through the normal cancellation
