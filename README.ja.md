@@ -17,7 +17,9 @@
 埋め込みのローカル GUI は、[フォルダ比較](docs/assets/screenshot-folder.png)、
 [3-way マージ](docs/assets/screenshot-three-way.png)、設定可能な
 [比較セットアップ](docs/assets/screenshot-setup.png)にも対応します。詳細は
-[GUI ガイド](docs/gui.ja.md)を参照してください。
+成功したファイル比較は再読み込みやブラウザ履歴の移動後も復元されます。
+**リンクをコピー**はローカルパスを含むという警告を表示してから、トークンを除いた
+URLを作成します。詳細は[GUI ガイド](docs/gui.ja.md)を参照してください。
 
 ## 主な機能
 

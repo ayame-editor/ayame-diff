@@ -16,7 +16,10 @@ Designed for files with up to 5,000,000,000 rows, it does not load all rows into
 
 The embedded local GUI also supports [folder comparison](docs/assets/screenshot-folder.png),
 [three-way merge](docs/assets/screenshot-three-way.png), and a configurable
-[comparison setup](docs/assets/screenshot-setup.png). See the [GUI guide](docs/gui.md).
+[comparison setup](docs/assets/screenshot-setup.png). Successful file-backed
+comparisons survive reload and browser history navigation. **Copy link** creates
+a token-free URL after warning that it contains local paths. See the
+[GUI guide](docs/gui.md).
 
 ## Main Features
 

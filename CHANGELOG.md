@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stored successful file-backed comparison inputs and conditions in a versioned
+  URL fragment. Reload restores and re-runs the comparison, Back/Forward moves
+  between comparisons, and the result toolbar copies a warned share URL with
+  the API token removed. Large states are directed to project files. (#254)
+
 - Reframed the retired-wizard parity policy around GUI reachability rather than
   one permanently visible control per setting. Every migrated setting now has
   an explicit input-rail, result-toolbar, settings-dialog, or automatic

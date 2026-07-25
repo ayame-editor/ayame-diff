@@ -64,6 +64,7 @@ GUI-only capabilities follow the same policy:
 | Case, whitespace, EOL, regular-expression filters, ignored columns, and numeric tolerances | **Settings dialog** because they change comparison meaning |
 | Word highlighting, wrapping, syntax highlighting, whitespace display, theme, and colour scheme | **Result toolbar** View menu because they only change presentation |
 | Auto-reload after external saves | **Result toolbar** View menu; the preference persists globally |
+| Comparison URL copy and browser-history navigation | **Result toolbar**; copied URLs remove the API token and disclose that local paths remain |
 | Display row limits, changed-column output, output format, and output headers | **Settings dialog**, grouped with result/export choices |
 
 ## Review rule

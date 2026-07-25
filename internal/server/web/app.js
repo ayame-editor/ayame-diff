@@ -9,6 +9,12 @@ const {
   watchPathsForMode,
   createLongPollWatcher,
 } = globalThis.AyameFileWatch;
+const {
+  HASH_KEY: COMPARISON_HASH_KEY,
+  readComparisonState,
+  buildComparisonURL,
+  buildShareURL,
+} = globalThis.AyameURLState;
 
 function resultScrollInset() {
   return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
@@ -111,6 +117,12 @@ const I18N = {
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
     copyValue: "値をコピー", copied: "コピーしました", copyFailed: "コピーできませんでした（選択しました）",
+    copyComparisonURL: "リンクをコピー",
+    shareURLWarning: "コピーするURLにはローカルファイルのパスと比較条件が含まれます。APIトークンは除外されます。パスを共有してよい相手にだけ渡してください。",
+    sharedURLCopied: "APIトークンを含まない比較URLをコピーしました。",
+    sharedURLCopyFailed: "比較URLをコピーできませんでした。",
+    urlStateInvalid: "URLの比較状態が壊れているか、このバージョンでは読めません。",
+    urlStateTooLarge: "比較状態がURLの安全な長さを超えています。大量の列選択はプロジェクトファイルへ保存してください。",
     conditionsGroup: "比較条件", conditionsHint: "差分と見なす基準を変えるため、変更すると比較をやり直します。",
     theme: "テーマ", themeSystem: "OS に合わせる", themeLight: "ライト", themeDark: "ダーク",
     jumpToKind: (v) => `${v.label}の差分へ移動`,
@@ -220,6 +232,12 @@ const I18N = {
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
     copyValue: "Copy value", copied: "Copied", copyFailed: "Could not copy; the value is selected instead",
+    copyComparisonURL: "Copy link",
+    shareURLWarning: "The copied URL contains local file paths and comparison settings. The API token is removed. Share it only with someone who may see those paths.",
+    sharedURLCopied: "Copied a comparison URL without the API token.",
+    sharedURLCopyFailed: "Could not copy the comparison URL.",
+    urlStateInvalid: "The comparison state in this URL is damaged or unsupported by this version.",
+    urlStateTooLarge: "The comparison state is too large for a reliable URL. Save large column selections in a project file instead.",
     conditionsGroup: "Comparison conditions", conditionsHint: "These change what counts as a difference, so a change re-runs the comparison.",
     theme: "Theme", themeSystem: "Match system", themeLight: "Light", themeDark: "Dark",
     jumpToKind: (v) => `Jump to ${v.label}`,
@@ -328,7 +346,7 @@ let busyOperation = null;
 const EXCLUSIVE_CONTROLS = [
   "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge",
   "saveProject", "loadProject", "dirPreview", "saveDirProject", "loadDirProject",
-  "addSync", "clearSync", "allLeft", "allRight", "allBase",
+  "addSync", "clearSync", "allLeft", "allRight", "allBase", "copyComparisonURL",
 ];
 
 // controlsDisabledBeforeRun remembers which controls were already disabled for
@@ -532,6 +550,208 @@ async function armFileWatchFromCurrentState() {
   if (prepared && sameWatchPaths(prepared.paths, currentWatchPaths())) {
     fileWatcher.start(prepared.paths, prepared.snapshot);
   }
+}
+
+// ---- Comparison state in the URL (#254) ----
+// State lives in the fragment: browsers never send it to the local server, so
+// paths do not enter access logs or Referer headers. The normal in-tab URL keeps
+// its API token so reload works; the explicit copy action always removes it.
+const URL_STATE_MODES = new Set(["text", "sorted", "csv", "threeway", "threeway-csv", "dir"]);
+const URL_STATE_CONTROL_IDS = [
+  "encoding", "numeric", "reverse",
+  "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters",
+  "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
+  "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
+  "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
+  "ignoreColumns", "tolerance", "columnTolerances", "csvMaxRows",
+  "memory", "tempDir", "partitions", "parseWorkers", "workers", "mergeFanIn",
+  "partitionBuffer", "maxRecordBytes", "keepTemp", "changedColumnsOnly",
+  "dirIncludes", "dirExcludes", "dirFilter", "dirFilterFile", "dirFilterSet",
+  "dirCompareBy", "dirHidden", "dirWorkers", "dirStatus",
+];
+let restoringComparisonURL = false;
+let comparisonURLReplaceTimer = 0;
+let comparisonURLRestoreGeneration = 0;
+
+function hasComparisonResult() {
+  return Boolean(lastData || csvData || threeWayData || directoryData);
+}
+
+function captureComparisonState() {
+  if ($("scratch").checked) return null;
+  const mode = $("mode").value;
+  if (!URL_STATE_MODES.has(mode)) return null;
+  const paths = {
+    base: $("base").value.trim(),
+    old: $("old").value.trim(),
+    new: $("new").value.trim(),
+  };
+  if (!paths.old || !paths.new || ((mode === "threeway" || mode === "threeway-csv") && !paths.base)) {
+    return null;
+  }
+  const controls = {};
+  for (const id of URL_STATE_CONTROL_IDS) {
+    const node = $(id);
+    if (!node) continue;
+    controls[id] = node.type === "checkbox" ? node.checked : node.value;
+  }
+  const state = {
+    v: 1,
+    mode,
+    paths,
+    controls,
+    syncPoints: syncPoints.map((point) => ({ old: point.old, new: point.new })),
+  };
+  if (mode === "csv" || mode === "threeway-csv") {
+    state.csvKeys = selectedCSVColumns().map((column) => ({
+      name: column.name,
+      index: column.index,
+    }));
+  }
+  return state;
+}
+
+function validComparisonPaths(state) {
+  if (!URL_STATE_MODES.has(state?.mode)) return false;
+  const paths = state?.paths;
+  if (!paths || typeof paths.old !== "string" || typeof paths.new !== "string" ||
+      typeof paths.base !== "string" || !paths.old.trim() || !paths.new.trim()) {
+    return false;
+  }
+  return !((state.mode === "threeway" || state.mode === "threeway-csv") && !paths.base.trim());
+}
+
+async function applyComparisonState(state) {
+  if (!validComparisonPaths(state)) return false;
+  stopFileWatch();
+  $("scratch").checked = false;
+  applyScratch();
+  $("mode").value = state.mode;
+  for (const side of ["base", "old", "new"]) $(side).value = state.paths[side] || "";
+  for (const id of URL_STATE_CONTROL_IDS) {
+    const node = $(id);
+    if (!node || !Object.prototype.hasOwnProperty.call(state.controls, id)) continue;
+    const value = state.controls[id];
+    if (node.type === "checkbox") {
+      if (typeof value === "boolean") node.checked = value;
+    } else if (typeof value === "string" || typeof value === "number") {
+      node.value = String(value);
+    }
+  }
+  syncPoints = Array.isArray(state.syncPoints)
+    ? state.syncPoints.filter((point) =>
+      Number.isInteger(point?.old) && point.old >= 0 &&
+      Number.isInteger(point?.new) && point.new >= 0)
+    : [];
+  resetSyncSelection();
+  renderSyncPoints();
+  csvInspection = null;
+  $("inspection").textContent = "";
+  $("keySetup").hidden = true;
+  syncModeOpts();
+  syncCompareReady();
+  updateSetupSummary();
+  updateDetailsBadges();
+
+  const keyMode = state.controls.keyMode;
+  const csvMode = state.mode === "csv" || state.mode === "threeway-csv";
+  if (csvMode && (keyMode === "include" || keyMode === "exclude")) {
+    if (!(await inspectCSV())) return false;
+    const keys = Array.isArray(state.csvKeys) ? state.csvKeys : [];
+    const names = new Set(keys.map((key) => typeof key?.name === "string" ? key.name : ""));
+    const indexes = new Set(keys.map((key) => Number(key?.index)).filter(Number.isInteger));
+    document.querySelectorAll("#columnList input").forEach((input) => {
+      input.checked = names.has(input.dataset.name) || indexes.has(Number(input.dataset.index));
+    });
+    $("keyMode").value = keyMode;
+    syncKeyMode();
+  }
+  return syncCompareReady();
+}
+
+function comparisonURLHasState() {
+  return new URLSearchParams(location.hash.slice(1)).has(COMPARISON_HASH_KEY);
+}
+
+function updateComparisonURL(action = "replace") {
+  if (restoringComparisonURL || action === "none") return false;
+  const state = captureComparisonState();
+  if (!state) return false;
+  try {
+    const next = buildComparisonURL(location.href, state, true);
+    if (next === location.href) return true;
+    const metadata = { ayameComparison: true };
+    if (action === "push") history.pushState(metadata, "", next);
+    else history.replaceState(metadata, "", next);
+    return true;
+  } catch (error) {
+    setStatus(t(error?.code === "STATE_TOO_LARGE" ? "urlStateTooLarge" : "urlStateInvalid"), "warning");
+    return false;
+  }
+}
+
+function scheduleComparisonURLReplace() {
+  if (restoringComparisonURL || !hasComparisonResult()) return;
+  clearTimeout(comparisonURLReplaceTimer);
+  comparisonURLReplaceTimer = setTimeout(() => {
+    comparisonURLReplaceTimer = 0;
+    updateComparisonURL("replace");
+  }, 100);
+}
+
+async function waitForIdleOperation() {
+  if (currentAbort) currentAbort.abort();
+  while (busyOperation) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function restoreComparisonFromURL(state) {
+  const generation = ++comparisonURLRestoreGeneration;
+  await waitForIdleOperation();
+  if (generation !== comparisonURLRestoreGeneration) return false;
+  restoringComparisonURL = true;
+  try {
+    if (!(await applyComparisonState(state))) {
+      setStatus(t("urlStateInvalid"), "warning");
+      return false;
+    }
+    if (generation !== comparisonURLRestoreGeneration) return false;
+    return await compare({ urlHistory: "none" });
+  } finally {
+    if (generation === comparisonURLRestoreGeneration) restoringComparisonURL = false;
+  }
+}
+
+function fallbackCopyText(value) {
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.readOnly = true;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch (_) { /* unavailable */ }
+  input.remove();
+  return copied;
+}
+
+async function copyComparisonURL() {
+  const state = captureComparisonState();
+  if (!state || !(await askConfirm(t("shareURLWarning")))) return;
+  try {
+    const url = buildShareURL(location.href, state);
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+    else if (!fallbackCopyText(url)) throw new Error("clipboard unavailable");
+    setStatus(t("sharedURLCopied"), "");
+  } catch (error) {
+    setStatus(t(error?.code === "STATE_TOO_LARGE" ? "urlStateTooLarge" : "sharedURLCopyFailed"), "error");
+  }
+}
+
+function syncCopyComparisonURLVisibility() {
+  $("copyComparisonURL").hidden = !hasComparisonResult() || $("scratch").checked;
 }
 
 // ---- rendering ----
@@ -1511,6 +1731,7 @@ function renderColumnSelection(inspection) {
     const input = document.createElement("input");
     input.type = "checkbox"; input.dataset.name = name; input.dataset.index = String(index);
     input.addEventListener("change", updateCSVReview);
+    input.addEventListener("change", scheduleComparisonURLReplace);
     const text = document.createElement("span");
     text.textContent = `${index}: ${name}`;
     label.append(input, text); list.append(label);
@@ -1920,6 +2141,8 @@ async function compare(options = {}) {
   if (result && $("result").children.length) {
     collapseSetupAfterCompare();
     rememberPaths();
+    const historyAction = options.urlHistory || (options.external ? "replace" : "push");
+    updateComparisonURL(historyAction);
   }
   if (preparedWatch && $("autoReload").checked &&
       sameWatchPaths(preparedWatch.paths, currentWatchPaths())) {
@@ -2703,6 +2926,7 @@ function collapseSetupAfterCompare() {
   updateSetupSummary();
   $("setupRecompare").hidden = false;
   syncLaunchPathsVisibility();
+  syncCopyComparisonURLVisibility();
   setSetupCompact(true);
 }
 
@@ -2842,6 +3066,7 @@ $("compare").addEventListener("click", compare);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
 $("backToFolder").addEventListener("click", returnToFolder);
+$("copyComparisonURL").addEventListener("click", copyComparisonURL);
 // Every input that decides whether a comparison is possible re-checks it.
 for (const id of ["old", "new", "base", "oldText", "newText", "mode", "scratch"]) {
   const node = $(id);
@@ -3042,6 +3267,12 @@ $("syntax").addEventListener("change", () => {
 });
 $("word").addEventListener("change", rerenderForDisplayChange);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
+for (const id of URL_STATE_CONTROL_IDS) {
+  const control = $(id);
+  if (!control) continue;
+  control.addEventListener("input", scheduleComparisonURLReplace);
+  control.addEventListener("change", scheduleComparisonURLReplace);
+}
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
 	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
 }
@@ -3049,6 +3280,7 @@ function applyScratch() {
   const on = $("scratch").checked;
   syncLaunchPathsVisibility();
   $("scratchArea").hidden = !on;
+  syncCopyComparisonURLVisibility();
 }
 $("scratch").addEventListener("change", applyScratch);
 applyScratch();
@@ -3065,15 +3297,45 @@ syncPatchOpts();
 applyLang(lang);
 
 const launch = new URLSearchParams(location.search);
-if (launch.has("base")) $("base").value = launch.get("base");
-if (launch.has("old")) $("old").value = launch.get("old");
-if (launch.has("new")) $("new").value = launch.get("new");
-if (["text", "sorted", "csv", "threeway", "threeway-csv", "dir"].includes(launch.get("mode"))) $("mode").value = launch.get("mode");
-if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
-syncCompareReady();
-syncLaunchPathsVisibility();
-const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);
-if (launch.get("autorun") === "1" && launchReady) queueMicrotask(compare);
+const launchState = readComparisonState(location.href);
+if (comparisonURLHasState()) {
+  if (launchState) {
+    queueMicrotask(() => {
+      restoreComparisonFromURL(launchState).catch(() => setStatus(t("urlStateInvalid"), "warning"));
+    });
+  } else {
+    setStatus(t("urlStateInvalid"), "warning");
+  }
+} else {
+  // Backward-compatible command launch parameters. A successful autorun
+  // replaces these with the versioned fragment, leaving only the API token and
+  // unrelated query parameters in the live URL.
+  if (launch.has("base")) $("base").value = launch.get("base");
+  if (launch.has("old")) $("old").value = launch.get("old");
+  if (launch.has("new")) $("new").value = launch.get("new");
+  if (URL_STATE_MODES.has(launch.get("mode"))) $("mode").value = launch.get("mode");
+  if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
+  syncCompareReady();
+  syncLaunchPathsVisibility();
+  const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);
+  if (launch.get("autorun") === "1" && launchReady) {
+    queueMicrotask(() => compare({ urlHistory: "replace" }));
+  }
+}
+
+window.addEventListener("popstate", () => {
+  clearTimeout(comparisonURLReplaceTimer);
+  comparisonURLReplaceTimer = 0;
+  const state = readComparisonState(location.href);
+  if (!state) {
+    comparisonURLRestoreGeneration++;
+    if (currentAbort) currentAbort.abort();
+    if (comparisonURLHasState()) setStatus(t("urlStateInvalid"), "warning");
+    else location.reload();
+    return;
+  }
+  restoreComparisonFromURL(state).catch(() => setStatus(t("urlStateInvalid"), "warning"));
+});
 
 apiFetch("/api/health")
   .then((r) => r.json())

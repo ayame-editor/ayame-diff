@@ -146,6 +146,22 @@ recursively polling an arbitrarily large tree on every save would violate the
 bounded-resource guarantees. Opening a changed folder entry as a text
 comparison watches that file pair normally.
 
+### Comparison URLs and browser history
+
+After a successful file-backed comparison, the GUI stores the input paths,
+mode, and comparison conditions in a versioned URL fragment. Reload restores
+and re-runs that comparison. Comparing different inputs pushes a history entry,
+while condition changes replace the current entry, so Back and Forward move
+between complete comparison states.
+
+The fragment is not sent to the server, but it does contain local paths.
+**Copy link** in the result toolbar warns about that disclosure and copies a URL
+with the API token removed. The copied URL grants no access by itself; open
+ayame-diff normally first so the browser session has its own token.
+
+Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
+use an `.ayamediff` project for very large CSV column selections.
+
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.
 
