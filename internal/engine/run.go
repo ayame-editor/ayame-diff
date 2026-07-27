@@ -32,7 +32,6 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	if err := validateDistinctOutput(resolved.LeftPath, resolved.RightPath, resolved.OutputPath); err != nil {
 		return summary, err
 	}
-
 	leftSpec, err := resolveInputSpec(resolved.LeftPath, resolved.LeftFormat, resolved.LeftDelimiter, resolved.LeftParser, "left")
 	if err != nil {
 		return summary, err
@@ -130,13 +129,20 @@ type partitionResult struct {
 
 // preferRootCause chooses the error that better explains a parallel failure.
 // When one worker fails it cancels the shared context, so sibling workers then
-// report context.Canceled; a concrete error must win over that cancellation so
-// the reported message names the real cause (#40). next is assumed non-nil.
+// report a context error; a concrete error must win over that cancellation so
+// the reported message names the real cause (#40).
 func preferRootCause(current, next error) error {
-	if current == nil || errors.Is(current, context.Canceled) {
+	if next == nil {
+		return current
+	}
+	if current == nil || (isContextError(current) && !isContextError(next)) {
 		return next
 	}
 	return current
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func compareAllPartitions(ctx context.Context, leftParts, rightParts []string, columnCount int, keyIsFullRow bool, cfg resolvedConfig, workRoot string) (partitionStats, []string, error) {

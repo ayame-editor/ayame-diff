@@ -164,6 +164,10 @@ func inspectSimple(spec inputSpec, hasHeader bool) (inspectedInput, error) {
 	}
 	defer r.Close()
 	br := bufio.NewReaderSize(r, 256*1024)
+	bomLen, err := skipBOM(br)
+	if err != nil {
+		return inspectedInput{}, err
+	}
 	line, err := br.ReadBytes('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return inspectedInput{}, err
@@ -182,13 +186,11 @@ func inspectSimple(spec inputSpec, hasHeader bool) (inspectedInput, error) {
 		result.Header = byteFieldsToStrings(fields)
 		stripBOM(result.Header)
 		if !spec.Compressed {
-			result.DataOffset = int64(rawLen)
+			result.DataOffset = int64(bomLen + rawLen)
 		}
 	} else {
 		result.Header = syntheticHeader(len(fields))
-		if strings.HasPrefix(string(line), utf8BOM) {
-			result.DataOffset = int64(len(utf8BOM))
-		}
+		result.DataOffset = int64(bomLen)
 	}
 	return result, nil
 }
@@ -407,6 +409,24 @@ func stripBOM(header []string) {
 	if len(header) > 0 {
 		header[0] = strings.TrimPrefix(header[0], "\uFEFF")
 	}
+}
+
+// skipBOM consumes a UTF-8 byte order mark at the reader's current position
+// and reports how many bytes were skipped (0 or 3). Without this, a BOM on a
+// headerless input would be encoded into the first row's key and produce a
+// spurious diff against an otherwise identical BOM-less file.
+func skipBOM(reader *bufio.Reader) (int, error) {
+	prefix, err := reader.Peek(3)
+	if len(prefix) == 3 && prefix[0] == 0xEF && prefix[1] == 0xBB && prefix[2] == 0xBF {
+		if _, err := reader.Discard(3); err != nil {
+			return 0, err
+		}
+		return 3, nil
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, err
+	}
+	return 0, nil
 }
 func splitSimpleLine(line []byte, d byte, dst [][]byte) [][]byte {
 	dst = dst[:0]
