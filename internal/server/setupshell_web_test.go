@@ -172,12 +172,12 @@ func TestOpeningAFileKeepsTheFolderResult(t *testing.T) {
 	}
 	// Losing your place in a long list is most of the cost of going back. Keep
 	// a logical path anchor rather than a pixel offset, since rows can resize.
-	if !strings.Contains(open, "anchor: captureResultScrollAnchor()") {
+	if !strings.Contains(open, "captureFolderTreeState(entry.path)") {
 		t.Error("the logical position in the folder list is not kept")
 	}
 
 	back := renderFunctionBody(t, app, "async function returnToFolder(")
-	if !strings.Contains(back, "renderDirectory(data, body)") {
+	if !strings.Contains(back, "renderDirectory(data, body, { expanded, selectedPath })") {
 		t.Error("returning re-runs the comparison instead of re-rendering what is held")
 	}
 	if strings.Contains(back, "compareDirectory(") || strings.Contains(back, "apiFetch(") {
@@ -185,6 +185,9 @@ func TestOpeningAFileKeepsTheFolderResult(t *testing.T) {
 	}
 	if !strings.Contains(back, "restoreResultScrollAnchor(anchor") {
 		t.Error("returning drops the reader at the top of the list")
+	}
+	if !strings.Contains(back, "expanded, selectedPath") {
+		t.Error("returning drops the folder expansion or selected-row state")
 	}
 	// A fresh folder comparison must not offer a stale way back.
 	if !strings.Contains(renderFunctionBody(t, app, "async function renderDirectory("), "folderReturn = null") {

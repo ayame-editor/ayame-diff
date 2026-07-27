@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Replaced the folder result's flat, fully expanded button list with a real
+  collapsible tree. Folder rows carry total and per-status counts; file rows
+  have labelled size and modified-time columns; status and path filters stay in
+  the sticky result toolbar; and a roving tab stop with arrow/Home/End keys
+  makes large trees navigable without tabbing through every file. Added and
+  removed files now open as one-sided text diffs instead of disabled rows, while
+  an explicit absent-side request keeps ordinary missing paths as errors.
+  Returning from a file preserves the tree's expansion and selected-row state.
+  (#104)
+
 - Stored successful file-backed comparison inputs and conditions in a versioned
   URL fragment. Reload restores and re-runs the comparison, Back/Forward moves
   between comparisons, and the result toolbar copies a warned share URL with

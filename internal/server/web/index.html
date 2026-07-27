@@ -175,7 +175,6 @@
 		  <label class="opt"><span data-i18n="compareBy">compare by</span><select id="dirCompareBy"><option value="contents">contents</option><option value="quick">quick</option><option value="hash">hash</option><option value="date">date</option><option value="size">size</option></select></label>
 		  <label class="opt check"><input id="dirHidden" type="checkbox" /><span data-i18n="hiddenFiles">hidden files</span></label>
 		  <label class="opt"><span data-i18n="workers">workers</span><input id="dirWorkers" type="number" value="8" min="1" max="64" /></label>
-		  <label class="opt"><span data-i18n="statusFilter">statuses</span><select id="dirStatus"><option value="different" data-i18n="statusDifferent">different</option><option value="all" data-i18n="statusAll">all</option><option value="changed" data-i18n="changed">changed</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option></select></label>
 		</div><div class="csv-actions"><button id="dirPreview" type="button" data-i18n="filterPreview">Preview filter</button><span id="dirPreviewResult" aria-live="polite"></span></div>
 		<div class="project-actions"><input id="dirProjectPath" placeholder="folder.ayamediff.json" spellcheck="false" /><button id="loadDirProject" type="button" data-i18n="openProject">Open project</button><button id="saveDirProject" type="button" data-i18n="saveProject">Save project</button></div>
 		<small data-i18n="symlinkPolicy">Symbolic links are skipped. .gz files compare decompressed content.</small></fieldset>
@@ -197,6 +196,8 @@
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
+        <label class="opt inline" id="dirStatusWrap" hidden><span class="sr-only" data-i18n="statusFilter">statuses</span><select id="dirStatus" data-i18n-title="statusFilter" data-i18n-aria-label="statusFilter"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
+        <label class="opt inline" id="dirSearchWrap" hidden><span class="sr-only" data-i18n="folderSearch">path search</span><input id="dirSearch" type="search" data-i18n-placeholder="folderSearchPlaceholder" data-i18n-title="folderSearch" data-i18n-aria-label="folderSearch" placeholder="Search folder results" autocomplete="off" spellcheck="false" /></label>
         <button id="backToFolder" type="button" class="icon-btn" data-i18n-title="backToFolder" data-i18n-aria-label="backToFolder" hidden><span aria-hidden="true">↰</span></button>
         <button id="sidebarToggle" type="button" class="icon-btn" data-i18n-title="hunkList" data-i18n-aria-label="hunkList" aria-pressed="false" hidden><span aria-hidden="true">☰</span></button>
         <button id="addSync" type="button" class="icon-btn" data-i18n-title="addSync" data-i18n-aria-label="addSync" disabled><span aria-hidden="true">⚓</span></button>
@@ -373,6 +374,7 @@
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="directory.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

@@ -13,6 +13,8 @@
   --diff-gap: 0.5rem;      /* gutter-to-text gap */
   --diff-marker: 1ch;      /* unified -/+ column */
   --sidebar-w: 5.5rem;     /* difference index column */
+  --dir-marker-col: 1.1rem; /* folder tree's marker / twisty column */
+  --dir-indent: 1.1rem;     /* one level of folder nesting */
 }
 
 /* Display sizes, above the body text. tokens.css defines the scale from body
@@ -290,8 +292,10 @@ button:active:not(:disabled) {
 .summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
 
 .diff-nav {
+  /* Left-aligned and wrapping. Centring made the controls drift with the width
+     of whatever happened to be in the bar, so nothing kept a stable position. */
   position: sticky; top: 0; z-index: 4; margin-top: 0.8rem; padding: 0.35rem 0.5rem;
-  display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+  display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 0.35rem;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); backdrop-filter: blur(6px);
 }
@@ -300,6 +304,11 @@ button:active:not(:disabled) {
   color: var(--fg); border: 1px solid var(--border); font-weight: 600;
 }
 .diff-nav .nav-help { margin-left: 0.35rem; color: var(--muted); }
+#dirSearch {
+  width: min(16rem, 40vw); padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--bg); color: var(--fg);
+}
 .sync-panel {
   margin-top: 0.45rem; display: flex; align-items: center; gap: 0.5rem;
   color: var(--muted); font-size: var(--fs-label);
@@ -742,10 +751,48 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .browser-entries button { margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
 .browser-entries button:hover { background: var(--bg); }
 #chooseFolder { margin: 0.45rem; }
-.dir-tree { display: grid; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
-.dir-entry { margin: 0; border-radius: 0; text-align: left; background: var(--panel); color: var(--fg); border-bottom: 1px solid var(--border); font: var(--fs-data) var(--mono); }
+/* Folder result tree (#104). Rows were a flat list that faked depth with a left
+   padding and put the whole path in every row; folding was impossible and the
+   size and time the server sends were hidden in a title. Each row is now a grid
+   of marker, name, size and time, indented by its depth, and folders nest for
+   real so that hiding one hides its subtree. */
+.dir-tree { display: grid; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: auto; }
+.dir-entry {
+  display: grid;
+  grid-template-columns: var(--dir-marker-col) minmax(0, 1fr) auto auto;
+  align-items: center; gap: 0 var(--diff-gap);
+  margin: 0; border-radius: 0; text-align: left; width: 100%;
+  padding: 0.15rem 0.65rem;
+  /* Depth is a real indent on the name column rather than padding on the row,
+     so the size and time columns stay aligned however deep a file sits. */
+  padding-left: calc(0.65rem + var(--dir-depth, 0) * var(--dir-indent));
+  background: var(--panel); color: var(--fg);
+  border-bottom: 1px solid var(--border); font: var(--fs-data) var(--mono);
+}
+.dir-header {
+  position: sticky; top: 0; z-index: 2;
+  color: var(--muted); background: var(--bg); font-weight: 600;
+  cursor: default;
+}
 .dir-entry.added { color: var(--add-fg); }.dir-entry.removed { color: var(--del-fg); }.dir-entry.changed { color: var(--chg-fg); }.dir-entry.same { color: var(--muted); }
-.dir-entry:disabled { opacity: 0.85; cursor: default; }
+.dir-entry.selected { outline: var(--selection-ring-width) solid var(--accent); outline-offset: -2px; }
+/* Rows that cannot be opened stay in the tab order and keep their contrast —
+   they are readable content, not dead controls. Only the pointer affordance goes. */
+.dir-entry.inert { cursor: default; }
+.dir-entry.inert:hover { box-shadow: none; border-color: var(--border); }
+.dir-marker, .dir-twisty { color: inherit; user-select: none; text-align: center; }
+.dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir-size, .dir-stamp { color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dir-stamp { min-width: 9rem; text-align: right; }
+.dir-size { min-width: 6rem; text-align: right; }
+.dir-folder { color: var(--fg); font-weight: 600; }
+.dir-folder .dir-twisty::before { content: "▸"; display: inline-block; }
+.dir-folder[aria-expanded="true"] .dir-twisty::before { transform: rotate(90deg); }
+.dir-badges { display: flex; gap: 0.3rem; grid-column: 3 / span 2; justify-content: end; }
+.dir-badge { font-size: var(--fs-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dir-badge.total { color: var(--muted); }
+.dir-badge.add { color: var(--add-fg); } .dir-badge.del { color: var(--del-fg); } .dir-badge.chg { color: var(--chg-fg); }
+.summary .stat-marker { font-family: var(--mono); color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
