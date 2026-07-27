@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.2 - 2026-07-27
 
 - Replaced the folder result's flat, fully expanded button list with a real
   collapsible tree. Folder rows carry total and per-status counts; file rows
@@ -11,6 +11,13 @@
   an explicit absent-side request keeps ordinary missing paths as errors.
   Returning from a file preserves the tree's expansion and selected-row state.
   (#104)
+
+- Hardened the external CSV engine around repeated validation/runs, worker
+  failure reporting, header-only inputs, UTF-8 BOMs on headerless data,
+  user-owned work directories, file-descriptor limits, and injected progress
+  logging. The current engine architecture keeps caller configuration immutable,
+  preserves concrete worker errors over cancellation noise, and never writes
+  progress directly to process stderr. (#39, #40, #41, #44)
 
 - Stored successful file-backed comparison inputs and conditions in a versioned
   URL fragment. Reload restores and re-runs the comparison, Back/Forward moves
