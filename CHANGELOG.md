@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.3 - 2026-07-30
+
+- Made the difference minimap follow the result pane's actual scroll position
+  and added drag, track-click, arrow, Page Up/Down, Home, and End navigation.
+  Its hit target now stays 28px wide on narrow layouts, while hunk markers
+  remain directly clickable. (#102)
+
+- Restored English/Japanese usage parity for clipboard pseudo-paths and command
+  coverage, and added a documentation CI guard for paired topic pages, command
+  overviews, clipboard aliases, and home-page feature cards. (#133)
+
 ## v0.8.2 - 2026-07-27
 
 - Replaced the folder result's flat, fully expanded button list with a real
