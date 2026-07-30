@@ -31,6 +31,66 @@ func TestRunThreeWayTextJSONAndMerge(t *testing.T) {
 	}
 }
 
+func TestRunThreeWayTextMergeExitCode(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.txt")
+	left := filepath.Join(dir, "left.txt")
+	right := filepath.Join(dir, "right.txt")
+	unresolvedOutput := filepath.Join(dir, "unresolved.txt")
+	resolvedOutput := filepath.Join(dir, "resolved.txt")
+	for path, value := range map[string]string{
+		base:  "base\ntail\n",
+		left:  "left\ntail\n",
+		right: "right\ntail\n",
+	} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runThreeWay([]string{
+		"text", "--allow-conflicts", "--merge-exit-code",
+		"--output", unresolvedOutput, base, left, right,
+	}, &stdout, &stderr)
+	if code != exitDiff {
+		t.Fatalf("unresolved code=%d, want %d; stderr=%s", code, exitDiff, stderr.String())
+	}
+	data, err := os.ReadFile(unresolvedOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "<<<<<<< LEFT") {
+		t.Fatalf("unresolved merge did not write conflict markers: %q", data)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runThreeWay([]string{
+		"text", "--choice", "0=right", "--merge-exit-code",
+		"--output", resolvedOutput, base, left, right,
+	}, &stdout, &stderr)
+	if code != exitOK {
+		t.Fatalf("resolved code=%d, want %d; stderr=%s", code, exitOK, stderr.String())
+	}
+	data, err = os.ReadFile(resolvedOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "right\ntail\n" {
+		t.Fatalf("resolved merge=%q", data)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runThreeWay([]string{
+		"text", "--merge-exit-code", base, left, right,
+	}, &stdout, &stderr)
+	if code != exitUsage || !strings.Contains(stderr.String(), "--merge-exit-code requires --output") {
+		t.Fatalf("missing output code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRunThreeWayCSV(t *testing.T) {
 	dir := t.TempDir()
 	base, left, right, output := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")

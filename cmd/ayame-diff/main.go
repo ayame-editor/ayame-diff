@@ -24,10 +24,11 @@ var version = "dev"
 
 // Exit codes form a stable taxonomy so scripts can tell "differences found"
 // apart from "something failed" (#113). Runtime failures use 3 (not 1) so exit
-// 1 is reserved for a real diff under --diff-exit-code.
+// 1 is reserved for an expected comparison/merge outcome under an explicit
+// exit-code flag rather than a runtime failure.
 //
 //	0    success — completed; no differences reported
-//	1    differences found (only when --diff-exit-code is set)
+//	1    differences found, or unresolved merge output (explicit flags only)
 //	2    usage error — bad flags, arguments, or incompatible options
 //	3    runtime error — I/O, comparison, server, or update failure
 //	130  interrupted (Ctrl-C / SIGTERM)
@@ -70,7 +71,7 @@ CSV flags without an explicit command remain supported for compatibility.
 
 Exit codes:
   0    success (no differences)
-  1    differences found (with --diff-exit-code)
+  1    differences found or unresolved merge output (with an explicit exit-code flag)
   2    usage error (bad flags or arguments)
   3    runtime error (I/O, comparison, server, or update failure)
   130  interrupted

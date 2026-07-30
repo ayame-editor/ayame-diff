@@ -37,7 +37,7 @@ func runThreeWay(args []string, stdout, stderr io.Writer) int {
 	}
 	fs := flag.NewFlagSet("ayame-diff 3way text", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
-	var jsonOut, allowConflicts, diffExit bool
+	var jsonOut, allowConflicts, diffExit, mergeExit bool
 	var output, enc, whitespace, format string
 	var window uint64
 	var ignoreCase bool
@@ -54,6 +54,7 @@ func runThreeWay(args []string, stdout, stderr io.Writer) int {
 	fs.Var(choices, "choice", "resolve conflict EVENT=left|right|base; repeatable")
 	fs.BoolVar(&allowConflicts, "allow-conflicts", false, "write standard conflict markers for unresolved conflicts")
 	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when changes or conflicts exist")
+	fs.BoolVar(&mergeExit, "merge-exit-code", false, "exit 1 when a written merge still has unresolved conflicts (requires --output)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff 3way [text] [flags] BASE LEFT RIGHT
 ayame-diff 3way csv [flags] --base BASE --left LEFT --right RIGHT
@@ -72,6 +73,10 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	}
 	if fs.NArg() != 3 {
 		fmt.Fprintln(stderr, "error: 3way text needs BASE LEFT RIGHT")
+		return exitUsage
+	}
+	if mergeExit && output == "" {
+		fmt.Fprintln(stderr, "error: --merge-exit-code requires --output")
 		return exitUsage
 	}
 	if format == "json" {
@@ -132,6 +137,7 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	} else {
 		writeThreeWayText(stdout, result)
 	}
+	unresolvedMerge := 0
 	if output != "" {
 		// Capture the base file's encoding/BOM/EOL before MergeLines streams it,
 		// so the written merge round-trips them instead of BOM-less UTF-8/LF (#159).
@@ -145,9 +151,13 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 			fmt.Fprintln(stderr, "error:", err)
 			return exitError
 		}
+		unresolvedMerge = unresolved
 		fmt.Fprintf(stderr, "merged: %s (conflicts=%d unresolved=%d)\n", output, result.Conflicts, unresolved)
 	} else {
 		fmt.Fprintf(stderr, "%d events, %d conflicts\n", len(result.Events), result.Conflicts)
+	}
+	if mergeExit && unresolvedMerge > 0 {
+		return exitDiff
 	}
 	if diffExit && len(result.Events) > 0 {
 		return exitDiff

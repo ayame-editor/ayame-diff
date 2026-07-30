@@ -143,6 +143,43 @@ func TestBilingualUsageHasDedicatedPreviouslyMissingSections(t *testing.T) {
 	}
 }
 
+func TestBilingualDocsKeepLocalArchitectureAndGitToolContracts(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../docs/design.md",
+		"../../docs/design.ja.md",
+	} {
+		content := readTestFile(t, path)
+		for _, required := range []string{"--temp-dir", "--allow-remote", "shell-integration"} {
+			if !strings.Contains(content, required) {
+				t.Errorf("%s is missing local architecture contract %q", path, required)
+			}
+		}
+	}
+
+	for _, path := range []string{
+		"../../docs/shell-integration.md",
+		"../../docs/shell-integration.ja.md",
+	} {
+		content := readTestFile(t, path)
+		for _, required := range []string{
+			"difftool.ayame-diff.cmd",
+			"mergetool.ayame-diff.cmd",
+			"--merge-exit-code",
+			"mergetool.ayame-diff.trustExitCode true",
+			`"$BASE"`,
+			`"$LOCAL"`,
+			`"$REMOTE"`,
+			`"$MERGED"`,
+		} {
+			if !strings.Contains(content, required) {
+				t.Errorf("%s is missing Git tool contract %q", path, required)
+			}
+		}
+	}
+}
+
 func readTestFile(t *testing.T, path string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Clean(path))
