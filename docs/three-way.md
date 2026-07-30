@@ -14,6 +14,8 @@ ayame-diff 3way text --json BASE LEFT RIGHT
 ayame-diff 3way text --format unified BASE LEFT RIGHT
 ayame-diff 3way text --choice 2=right --output merged.txt BASE LEFT RIGHT
 ayame-diff 3way text --allow-conflicts --output review.txt BASE LEFT RIGHT
+ayame-diff 3way text --allow-conflicts --merge-exit-code \
+  --output merged.txt BASE LEFT RIGHT
 ```
 
 The implementation runs the bounded-window BASE→LEFT and BASE→RIGHT line diffs
@@ -21,6 +23,12 @@ and clusters only overlapping base ranges. Events are classified as left-only,
 right-only, the same change on both sides, or conflict. Independent and same
 changes merge automatically. Unresolved text conflicts are rejected unless
 `--allow-conflicts` is given, which writes standard LEFT/BASE/RIGHT markers.
+
+`--merge-exit-code` requires `--output` and distinguishes a completed clean
+merge from a file that was written with unresolved markers: 0 means the output
+was written with no unresolved conflicts, while 1 means marker-bearing output
+was written. Usage errors remain 2 and runtime/write failures remain 3. This is
+the safe exit contract used by the documented custom Git mergetool.
 
 ## Keyed CSV / TSV CLI
 

@@ -486,6 +486,12 @@ With `--diff-exit-code` (`csv` and `dir`):
 - `1` — differences found
 - `2` / `3` — usage or runtime error, as above
 
+With `3way text --merge-exit-code --output PATH`:
+
+- `0` — output written with no unresolved conflicts
+- `1` — output written with standard unresolved-conflict markers
+- `2` / `3` — usage or runtime/write error, as above
+
 A usage error and a runtime failure are deliberately distinct, so a script can
 tell "you called it wrong" from "it could not finish". An internal crash is
 reported as `3` with a stack trace on stderr; it never exits `2` and so is never

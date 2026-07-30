@@ -14,12 +14,20 @@ ayame-diff 3way text --json BASE LEFT RIGHT
 ayame-diff 3way text --format unified BASE LEFT RIGHT
 ayame-diff 3way text --choice 2=right --output merged.txt BASE LEFT RIGHT
 ayame-diff 3way text --allow-conflicts --output review.txt BASE LEFT RIGHT
+ayame-diff 3way text --allow-conflicts --merge-exit-code \
+  --output merged.txt BASE LEFT RIGHT
 ```
 
 実装は bounded-window の BASE→LEFT / BASE→RIGHT 行差分を実行し、ベース範囲が重なる
 部分だけをクラスタ化します。イベントは左のみ、右のみ、両側の同一変更、競合に分類します。
 独立した変更と同一変更は自動マージします。未解決のテキスト競合は
 `--allow-conflicts` なしでは拒否し、指定時は標準的な LEFT/BASE/RIGHT マーカーを書きます。
+
+`--merge-exit-code` は `--output` を必須とし、完了した clean merge と
+未解決 marker を含む保存済みファイルを区別します。0 は未解決 conflict のない
+出力を書けたこと、1 は marker 付き出力を書いたことを表します。usage error は 2、
+実行時・書き込み失敗は 3 のままです。文書化した Git custom mergetool は、この
+安全な exit contract を使います。
 
 ## キー付き CSV / TSV CLI
 

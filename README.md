@@ -21,6 +21,23 @@ comparisons survive reload and browser history navigation. **Copy link** creates
 a token-free URL after warning that it contains local paths. See the
 [GUI guide](docs/gui.md).
 
+## Why the GUI stays local
+
+The browser is the UI, not the execution sandbox: the native ayame-diff process
+keeps direct path access, file-change watching, disk-backed external sorting,
+and the same comparison engine as the CLI.
+
+| Local ayame-diff process | Browser-only deployment boundary |
+|---|---|
+| Watches file-backed comparisons after external saves | No portable watcher for arbitrary changes outside the page |
+| Spills huge CSV/TSV work to `--temp-dir` under a memory budget | Browser memory and managed-storage quotas apply |
+| Supports CLI, file-manager, and custom Git tool workflows | Integration depends on browser- and OS-specific hand-offs |
+
+Browser APIs can cover parts of this boundary after user permission, so this is
+not a claim that WebAssembly is categorically incapable. See
+[why the local-server architecture is intentional](docs/design.md) and
+[file-manager and Git integration](docs/shell-integration.md).
+
 ## Main Features
 
 - CSV/TSV key comparison (`csv`), text line diff (`text`), and sorted comparison (`sorted`)
@@ -442,15 +459,17 @@ ayame-diff --help
 
 ## Exit Codes
 
-- `0`: Success (no differences reported)
-- `1`: Differences found — only with `--diff-exit-code`
+- `0`: Success (no differences reported, or merge output fully resolved)
+- `1`: Differences found with `--diff-exit-code`, or unresolved output with `--merge-exit-code`
 - `2`: Usage error (bad flags, arguments, or incompatible options)
 - `3`: Runtime error (input/output, comparison, server, or update failure)
 - `130`: Interrupted or explicit cancel (e.g. abort on `remove` confirmation)
 
-Without `--diff-exit-code`, a completed comparison exits `0` whether or not
-differences were found. `1` is reserved for a real diff, so scripts can tell
-"differences found" apart from "something failed" (which is always `2` or `3`).
+Without an explicit exit-code flag, a completed comparison exits `0` whether
+or not differences were found. Exit `1` is reserved for an expected
+comparison/merge outcome, so scripts can distinguish it from usage and runtime
+failures (`2` and `3`). See [three-way comparison](docs/three-way.md) for the
+merge contract.
 
 ## Build
 

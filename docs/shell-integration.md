@@ -37,3 +37,59 @@ Registration is per-user and does not require administrator privileges:
 
 Re-run `shell-install` after moving the executable because registrations store
 its absolute path.
+
+## Git difftool
+
+Register the terminal diff as a custom Git tool:
+
+```bash
+git config --global diff.tool ayame-diff
+git config --global difftool.ayame-diff.cmd \
+  'ayame-diff text "$LOCAL" "$REMOTE"'
+git config --global difftool.prompt false
+```
+
+Then run:
+
+```bash
+git difftool --tool=ayame-diff HEAD~1 HEAD -- path/to/file
+```
+
+Git supplies temporary files through `$LOCAL` and `$REMOTE`. This terminal
+workflow blocks until the comparison finishes and uses the same text engine as
+the ordinary CLI. The browser GUI currently lacks the blocking lifetime and
+logical labels needed for a safe repeated `git difftool` workflow; that
+follow-up remains tracked in
+[#295](https://github.com/hjosugi/ayame-diff/issues/295).
+
+## Git mergetool
+
+The current non-interactive integration lets Git accept only a clean automatic
+merge. If ayame-diff still finds a conflict, it reports failure and Git keeps
+the path unresolved:
+
+```bash
+git config --global merge.tool ayame-diff
+git config --global mergetool.ayame-diff.cmd \
+  'ayame-diff 3way text --allow-conflicts --merge-exit-code --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"'
+git config --global mergetool.ayame-diff.trustExitCode true
+```
+
+After a conflicted `git merge`, run:
+
+```bash
+git mergetool --tool=ayame-diff -- path/to/file
+```
+
+Git defines `$BASE`, `$LOCAL`, `$REMOTE`, and `$MERGED` for a custom merge
+tool. `--merge-exit-code` requires `--output`: it returns 0 only after writing
+an output with no unresolved ayame-diff conflicts, 1 after writing standard
+conflict markers, 2 for invalid invocation, and 3 for a runtime or write
+failure. With `trustExitCode=true`, Git therefore keeps marker-bearing output
+unresolved instead of confusing “saved” with “resolved”. Git may restore its
+pre-tool worktree content after the nonzero exit; resolve the unmerged path
+manually or with another interactive tool, then `git add` it.
+
+This is deliberately a terminal/automatic baseline. Interactive GUI conflict
+resolution, blocking browser lifetime, temporary-file labels, and repeated
+session reuse remain in #295.
