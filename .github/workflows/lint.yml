@@ -32,6 +32,8 @@ jobs:
         # node --test needs no dependencies; the web assets are plain scripts
         # with no build step, and this keeps it that way (#139).
         run: node --test internal/server/web/test/*.test.js
+      - name: Documentation policy
+        run: make policy
 
   vet:
     runs-on: ubuntu-latest

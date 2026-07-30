@@ -29,3 +29,6 @@ make build
   `/`と`/ja/`にするため、`docs/index.md`と`docs/ja/index.md`を対にします。
 - Windows固有コードを変更した場合は、可能ならWindows x64またはARM64で実機確認してください。
 - 大規模性能の数値は、入力条件、CPU、RAM、ストレージ、コマンドを併記してください。
+- GUIの動作や配置を変更する場合は、
+  [GUI変更の退行防止チェックリスト](docs/ui-regression-checklist.ja.md)を完了し、
+  変更前後のクリック数、キーボード経路、確認したビューポート/DPIをPRに記録してください。
