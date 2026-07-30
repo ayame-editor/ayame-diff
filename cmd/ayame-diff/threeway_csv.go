@@ -7,11 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/hjosugi/ayame-diff/internal/pathutil"
 	"github.com/hjosugi/ayame-diff/internal/threeway"
 )
 
@@ -64,10 +64,8 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if output != "" {
-		outAbs, _ := filepath.Abs(output)
 		for _, input := range []string{base, left, right} {
-			inputAbs, _ := filepath.Abs(input)
-			if outAbs == inputAbs {
+			if pathutil.Equal(output, input) {
 				fmt.Fprintln(stderr, "error: merge output must differ from every input")
 				return exitUsage
 			}

@@ -5,10 +5,10 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"path/filepath"
 
 	"github.com/hjosugi/ayame-diff/internal/atomicfile"
 	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/hjosugi/ayame-diff/internal/pathutil"
 )
 
 // Side selects which document supplies one differing region.
@@ -57,7 +57,7 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 	if result.Unresolved > 0 && !opts.AllowUnresolved {
 		return result, fmt.Errorf("%d merge hunks are unresolved", result.Unresolved)
 	}
-	aliasesInput := samePath(opts.Output, opts.OldPath) || samePath(opts.Output, opts.NewPath)
+	aliasesInput := pathutil.Equal(opts.Output, opts.OldPath) || pathutil.Equal(opts.Output, opts.NewPath)
 	if aliasesInput && (!opts.Overwrite || !opts.ConfirmOverwrite) {
 		return result, fmt.Errorf("overwriting an input requires overwrite and explicit confirmation")
 	}
@@ -110,13 +110,4 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 	}
 	result.Output = opts.Output
 	return result, nil
-}
-
-func samePath(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	aa, errA := filepath.Abs(a)
-	bb, errB := filepath.Abs(b)
-	return errA == nil && errB == nil && filepath.Clean(aa) == filepath.Clean(bb)
 }
