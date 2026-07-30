@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.9 - 2026-07-30
+
+- Accepted ADR 0004, which keeps Git history, revisions, index/staging,
+  branches, remotes, authentication, and ignore semantics outside ayame-diff
+  while allowing Git to invoke it as a path-based external diff or merge tool.
+  VS Code Source Control remains a design reference for Git-independent
+  comparison UX. ADR policy validation now prevents numbered decisions from
+  disappearing from either language index. (#290)
+
 ## v0.8.8 - 2026-07-30
 
 - Documented why the GUI intentionally uses a native local server for direct
