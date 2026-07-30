@@ -384,11 +384,12 @@ button:active:not(:disabled) {
   cursor: pointer; touch-action: none;
 }
 .minimap-marker {
-  position: absolute; left: 3px; right: 3px; min-height: 4px; margin: 0; padding: 0;
+  position: absolute; left: 3px; right: 3px; min-height: 1px; margin: 0; padding: 0;
   border: 0; border-radius: calc(var(--radius-control) - 4px); background: var(--chg-bg); z-index: 2;
 }
 .minimap-marker.insert { background: var(--add-fg); }
 .minimap-marker.delete { background: var(--del-fg); }
+.minimap-marker.conflict { background: var(--danger); }
 .minimap-marker.moved { background: var(--move-fg); }
 .minimap-marker.current { outline: var(--selection-ring-width) solid var(--accent); z-index: 2; }
 .minimap-marker:focus-visible { outline: var(--focus-ring); outline-offset: -2px; min-height: 8px; z-index: 4; }
