@@ -805,10 +805,50 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 }
 
 @media (max-width: 960px) {
+  /* The middle-width layout is its own stable step: tighten the shell and move
+     the fourth project control to a second row instead of letting four columns
+     squeeze until the 720px phone breakpoint (#107). */
+  main { padding: 0.75rem; }
+  .setup-bar { gap: 0.6rem; }
+  .project-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .project-actions select { grid-column: 1 / -1; }
   .pane-head-meta { display: none; }
 }
 
 @media (max-width: 720px) {
+  main { padding: 0.5rem; }
+  .topbar { padding: 0.55rem 0.75rem; }
+  .launch-paths, .setup { padding: 0.75rem; }
+  .setup-bar { flex-wrap: wrap; }
+  .setup-summary { order: 3; flex-basis: 100%; }
+  .paths label { grid-template-columns: 1fr; gap: 0.2rem; }
+  .scratch-area { grid-template-columns: 1fr; }
+  .project-actions { grid-template-columns: 1fr 1fr; }
+  .project-actions input, .project-actions select { grid-column: 1 / -1; }
+  .project-actions button { width: 100%; }
+
   .diff-layout { grid-template-columns: minmax(0, 1fr) 28px; gap: 0.3rem; }
+  .diff-layout:has(.sidebar:not([hidden])) {
+    grid-template-columns: minmax(4.5rem, 24vw) minmax(0, 1fr) 28px;
+  }
+  .diff-layout:has(.sidebar:not([hidden])):has(.minimap[hidden]) {
+    grid-template-columns: minmax(4.5rem, 24vw) minmax(0, 1fr);
+  }
   #diffCounter { min-width: 7rem; }
+
+  /* Three fixed columns make every pane unreadable at phone width. The event
+     keeps BASE/LEFT/RIGHT order but presents each pane as a full-width block;
+     the sticky path header follows the same order above it (#107). */
+  .three-grid { grid-template-columns: 1fr; overflow: visible; }
+  .three-pane { border-right: 0; border-bottom: 1px solid var(--border); }
+  .three-pane:last-child { border-bottom: 0; }
+  .pane-heads.three { grid-template-columns: 1fr; }
+  .pane-heads.three .pane-head { padding-inline: 0.6rem; }
+  .pane-heads.three .pane-head + .pane-head {
+    border-left: 0; border-top: 1px solid var(--border);
+  }
+
+  /* The status bar remains one line; at this width the counts are actionable
+     and the already-visible pane headers carry the paths. */
+  .statusbar-paths { display: none; }
 }
