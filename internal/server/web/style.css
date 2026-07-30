@@ -344,9 +344,8 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
-/* The minimap column was 18px, below the ~24px a pointer can reliably hit and
-   well below a touch target. Widening it makes the markers clickable; drag-to-
-   scroll is still missing, so #102 stays open. */
+/* The minimap column was 18px, below the ~24px a pointer can reliably hit.
+   Keep the full-width target at narrow breakpoints too (#102). */
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
 /* With the index open the layout gains a leading column. Declared here rather
    than as a width on .sidebar so the result's track shrinks by exactly the same
@@ -382,10 +381,11 @@ button:active:not(:disabled) {
 .minimap {
   position: sticky; top: 3.3rem; height: min(70vh, 560px); margin-top: 1rem;
   border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--panel); overflow: hidden;
+  cursor: pointer; touch-action: none;
 }
 .minimap-marker {
   position: absolute; left: 3px; right: 3px; min-height: 4px; margin: 0; padding: 0;
-  border: 0; border-radius: calc(var(--radius-control) - 4px); background: var(--chg-bg);
+  border: 0; border-radius: calc(var(--radius-control) - 4px); background: var(--chg-bg); z-index: 2;
 }
 .minimap-marker.insert { background: var(--add-fg); }
 .minimap-marker.delete { background: var(--del-fg); }
@@ -395,7 +395,11 @@ button:active:not(:disabled) {
 .minimap-marker.read { opacity: 0.38; }
 .minimap-viewport {
   position: absolute; left: 0; right: 0; min-height: 8px; border: var(--selection-ring-width) solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; z-index: 3;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); cursor: grab; z-index: 1;
+}
+.minimap-viewport:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+.minimap.dragging .minimap-viewport {
+  background: color-mix(in srgb, var(--accent) 24%, transparent); cursor: grabbing;
 }
 /* Placeholder cards shown while a comparison is in flight (#127). The result
    area used to sit blank from the moment it was cleared until the render
@@ -805,6 +809,6 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 }
 
 @media (max-width: 720px) {
-  .diff-layout { grid-template-columns: minmax(0, 1fr) 12px; gap: 0.3rem; }
+  .diff-layout { grid-template-columns: minmax(0, 1fr) 28px; gap: 0.3rem; }
   #diffCounter { min-width: 7rem; }
 }

@@ -59,4 +59,8 @@ func TestMinimapIsWideEnoughToHit(t *testing.T) {
 	if !strings.Contains(layout, "28px") {
 		t.Errorf("unexpected minimap column width: %s", layout)
 	}
+	narrow := sectionBetween(t, style, "@media (max-width: 720px) {", "}")
+	if strings.Contains(narrow, "12px") || !strings.Contains(narrow, "28px") {
+		t.Errorf("narrow layout shrinks the minimap hit target: %s", narrow)
+	}
 }

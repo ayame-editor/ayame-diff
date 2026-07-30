@@ -8,7 +8,7 @@ import (
 // TestMinimapHidesWhenTheResultDoesNotScroll is the #102 regression. The map
 // was shown whenever a diff had hunks, so a one-line change rendered a tall
 // empty bar beside it — a control that navigated nothing. Visibility must
-// depend on the result actually overflowing the viewport.
+// depend on the result pane actually overflowing.
 func TestMinimapHidesWhenTheResultDoesNotScroll(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
@@ -22,8 +22,16 @@ func TestMinimapHidesWhenTheResultDoesNotScroll(t *testing.T) {
 		t.Fatal("app.js does not track whether the minimap has markers")
 	}
 	viewport := functionBody(t, app, "function updateMinimapViewport()")
-	if !strings.Contains(viewport, "window.innerHeight") || !strings.Contains(viewport, "map.hidden =") {
-		t.Error("updateMinimapViewport does not decide visibility from the viewport height")
+	for _, dimension := range []string{"result.scrollTop", "result.scrollHeight", "result.clientHeight"} {
+		if !strings.Contains(viewport, dimension) {
+			t.Errorf("updateMinimapViewport does not use %s", dimension)
+		}
+	}
+	if strings.Contains(viewport, "window.innerHeight") || strings.Contains(viewport, "getBoundingClientRect") {
+		t.Error("updateMinimapViewport still measures the window instead of the result scroll container")
+	}
+	if !strings.Contains(viewport, "map.hidden =") {
+		t.Error("updateMinimapViewport does not decide minimap visibility")
 	}
 	if !strings.Contains(viewport, "minimapHasMarkers") {
 		t.Error("updateMinimapViewport ignores whether any markers were built")
@@ -34,6 +42,39 @@ func TestMinimapHidesWhenTheResultDoesNotScroll(t *testing.T) {
 	resets := strings.Count(app, "minimapHasMarkers = false")
 	if resets < 2 {
 		t.Errorf("minimapHasMarkers is cleared %d times; both result-reset paths must clear it", resets)
+	}
+}
+
+func TestMinimapViewportIsInteractive(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, attribute := range []string{
+		`<script src="minimap.js"></script>`,
+		`role="scrollbar"`,
+		`tabindex="0"`,
+		`aria-controls="result"`,
+		`data-i18n-aria-label="visibleRange"`,
+	} {
+		if !strings.Contains(index, attribute) {
+			t.Errorf("minimap viewport is missing %s", attribute)
+		}
+	}
+	for _, behavior := range []string{
+		`$("result").addEventListener("scroll"`,
+		`$("minimap").addEventListener("pointerdown"`,
+		`$("minimap").addEventListener("pointermove"`,
+		`$("minimapViewport").addEventListener("keydown"`,
+		"scrollTopForMinimapPointer",
+	} {
+		if !strings.Contains(app, behavior) {
+			t.Errorf("app.js is missing minimap interaction %q", behavior)
+		}
+	}
+	if !strings.Contains(style, "touch-action: none") || !strings.Contains(style, "cursor: grab") {
+		t.Error("style.css does not expose the minimap drag affordance")
 	}
 }
 
