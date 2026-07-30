@@ -82,6 +82,24 @@ type Server struct {
 	drops        map[string]*dropSession
 	compareSem   chan struct{} // bounds concurrent expensive comparisons (#170)
 	watchSem     chan struct{} // bounds authenticated long-poll file watches (#251)
+	shutdown     func()
+	shutdownOnce sync.Once
+	lifecycle    *browserLifecycle
+}
+
+// LifecycleOptions connects authenticated browser lifecycle events to the
+// command that owns the HTTP server.
+type LifecycleOptions struct {
+	// Shutdown requests graceful process shutdown. It must return quickly; the
+	// command owns the http.Server and performs the actual drain.
+	Shutdown func()
+	// BrowserLeaseTimeout enables browser-session leases. A positive value is
+	// used by `gui` so a crashed or closed browser cannot leave an orphan
+	// process. Zero disables lease-driven shutdown, as `serve` expects.
+	BrowserLeaseTimeout time.Duration
+	// BrowserCloseGrace allows a reloaded page to acquire a new lease after the
+	// old document releases its lease.
+	BrowserCloseGrace time.Duration
 }
 
 // Options configures a Server.
@@ -98,6 +116,7 @@ type Options struct {
 	// remote listener, whose reachable names the process cannot enumerate;
 	// there the token is the defense.
 	AllowedHosts []string
+	Lifecycle    LifecycleOptions
 }
 
 // New returns a Server that accepts any Host. Prefer NewWithOptions, which can
@@ -129,6 +148,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 		mux: http.NewServeMux(), drops: make(map[string]*dropSession),
 		compareSem: make(chan struct{}, maxConcurrentComparisons),
 		watchSem:   make(chan struct{}, maxConcurrentWatchRequests),
+		shutdown:   opts.Lifecycle.Shutdown,
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
@@ -154,6 +174,12 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	s.mux.HandleFunc("/api/dir/preview", s.limited(s.handleDirPreview))
+	s.mux.HandleFunc("/api/lifecycle/heartbeat", s.handleBrowserHeartbeat)
+	s.mux.HandleFunc("/api/lifecycle/release", s.handleBrowserRelease)
+	s.mux.HandleFunc("/api/shutdown", s.handleShutdown)
+	if opts.Lifecycle.Shutdown != nil && opts.Lifecycle.BrowserLeaseTimeout > 0 {
+		s.lifecycle = newBrowserLifecycle(s, opts.Lifecycle.BrowserLeaseTimeout, opts.Lifecycle.BrowserCloseGrace)
+	}
 	return s, nil
 }
 
