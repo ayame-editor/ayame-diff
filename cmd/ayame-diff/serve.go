@@ -20,16 +20,14 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	return runServeWithDeps(args, stdout, stderr, serveCommandDeps{
 		newHandler: newServerHandler,
 		listen:     net.Listen,
-		serve: func(ln net.Listener, handler http.Handler) error {
-			return server.NewHTTPServer("", handler).Serve(ln)
-		},
+		serve:      serveUntilShutdown,
 	})
 }
 
 type serveCommandDeps struct {
-	newHandler func(string, net.Addr, bool) (http.Handler, string, error)
+	newHandler func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error)
 	listen     func(string, string) (net.Listener, error)
-	serve      func(net.Listener, http.Handler) error
+	serve      func(net.Listener, http.Handler, <-chan struct{}) error
 }
 
 func runServeWithDeps(args []string, stdout, stderr io.Writer, deps serveCommandDeps) int {
@@ -73,7 +71,8 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 		return exitError
 	}
 	defer ln.Close()
-	handler, token, err := deps.newHandler(version, ln.Addr(), remote)
+	shutdownRequests, requestShutdown := newShutdownRequest()
+	handler, token, err := deps.newHandler(version, ln.Addr(), remote, server.LifecycleOptions{Shutdown: requestShutdown})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -83,8 +82,8 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 	}
 	// The URL carries the API token; without it the browser cannot call the
 	// API at all, so print the whole thing (#108).
-	fmt.Fprintf(stderr, "ayame-diff serving on %s  (Ctrl+C to stop)\n", tokenURL(browserBaseURL(ln.Addr()), token))
-	if err := deps.serve(ln, handler); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	fmt.Fprintf(stderr, "ayame-diff serving on %s  (Stop server or Ctrl+C)\n", tokenURL(browserBaseURL(ln.Addr()), token))
+	if err := deps.serve(ln, handler, shutdownRequests); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
@@ -97,8 +96,8 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 // A loopback listener gets an exact Host allowlist, which is what defeats DNS
 // rebinding. A deliberately remote listener does not: the names it is reachable
 // under are not knowable here, so the token alone guards it (#108).
-func newServerHandler(version string, addr net.Addr, remote bool) (http.Handler, string, error) {
-	opts := server.Options{Version: version}
+func newServerHandler(version string, addr net.Addr, remote bool, lifecycle server.LifecycleOptions) (http.Handler, string, error) {
+	opts := server.Options{Version: version, Lifecycle: lifecycle}
 	if !remote {
 		opts.AllowedHosts = loopbackHosts(addr)
 	}
