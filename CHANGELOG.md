@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.10 - 2026-07-30
+
+- Split the 2,059-line GUI server into focused handler modules without
+  changing its API behavior. HTTP method and JSON decoding guards, whitespace
+  option parsing, and cleaned absolute-path comparisons now have shared,
+  tested implementations instead of accumulating per-handler copies. (#72)
+
 ## v0.8.9 - 2026-07-30
 
 - Accepted ADR 0004, which keeps Git history, revisions, index/staging,
