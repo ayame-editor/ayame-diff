@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.8 - 2026-07-30
+
+- Documented why the GUI intentionally uses a native local server for direct
+  paths, external-save watching, disk-backed large-input processing, and
+  shared CLI/GUI comparison behavior without overstating browser-only WASM
+  limitations. Added tested terminal Git difftool and safe automatic mergetool
+  setup. The new `3way text --merge-exit-code` returns 1 when saved output
+  still contains unresolved conflicts, so Git cannot confuse “written” with
+  “resolved”. (#280; advances #295)
+
 ## v0.8.7 - 2026-07-30
 
 - Added an English/Japanese GUI regression checklist that requires pull
