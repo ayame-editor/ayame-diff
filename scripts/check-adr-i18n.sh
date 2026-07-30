@@ -44,4 +44,23 @@ for japanese in "$adr_dir"/*.ja.md; do
   fi
 done
 
+english_index="$adr_dir/README.md"
+japanese_index="$adr_dir/README.ja.md"
+for english in "$adr_dir"/[0-9][0-9][0-9][0-9]-*.md; do
+  if [[ "$english" == *.ja.md ]]; then
+    continue
+  fi
+
+  base="$(basename "${english%.md}")"
+  number="${base%%-*}"
+  if ! grep -Fq "[$number]($base.md)" "$english_index"; then
+    echo "error: $english_index does not index $english" >&2
+    failed=1
+  fi
+  if ! grep -Fq "[$number]($base.ja.md)" "$japanese_index"; then
+    echo "error: $japanese_index does not index ${english%.md}.ja.md" >&2
+    failed=1
+  fi
+done
+
 exit "$failed"

@@ -451,4 +451,9 @@ ayame-diff shell-select PATH
 
 `ayame-diff`は大規模な構造化/テキストデータに特化しています。画像レンダリングやWebページのスクリーンショット比較は対象外です。これらには画像デコーダやブラウザエンジンが必要で、WinMergeや専用のビジュアル回帰ツールの方が適しています。
 
+Git repository の検査・管理も対象外です。Git から custom difftool / mergetool として
+呼ばれた場合は明示 path を受け取りますが、`.git` の読み取り、revision 解決、
+stage、commit、branch、remote、認証操作は行いません。詳しくは
+[ADR 0004](adr/0004-git-repository-boundary.ja.md)を参照してください。
+
 画像やその他の非テキストファイルは`dir`比較にバイナリコンテンツとして参加可能です。`ayame-diff bin LEFT RIGHT`を使って異なるバイトオフセットを調査できます。ただし、ピクセルレベルの画像ビューアやDOM/レンダリングページの比較はありません。

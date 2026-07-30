@@ -34,6 +34,10 @@ ayame-diff shell-uninstall
 
 ## Git difftool
 
+以下は ayame-diff を Git から呼ばれるツールにする設定であり、ayame-diff に
+repository の検査・管理を追加するものではありません。この境界は
+[ADR 0004](adr/0004-git-repository-boundary.ja.md)を参照してください。
+
 端末の diff を Git のカスタムツールとして登録します。
 
 ```bash
