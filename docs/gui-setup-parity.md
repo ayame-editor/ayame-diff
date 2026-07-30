@@ -82,3 +82,7 @@ option. Before adding a control:
 Removing or automating a control still requires tests, documentation, and a
 migration path when saved projects contain the old field. Silent loss of a
 capability remains a regression; reducing permanent chrome does not.
+
+For each concrete GUI change, apply the
+[GUI change regression checklist](ui-regression-checklist.md) and attach its
+click-count, keyboard, result-space, and DPI evidence to the pull request.

@@ -90,6 +90,7 @@ nav:
   - Automate:
       - Comparison projects: projects.md
       - GUI setup parity: gui-setup-parity.md
+      - GUI regression checklist: ui-regression-checklist.md
   - Project:
       - Packaging and Windows trust: packaging.md
       - Ayame family design: design.md
@@ -112,6 +113,7 @@ nav:
       - 自動化する:
           - 比較プロジェクト: projects.ja.md
           - GUI 設定対応表: gui-setup-parity.ja.md
+          - GUI 退行防止チェックリスト: ui-regression-checklist.ja.md
       - プロジェクト:
           - パッケージングと Windows の信頼: packaging.ja.md
           - Ayame ファミリーのデザイン: design.ja.md
