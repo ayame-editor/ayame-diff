@@ -65,12 +65,15 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 
 	// Listen first: the Host allowlist and the printed URL both need the port
 	// actually bound, which "port 0" only reveals here.
-	ln, err := deps.listen("tcp", addr)
+	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer ln.Close()
+	if portFallback {
+		fmt.Fprintf(stderr, "warning: %s is unavailable; using %s\n", addr, ln.Addr())
+	}
 	shutdownRequests, requestShutdown := newShutdownRequest()
 	handler, token, err := deps.newHandler(version, ln.Addr(), remote, server.LifecycleOptions{Shutdown: requestShutdown})
 	if err != nil {

@@ -82,6 +82,9 @@ ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 | `--addr` | `127.0.0.1:8080` | Listen address (`host:port`). |
 | `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
 
+If a requested fixed port is already in use, the command reports the conflict
+and binds the next available port instead.
+
 ## `gui`
 
 ```text
@@ -102,6 +105,9 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 | `--addr` | `127.0.0.1:0` | Listen address; port `0` picks a free port. |
 | `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
 | `--no-open` | off | Start the server but do not open the browser. |
+
+An explicitly requested fixed GUI port uses the same next-port fallback;
+the default port `0` already asks the operating system for a free port.
 
 Each `gui` browser tab holds an authenticated lease. Closing the last tab
 releases that lease and stops the server after a short reload grace period, so
