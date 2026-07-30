@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.4 - 2026-07-30
+
+- Added stable wide, 960px, and 720px layout steps. Split laptop windows now
+  arrange project controls without squeezing them, while narrow pasted-text and
+  three-way comparisons stack into readable full-width panes. Wide results
+  continue to use all available horizontal space, and CSV data keeps bounded
+  horizontal scrolling. (#107)
+
 ## v0.8.3 - 2026-07-30
 
 - Made the difference minimap follow the result pane's actual scroll position
