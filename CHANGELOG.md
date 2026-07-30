@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.7 - 2026-07-30
+
+- Added an English/Japanese GUI regression checklist that requires pull
+  requests to preserve routine click counts, keyboard reachability, reclaimed
+  result space, and normal/high-DPI usability. The PR template now captures the
+  evidence, while a dedicated contributor-policy check shared by `make check`
+  and CI prevents the review wiring from drifting. (#283)
+
 ## v0.8.6 - 2026-07-30
 
 - Standardized user-visible comparison targets as LEFT / RIGHT across the web
