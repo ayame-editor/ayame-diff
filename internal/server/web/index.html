@@ -296,7 +296,10 @@
           </div>
         </section>
         <aside class="minimap" id="minimap" data-i18n-aria-label="differenceMap" aria-label="差分マップ" hidden>
-          <div class="minimap-viewport" id="minimapViewport"></div>
+          <div class="minimap-viewport" id="minimapViewport" role="scrollbar" tabindex="0"
+               aria-controls="result" aria-orientation="vertical" aria-valuemin="0"
+               aria-valuemax="100" aria-valuenow="0"
+               data-i18n-aria-label="visibleRange" aria-label="表示範囲"></div>
         </aside>
       </div>
     </main>
@@ -371,6 +374,7 @@
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
+    <script src="minimap.js"></script>
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>

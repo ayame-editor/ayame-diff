@@ -49,8 +49,12 @@ func TestResizeIsThrottled(t *testing.T) {
 	if start < 0 {
 		t.Fatal("no resize handler")
 	}
-	handler := app[start : start+240]
-	if !strings.Contains(handler, "requestAnimationFrame") || !strings.Contains(handler, "viewportFrame") {
+	handler := app[start : start+120]
+	if !strings.Contains(handler, "scheduleMinimapViewport") {
 		t.Error("the resize handler does not reuse the frame throttle the scroll handler uses")
+	}
+	scheduler := functionBody(t, app, "function scheduleMinimapViewport()")
+	if !strings.Contains(scheduler, "requestAnimationFrame") || !strings.Contains(scheduler, "viewportFrame") {
+		t.Error("the shared viewport scheduler is not frame-throttled")
 	}
 }

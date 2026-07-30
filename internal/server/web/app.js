@@ -15,6 +15,10 @@ const {
   buildComparisonURL,
   buildShareURL,
 } = globalThis.AyameURLState;
+const {
+  calculateMinimapViewport,
+  scrollTopForMinimapPointer,
+} = globalThis.AyameMinimap;
 
 function resultScrollInset() {
   return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
@@ -90,7 +94,7 @@ const I18N = {
     nextDiff: "次の差分",
     lastDiff: "最後の差分",
     navHelpText: "差分移動: Alt+↓/↑、採用: Alt+← 左 / Alt+→ 右 / Alt+B ベース、Alt+Home/End、検索: Ctrl+F（Enter/Shift+Enter で次/前、Esc で閉じる）",
-    keyboardShortcuts: "キーボードショートカット", differenceMap: "差分マップ",
+    keyboardShortcuts: "キーボードショートカット", differenceMap: "差分マップ", visibleRange: "表示範囲",
     detectMoves: "移動ブロック検出", moveMinLines: "移動の最小行数", moved: "移動",
     addSync: "同期点を追加", clearSync: "同期点を全削除", syncPoints: "同期点",
     ignoreHunk: "この差分を無視", restoreHunk: "無視を解除", ignored: "無視",
@@ -209,7 +213,7 @@ const I18N = {
     nextDiff: "Next difference",
     lastDiff: "Last difference",
     navHelpText: "Navigate: Alt+↓/↑; choose: Alt+← left / Alt+→ right / Alt+B base; Alt+Home/End; search: Ctrl+F (Enter/Shift+Enter next/previous, Esc closes)",
-    keyboardShortcuts: "Keyboard shortcuts", differenceMap: "Difference map",
+    keyboardShortcuts: "Keyboard shortcuts", differenceMap: "Difference map", visibleRange: "Visible range",
     detectMoves: "detect moves", moveMinLines: "move min lines", moved: "moved",
     addSync: "Add sync", clearSync: "Clear sync", syncPoints: "Sync points",
     ignoreHunk: "Ignore this difference", restoreHunk: "Restore difference", ignored: "ignored",
@@ -1548,24 +1552,25 @@ let minimapHasMarkers = false;
 //
 // Visibility is decided here rather than at build time for two reasons: it
 // needs the populated DOM (setupNavigation runs before the hunks are appended),
-// and it has to be revisited whenever the result or the window resizes. Both
+// and it has to be revisited whenever the result pane or the window resizes. Both
 // render paths, the scroll handler, and the resize handler already call this.
 function updateMinimapViewport() {
   const result = $("result");
   const map = $("minimap");
-  const rect = result.getBoundingClientRect();
-  // A map for content that already fits navigates nothing: it used to render as
-  // a tall empty bar beside a one-line diff (#102). The slack keeps a result
-  // only marginally taller than the window from getting one either.
-  const scrolls = rect.height > window.innerHeight * 1.15;
-  map.hidden = !(minimapHasMarkers && scrolls);
-  if (map.hidden || !rect.height) return;
-  const visibleTop = Math.max(0, -rect.top);
-  const visibleBottom = Math.min(rect.height, window.innerHeight - rect.top);
-  const top = Math.min(1, visibleTop / rect.height);
-  const height = Math.max(0.03, Math.min(1 - top, (visibleBottom - visibleTop) / rect.height));
-  $("minimapViewport").style.top = `${top * 100}%`;
-  $("minimapViewport").style.height = `${height * 100}%`;
+  const metrics = calculateMinimapViewport({
+    scrollTop: result.scrollTop,
+    scrollHeight: result.scrollHeight,
+    clientHeight: result.clientHeight,
+  });
+  map.hidden = !(minimapHasMarkers && metrics.scrollable);
+  if (map.hidden) return;
+  const viewport = $("minimapViewport");
+  viewport.style.top = `${metrics.top * 100}%`;
+  viewport.style.height = `${metrics.height * 100}%`;
+  viewport.setAttribute(
+    "aria-valuenow",
+    String(Math.round((result.scrollTop / metrics.maxScrollTop) * 100)),
+  );
 }
 
 function setupNavigation(data) {
@@ -3451,15 +3456,75 @@ document.addEventListener("keydown", (event) => {
   }
 });
 let viewportFrame = 0;
-window.addEventListener("scroll", () => {
+function scheduleMinimapViewport() {
   if (viewportFrame) return;
   viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
-}, { passive: true });
+}
+$("result").addEventListener("scroll", scheduleMinimapViewport, { passive: true });
 // Throttled like scroll above: a resize fires continuously while dragging, and
 // each call forces a layout read (#155).
-window.addEventListener("resize", () => {
-  if (viewportFrame) return;
-  viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
+window.addEventListener("resize", scheduleMinimapViewport);
+
+let minimapPointerId = null;
+let minimapGrabOffset = 0;
+function moveMinimapPointer(pointerY) {
+  const mapRect = $("minimap").getBoundingClientRect();
+  const viewportRect = $("minimapViewport").getBoundingClientRect();
+  const result = $("result");
+  result.scrollTop = scrollTopForMinimapPointer({
+    pointerY,
+    trackTop: mapRect.top,
+    trackHeight: mapRect.height,
+    viewportHeight: viewportRect.height,
+    grabOffset: minimapGrabOffset,
+    scrollHeight: result.scrollHeight,
+    clientHeight: result.clientHeight,
+  });
+  updateMinimapViewport();
+}
+function finishMinimapDrag(event) {
+  if (event.pointerId !== minimapPointerId) return;
+  const map = $("minimap");
+  if (map.hasPointerCapture?.(event.pointerId)) map.releasePointerCapture(event.pointerId);
+  minimapPointerId = null;
+  map.classList.remove("dragging");
+}
+$("minimap").addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || event.target.closest(".minimap-marker")) return;
+  const viewport = $("minimapViewport");
+  const viewportRect = viewport.getBoundingClientRect();
+  minimapGrabOffset = event.target.closest(".minimap-viewport")
+    ? Math.max(0, Math.min(viewportRect.height, event.clientY - viewportRect.top))
+    : viewportRect.height / 2;
+  minimapPointerId = event.pointerId;
+  $("minimap").setPointerCapture?.(event.pointerId);
+  $("minimap").classList.add("dragging");
+  viewport.focus({ preventScroll: true });
+  event.preventDefault();
+  moveMinimapPointer(event.clientY);
+});
+$("minimap").addEventListener("pointermove", (event) => {
+  if (event.pointerId !== minimapPointerId) return;
+  event.preventDefault();
+  moveMinimapPointer(event.clientY);
+});
+$("minimap").addEventListener("pointerup", finishMinimapDrag);
+$("minimap").addEventListener("pointercancel", finishMinimapDrag);
+$("minimap").addEventListener("lostpointercapture", finishMinimapDrag);
+$("minimapViewport").addEventListener("keydown", (event) => {
+  const result = $("result");
+  const maximum = Math.max(0, result.scrollHeight - result.clientHeight);
+  let next = result.scrollTop;
+  if (event.key === "ArrowUp") next -= Math.max(40, result.clientHeight * 0.1);
+  else if (event.key === "ArrowDown") next += Math.max(40, result.clientHeight * 0.1);
+  else if (event.key === "PageUp") next -= result.clientHeight * 0.9;
+  else if (event.key === "PageDown") next += result.clientHeight * 0.9;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = maximum;
+  else return;
+  event.preventDefault();
+  result.scrollTop = Math.max(0, Math.min(maximum, next));
+  updateMinimapViewport();
 });
 // In-result search (#118). Ctrl+F is intercepted only when there is a result to
 // search; otherwise the browser's own find is left alone.
