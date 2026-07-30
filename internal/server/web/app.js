@@ -16,6 +16,7 @@ const {
   buildShareURL,
 } = globalThis.AyameURLState;
 const {
+  calculateMinimapSegments,
   calculateMinimapViewport,
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
@@ -1259,6 +1260,7 @@ async function renderResult(data) {
   if (searchOpen()) runSearch();
   updateMergeUI();
   observeHunks();
+  buildMinimap(data);
   updateMinimapViewport();
 }
 
@@ -1370,7 +1372,24 @@ async function renderThreeWay(data, csvMode) {
   const result = $("result"); result.innerHTML = "";
   result.append(paneHeads(data));
   resetMergeRowIndex();
-  lastData = { old_lines: data.base_lines || data.events.length, new_lines: data.base_lines || data.events.length, hunks: data.events.map((event) => ({ kind: event.kind === "conflict" ? "replace" : "insert", old_start: event.base_start || 0, new_start: event.base_start || 0, old_len: event.base_len || 1, new_len: event.base_len || 1 })) };
+  lastData = {
+    old_lines: data.base_lines || data.events.length,
+    new_lines: data.base_lines || data.events.length,
+    hunks: data.events.map((event) => ({
+      kind: event.kind === "conflict" ? "replace" : "insert",
+      minimap_kind: event.kind === "conflict" ? "conflict" : "insert",
+      old_start: event.base_start || 0,
+      new_start: event.base_start || 0,
+      old_len: event.base_len || 1,
+      new_len: event.base_len || 1,
+      display_len: Math.max(
+        event.base?.length || event.base_len || 1,
+        event.left?.length || 0,
+        event.right?.length || 0,
+        event.combined?.length || 0,
+      ),
+    })),
+  };
   syncExportPatchVisibility();
   setupNavigation(lastData);
   const buildEvent = (event, index) => {
@@ -1402,7 +1421,7 @@ async function renderThreeWay(data, csvMode) {
       : t("threeWayTextMatchScope", { lines: Number(data.base_lines || 0).toLocaleString() });
     result.append(resultStateCard(t(comparisonUsesRules(csvMode) ? "filteredMatch" : "completeMatch"), scope));
   }
-  observeHunks(); updateThreeWayMergeUI(); updateMinimapViewport();
+  observeHunks(); updateThreeWayMergeUI(); buildMinimap(lastData); updateMinimapViewport();
 }
 function updateThreeWayMergeUI() {
 	$("allBase").hidden = false;
@@ -1490,7 +1509,7 @@ function jumpToHunk(index) {
   if (!total || ignoredHunks.has(index)) return;
   index = Math.max(0, Math.min(total - 1, index));
   document.querySelector(".hunk.current")?.classList.remove("current");
-  document.querySelector(".minimap-marker.current")?.classList.remove("current");
+  document.querySelectorAll(".minimap-marker.current").forEach((marker) => marker.classList.remove("current"));
   currentHunk = index;
   readHunks.add(index);
   markSidebarCurrent();
@@ -1503,7 +1522,7 @@ function jumpToHunk(index) {
   // to a difference simply failed. Measured: behavior "auto" reaches 1807,
   // "smooth" leaves scrollTop at 0.
   hunk.scrollIntoView({ block: "center" });
-  document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("current", "read");
+  document.querySelectorAll(`.minimap-marker[data-hunk="${index}"]`).forEach((marker) => marker.classList.add("current", "read"));
   updateCounter();
 }
 
@@ -1519,8 +1538,9 @@ function toggleIgnoredHunk(index) {
     const box = $(`hunk-${i}`);
     box.classList.toggle("ignored", !restore);
     box.querySelector(".hunk-ignore").textContent = t(restore ? "ignoreHunk" : "restoreHunk");
-    document.querySelector(`.minimap-marker[data-hunk="${i}"]`)?.classList.toggle("ignored", !restore);
   }
+  buildMinimap(lastData);
+  updateMinimapViewport();
   if (ignoredHunks.has(currentHunk)) currentHunk = -1;
   renderSummary(lastData);
   updateCounter();
@@ -1529,18 +1549,37 @@ function toggleIgnoredHunk(index) {
 function buildMinimap(data) {
   const map = $("minimap");
   map.querySelectorAll(".minimap-marker").forEach((el) => el.remove());
-  const totalLines = Math.max(1, data.old_lines, data.new_lines);
-  data.hunks.forEach((h, index) => {
+  if (!data?.hunks?.length) return;
+
+  // Measure the actual track even when the previous result hid it. Segment
+  // generation is bounded by this pixel height, so a dense three-way result
+  // cannot create an unbounded number of buttons.
+  const wasHidden = map.hidden;
+  map.hidden = false;
+  const trackPixels = Math.max(1, Math.floor(map.getBoundingClientRect().height || 1));
+  map.hidden = wasHidden;
+  const segments = calculateMinimapSegments(data.hunks.map((h, index) => ({
+    index,
+    kind: h.minimap_kind || h.kind,
+    moved: Boolean(h.move_id),
+    ignored: ignoredHunks.has(index),
+    displayLength: Math.max(h.display_len || 0, h.old_len || 0, h.new_len || 0, 1),
+  })), trackPixels);
+
+  for (const segment of segments) {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `minimap-marker ${h.kind}${h.move_id ? " moved" : ""}${ignoredHunks.has(index) ? " ignored" : ""}`;
-    marker.dataset.hunk = String(index);
-    marker.title = `${index + 1}: ${h.kind}`;
-    marker.style.top = `${Math.min(99, (Math.max(h.old_start, h.new_start) / totalLines) * 100)}%`;
-    marker.style.height = `${Math.max(0.7, (Math.max(h.old_len, h.new_len, 1) / totalLines) * 100)}%`;
-    marker.addEventListener("click", () => jumpToHunk(index));
+    marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}`;
+    if (readHunks.has(segment.index)) marker.classList.add("read");
+    if (currentHunk === segment.index) marker.classList.add("current");
+    marker.dataset.hunk = String(segment.index);
+    marker.dataset.priority = String(segment.priority);
+    marker.title = `${segment.index + 1}: ${segment.kind}`;
+    marker.style.top = `${segment.top * 100}%`;
+    marker.style.height = `${segment.height * 100}%`;
+    marker.addEventListener("click", () => jumpToHunk(segment.index));
     map.append(marker);
-  });
+  }
 }
 
 // minimapHasMarkers records whether buildMinimap produced anything, so the
@@ -1590,7 +1629,7 @@ function setupNavigation(data) {
   renderSyncPoints();
   buildSidebar(data);
   minimapHasMarkers = hasHunks;
-  if (hasHunks) buildMinimap(data);
+  $("minimap").querySelectorAll(".minimap-marker").forEach((marker) => marker.remove());
   updateCounter();
   updateMinimapViewport();
 }
@@ -1605,7 +1644,7 @@ function observeHunks() {
       if (!readHunks.has(index)) {
         readHunks.add(index);
         entry.target.classList.add("read");
-        document.querySelector(`.minimap-marker[data-hunk="${index}"]`)?.classList.add("read");
+        document.querySelectorAll(`.minimap-marker[data-hunk="${index}"]`).forEach((marker) => marker.classList.add("read"));
         changed = true;
       }
     }
@@ -3189,6 +3228,7 @@ function applyWrap(on) {
   $("wrap").checked = on;
   document.querySelector(".csv-table")?.classList.toggle("wrap-cells", on);
   restoreResultScrollAnchor(scrollAnchor);
+  refreshMinimapGeometry();
 }
 // applyViewMode switches between side-by-side and the unified, git-style single
 // column (#115). Nothing is re-rendered: a changed row already carries both
@@ -3201,6 +3241,7 @@ function applyViewMode(mode) {
   localStorage.setItem("ayame-view", unified ? "unified" : "side");
   $("viewMode").value = unified ? "unified" : "side";
   restoreResultScrollAnchor(scrollAnchor);
+  refreshMinimapGeometry();
 }
 function applyDisplayPreferences() {
   const result = $("result");
@@ -3460,10 +3501,19 @@ function scheduleMinimapViewport() {
   if (viewportFrame) return;
   viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; updateMinimapViewport(); });
 }
+function refreshMinimapGeometry() {
+  if (minimapHasMarkers && lastData) buildMinimap(lastData);
+  updateMinimapViewport();
+}
 $("result").addEventListener("scroll", scheduleMinimapViewport, { passive: true });
 // Throttled like scroll above: a resize fires continuously while dragging, and
 // each call forces a layout read (#155).
-window.addEventListener("resize", scheduleMinimapViewport);
+let minimapResizeTimer = 0;
+window.addEventListener("resize", () => {
+  scheduleMinimapViewport();
+  clearTimeout(minimapResizeTimer);
+  minimapResizeTimer = setTimeout(refreshMinimapGeometry, 120);
+});
 
 let minimapPointerId = null;
 let minimapGrabOffset = 0;

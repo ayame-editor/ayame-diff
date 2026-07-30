@@ -88,6 +88,33 @@ func TestMinimapColumnCollapsesWhenHidden(t *testing.T) {
 	}
 }
 
+func TestMinimapMarkersPreservePriorityAndBounds(t *testing.T) {
+	t.Parallel()
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	build := functionBody(t, app, "function buildMinimap(data)")
+	for _, behavior := range []string{
+		"calculateMinimapSegments",
+		"h.minimap_kind || h.kind",
+		"marker.dataset.priority",
+		"displayLength",
+	} {
+		if !strings.Contains(build, behavior) {
+			t.Errorf("buildMinimap is missing priority geometry behavior %q", behavior)
+		}
+	}
+	if strings.Contains(build, "Math.min(99") || strings.Contains(build, "Math.max(h.old_start, h.new_start)") {
+		t.Error("buildMinimap still uses source-line approximation with an unclamped marker end")
+	}
+	if !strings.Contains(app, `minimap_kind: event.kind === "conflict" ? "conflict"`) {
+		t.Error("three-way conflicts are not preserved as priority minimap markers")
+	}
+	if !strings.Contains(style, ".minimap-marker.conflict") {
+		t.Error("conflict markers do not have a distinct visual treatment")
+	}
+}
+
 // functionBody returns the source of the function starting at header, up to its
 // closing brace at column 0, so an assertion can be scoped to one function.
 func functionBody(t *testing.T, source, header string) string {
