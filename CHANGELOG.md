@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.6 - 2026-07-30
+
+- Standardized user-visible comparison targets as LEFT / RIGHT across the web
+  input and result views, CLI help, validation and server errors, and English /
+  Japanese documentation. Three-way views now use the same BASE / LEFT / RIGHT
+  labels throughout, while existing `old` / `new` API fields remain compatible.
+  (#111)
+
 ## v0.8.5 - 2026-07-30
 
 - Made dense difference minimaps preserve conflict and moved markers ahead of
