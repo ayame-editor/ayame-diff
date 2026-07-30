@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -51,8 +50,7 @@ type watchResponse struct {
 }
 
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "use POST")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	select {
@@ -64,9 +62,8 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req watchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	req, ok := decodeJSON[watchRequest](w, r, "")
+	if !ok {
 		return
 	}
 	paths, err := normalizeWatchPaths(req.Paths)

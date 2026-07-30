@@ -6,12 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/hjosugi/ayame-diff/internal/linediff"
 	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/hjosugi/ayame-diff/internal/pathutil"
 	"github.com/hjosugi/ayame-diff/internal/threeway"
 )
 
@@ -86,10 +86,8 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		return exitUsage
 	}
 	if output != "" {
-		outAbs, _ := filepath.Abs(output)
 		for _, input := range fs.Args() {
-			inputAbs, _ := filepath.Abs(input)
-			if outAbs == inputAbs {
+			if pathutil.Equal(output, input) {
 				fmt.Fprintln(stderr, "error: merge output must differ from every input")
 				return exitUsage
 			}
@@ -122,7 +120,7 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		fmt.Fprintln(stderr, "error: --ignore-whitespace must be none, change, or all")
 		return exitUsage
 	}
-	result, err := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: whitespaceMode(whitespace), LineFilters: compiled})
+	result, err := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: linediff.ParseWhitespace(whitespace), LineFilters: compiled})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError

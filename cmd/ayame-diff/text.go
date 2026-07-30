@@ -206,18 +206,6 @@ func (d *diffFlags) outputFormat() (diffout.Format, int, bool, error) {
 	}
 }
 
-// whitespaceMode maps the --ignore-whitespace flag to the linediff enum.
-func whitespaceMode(s string) linediff.Whitespace {
-	switch s {
-	case "change":
-		return linediff.WSChange
-	case "all":
-		return linediff.WSAll
-	default:
-		return linediff.WSKeep
-	}
-}
-
 func (d diffFlags) comparisonOptions() (linediff.Options, error) {
 	whitespace := d.whitespace
 	if d.ignoreAllSpace && d.ignoreSpaceChange {
@@ -237,7 +225,7 @@ func (d diffFlags) comparisonOptions() (linediff.Options, error) {
 		return linediff.Options{}, err
 	}
 	return linediff.Options{
-		IgnoreCase: d.ignoreCase, Whitespace: whitespaceMode(whitespace),
+		IgnoreCase: d.ignoreCase, Whitespace: linediff.ParseWhitespace(whitespace),
 		IgnoreEOL: d.ignoreEOL, IgnoreTrailingEOL: d.ignoreTrailingEOL,
 		LineFilters: filters,
 	}, nil

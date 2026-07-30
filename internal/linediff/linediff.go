@@ -100,6 +100,20 @@ const (
 	WSAll
 )
 
+// ParseWhitespace maps the public option spelling to its comparison mode.
+// Validation remains with the caller so an empty or unknown value keeps the
+// default exact-whitespace behavior.
+func ParseWhitespace(value string) Whitespace {
+	switch value {
+	case "change":
+		return WSChange
+	case "all":
+		return WSAll
+	default:
+		return WSKeep
+	}
+}
+
 // Options tunes the diff. MaxHunks and Window are always used; the Ignore*
 // fields normalize the text used for *comparison* only — output still shows the
 // original lines.
