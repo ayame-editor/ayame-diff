@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.5 - 2026-07-30
+
+- Made dense difference minimaps preserve conflict and moved markers ahead of
+  ordinary changes. Marker geometry now follows the logical rows displayed in
+  the result pane, stays within the track, and remains bounded by the track's
+  pixel height even for very large three-way results. (#265)
+
 ## v0.8.4 - 2026-07-30
 
 - Added stable wide, 960px, and 720px layout steps. Split laptop windows now
