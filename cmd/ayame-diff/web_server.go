@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -28,6 +29,38 @@ func newShutdownRequest() (<-chan struct{}, func()) {
 		}
 	}
 	return requests, request
+}
+
+func listenWithPortFallback(
+	listen func(string, string) (net.Listener, error),
+	network string,
+	address string,
+) (net.Listener, bool, error) {
+	listener, err := listen(network, address)
+	if err == nil || !errors.Is(err, syscall.EADDRINUSE) {
+		return listener, false, err
+	}
+
+	host, portText, splitErr := net.SplitHostPort(address)
+	if splitErr != nil {
+		return nil, false, err
+	}
+	port, parseErr := strconv.Atoi(portText)
+	if parseErr != nil || port == 0 {
+		return nil, false, err
+	}
+	for candidatePort := port + 1; candidatePort <= 65535; candidatePort++ {
+		candidate := net.JoinHostPort(host, strconv.Itoa(candidatePort))
+		listener, candidateErr := listen(network, candidate)
+		if candidateErr == nil {
+			return listener, true, nil
+		}
+		if !errors.Is(candidateErr, syscall.EADDRINUSE) {
+			return nil, false, candidateErr
+		}
+		err = candidateErr
+	}
+	return nil, false, err
 }
 
 func serveUntilShutdown(listener net.Listener, handler http.Handler, shutdownRequests <-chan struct{}) error {
