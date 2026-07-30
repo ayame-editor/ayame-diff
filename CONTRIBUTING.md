@@ -24,5 +24,8 @@ make build
 - 1つのPull Requestでは1つの目的に集中してください。
 - 新しい動作にはテストを追加してください。
 - CLI、出力、既定値を変更した場合はREADMEとCHANGELOGも更新してください。
+- 利用者向けドキュメントを変更した場合は、英語の`docs/<name>.md`と日本語の
+  `docs/<name>.ja.md`を同時に更新してください。トップページだけは公開URLを
+  `/`と`/ja/`にするため、`docs/index.md`と`docs/ja/index.md`を対にします。
 - Windows固有コードを変更した場合は、可能ならWindows x64またはARM64で実機確認してください。
 - 大規模性能の数値は、入力条件、CPU、RAM、ストレージ、コマンドを併記してください。
