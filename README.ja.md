@@ -64,10 +64,10 @@ go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
 
 ```
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較（既定）
-ayame-diff text   [flags] OLD NEW                      # テキストの行 diff
-ayame-diff sorted [flags] OLD NEW                      # ソートしてから行 diff
-ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
-ayame-diff bin    [flags] OLD NEW                      # バイナリ/hex 差分
+ayame-diff text   [flags] LEFT RIGHT                      # テキストの行 diff
+ayame-diff sorted [flags] LEFT RIGHT                      # ソートしてから行 diff
+ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ(zip,tar.gz)を再帰比較
+ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/hex 差分
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT の3-way比較
 ayame-diff serve  [--addr host:port] [--allow-remote]  # ブラウザ GUI（ローカル Web）
 ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
@@ -126,7 +126,7 @@ ayame-diff csv --left a.csv --right b.csv \
 ayame-diff csv --left a.csv --right b.csv --key id \
   --cell-diff --out cells.tsv       # _changed_cols と列別ランキング
 ayame-diff csv --left a.csv --right b.csv --key id \
-  --json --out cells.jsonl          # old/new セル値を構造化出力
+  --json --out cells.jsonl          # 左/右セル値を構造化出力
 ayame-diff csv --project jobs/daily.ayamediff.json --diff-exit-code
 ```
 
@@ -156,7 +156,7 @@ ayame-diff serve --addr 127.0.0.1:9000
 ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
-OLD / NEW のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。ファイルを外部で保存すると、表示中の論理位置を保ったまま自動再比較します。この動作は表示メニューから無効化できます。
+LEFT / RIGHT のパスと `text` / `sorted` モード・オプションを指定して Compare すると、ハンクごとのヘッダー・行番号・ワード単位ハイライト付きの side-by-side グリッドで差分を表示します。ファイルを外部で保存すると、表示中の論理位置を保ったまま自動再比較します。この動作は表示メニューから無効化できます。
 
 ## キーの選び方
 

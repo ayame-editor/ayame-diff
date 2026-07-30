@@ -18,7 +18,7 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/engine"
 )
 
-// runDir implements: ayame-diff dir [flags] OLD_DIR NEW_DIR
+// runDir implements: ayame-diff dir [flags] LEFT_DIR RIGHT_DIR
 func runDir(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff dir", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
@@ -49,7 +49,7 @@ func runDir(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&maxEntries, "max-entries", dircompare.DefaultMaxEntries, "maximum files compared across both trees (negative disables the check)")
 	fs.BoolVar(&diffExit, "diff-exit-code", false, "exit 1 when differences exist (usage errors exit 2, runtime errors 3)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] OLD NEW
+		fmt.Fprintln(fs.Output(), `ayame-diff dir [flags] LEFT RIGHT
 
 Recursively compare two directory trees, or archives (.zip/.tar/.tar.gz/.tgz),
 by file content. Reports files that were added (+), removed (-), or changed (~).
@@ -81,7 +81,7 @@ Unchanged files are hidden unless --all is given.`)
 	} else if fs.NArg() == 0 && embedded != nil && embedded.Old != "" && embedded.New != "" {
 		oldPath, newPath = resolveDirProjectPath(filterFile, embedded.Old), resolveDirProjectPath(filterFile, embedded.New)
 	} else {
-		fmt.Fprintln(stderr, "error: dir needs exactly two paths: OLD NEW (or a directory project with both paths)")
+		fmt.Fprintln(stderr, "error: dir needs exactly two paths: LEFT RIGHT (or a directory project with both paths)")
 		return exitUsage
 	}
 	includes.values = append(includes.values, set.Includes...)

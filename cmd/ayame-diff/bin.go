@@ -12,7 +12,7 @@ import (
 	"github.com/hjosugi/ayame-diff/internal/hexdiff"
 )
 
-// runBin implements: ayame-diff bin [flags] OLD NEW
+// runBin implements: ayame-diff bin [flags] LEFT RIGHT
 func runBin(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff bin", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
@@ -20,10 +20,10 @@ func runBin(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&maxRegions, "max-regions", 256, "maximum differing regions to print")
 	fs.IntVar(&maxBytes, "max-bytes", 32, "maximum bytes retained and shown per region side")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff bin [flags] OLD NEW
+		fmt.Fprintln(fs.Output(), `ayame-diff bin [flags] LEFT RIGHT
 
 Byte-level (binary/hex) diff of two files. Prints each differing region as its
-offset with the old and new bytes in hex. Streams both files, so it stays
+offset with the left and right bytes in hex. Streams both files, so it stays
 memory-bounded on large inputs.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
@@ -36,7 +36,7 @@ memory-bounded on large inputs.`)
 		return exitUsage
 	}
 	if fs.NArg() != 2 {
-		fmt.Fprintln(stderr, "error: bin needs exactly two files: OLD NEW")
+		fmt.Fprintln(stderr, "error: bin needs exactly two files: LEFT RIGHT")
 		return exitUsage
 	}
 	if maxRegions < 1 {

@@ -55,13 +55,13 @@ ayame-diff dir old-folder new-folder        # フォルダを比較
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV キー比較
-ayame-diff text   [flags] OLD NEW                      # 行指向のテキスト差分
-ayame-diff sorted [flags] OLD NEW                      # 両方をソートしてから比較
-ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ比較
-ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比較
+ayame-diff text   [flags] LEFT RIGHT                      # 行指向のテキスト差分
+ayame-diff sorted [flags] LEFT RIGHT                      # 両方をソートしてから比較
+ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ比較
+ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # 3-way 比較
 ayame-diff serve  [--addr host:port]                   # ローカル Web UI
-ayame-diff gui    [flags] [OLD [NEW]]                  # Web UI をブラウザで開く
+ayame-diff gui    [flags] [LEFT [RIGHT]]                  # Web UI をブラウザで開く
 ayame-diff update [--check]                            # 最新リリースの確認・導入
 ayame-diff remove [--yes]                              # スタンドアロン版を削除
 ayame-diff shell-install                               # ファイルマネージャー統合を登録

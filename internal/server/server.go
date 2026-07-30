@@ -427,7 +427,7 @@ func (s *Server) handleDirDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	var req dirRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Old == "" || req.New == "" {
-		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
+		writeError(w, http.StatusBadRequest, "left and right directory paths are required")
 		return
 	}
 	opts, err := directoryOptions(req)
@@ -460,7 +460,7 @@ func (s *Server) handleDirPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var req dirRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Old == "" || req.New == "" {
-		writeError(w, http.StatusBadRequest, "old and new directory paths are required")
+		writeError(w, http.StatusBadRequest, "left and right directory paths are required")
 		return
 	}
 	opts, err := directoryOptions(req)
@@ -745,7 +745,7 @@ func decodeCSVRequest(w http.ResponseWriter, r *http.Request) (csvRequest, bool)
 		return csvRequest{}, false
 	}
 	if req.Old == "" || req.New == "" {
-		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
+		writeError(w, http.StatusBadRequest, "both left and right paths are required")
 		return csvRequest{}, false
 	}
 	return req, true
@@ -902,7 +902,7 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Old == "" || req.New == "" || strings.TrimSpace(req.Output) == "" {
-		writeError(w, http.StatusBadRequest, "old, new, and output paths are required")
+		writeError(w, http.StatusBadRequest, "left, right, and output paths are required")
 		return
 	}
 	if !validateCSVKeys(w, req.csvRequest) {
@@ -986,7 +986,7 @@ func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {
 	if envelope.Mode == "dir" {
 		var req dirRequest
 		if err := json.Unmarshal(data, &req); err != nil || req.ProjectPath == "" || req.Old == "" || req.New == "" {
-			writeError(w, http.StatusBadRequest, "directory project, old, and new paths are required")
+			writeError(w, http.StatusBadRequest, "directory project, left, and right paths are required")
 			return
 		}
 		opts, err := directoryOptions(req)
@@ -1010,7 +1010,7 @@ func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {
 	}
 	var req csvRequest
 	if err := json.Unmarshal(data, &req); err != nil || req.Old == "" || req.New == "" {
-		writeError(w, http.StatusBadRequest, "both 'old' and 'new' paths are required")
+		writeError(w, http.StatusBadRequest, "both left and right paths are required")
 		return
 	}
 	if req.ProjectPath == "" || req.Output == "" {
@@ -1696,7 +1696,7 @@ func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, 
 
 func threeWayTextResult(ctx context.Context, req threeWayTextRequest) (linediff.Lines, threeway.Result, func(), error) {
 	if req.Base == "" || req.Old == "" || req.New == "" {
-		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, old/left, and new/right paths are required")
+		return nil, threeway.Result{}, func() {}, fmt.Errorf("base, left, and right paths are required")
 	}
 	base, left, right, closeLines, err := openThreeWayText(req)
 	if err != nil {
@@ -1808,7 +1808,7 @@ type threeWayCSVRequest struct {
 
 func compareThreeWayCSV(r *http.Request, req threeWayCSVRequest) (threeway.CSVResult, error) {
 	if req.Base == "" || req.Old == "" || req.New == "" {
-		return threeway.CSVResult{}, fmt.Errorf("base, old/left, and new/right paths are required")
+		return threeway.CSVResult{}, fmt.Errorf("base, left, and right paths are required")
 	}
 	if req.KeyMode == "include" && len(req.KeyNames)+len(req.KeyIndexes) == 0 {
 		return threeway.CSVResult{}, fmt.Errorf("select at least one key column")
@@ -1882,7 +1882,7 @@ func validateDiffSources(req diffRequest) error {
 		return nil
 	}
 	if req.Old == "" || req.New == "" {
-		return fmt.Errorf("both 'old' and 'new' paths are required")
+		return fmt.Errorf("both left and right paths are required")
 	}
 	if req.OldAbsent && req.NewAbsent {
 		return fmt.Errorf("at least one comparison side must exist")
@@ -1903,12 +1903,12 @@ func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), 
 	}
 	oldLines, closeOld, err := openSide(req.Old, req.OldAbsent)
 	if err != nil {
-		return nil, nil, func() {}, fmt.Errorf("old: %w", err)
+		return nil, nil, func() {}, fmt.Errorf("left: %w", err)
 	}
 	newLines, closeNew, err := openSide(req.New, req.NewAbsent)
 	if err != nil {
 		closeOld()
-		return nil, nil, func() {}, fmt.Errorf("new: %w", err)
+		return nil, nil, func() {}, fmt.Errorf("right: %w", err)
 	}
 	return oldLines, newLines, func() { closeNew(); closeOld() }, nil
 }

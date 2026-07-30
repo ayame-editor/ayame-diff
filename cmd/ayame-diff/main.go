@@ -43,7 +43,7 @@ const rootUsage = `ayame-diff compares text, binary files, directories, and huge
 
 Usage:
   ayame-diff <command> [options]
-  ayame-diff OLD NEW                  compare two text files
+  ayame-diff LEFT RIGHT               compare two text files
 
 Examples:
   ayame-diff gui a.txt b.txt          open a comparison in the browser
@@ -79,8 +79,8 @@ Exit codes:
 const csvUsage = `ayame-diff csv compares huge CSV/TSV files whose row order differs.
 
 This (csv) mode requires:
-  --left PATH                 Left/old input file
-  --right PATH                Right/new input file
+  --left PATH                 Left input file
+  --right PATH                Right input file
   --out PATH                  Diff output TSV (use .gz for gzip)
 
 Key selection:

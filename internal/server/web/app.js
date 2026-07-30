@@ -115,9 +115,10 @@ const I18N = {
     statusDifferent: "差分あり", statusAll: "すべて",
     // summary labels shared by the CSV / folder / 3-way renderers (#125)
     changed: "変更", removed: "削除", same: "一致", left: "左", right: "右",
+    sideBase: "ベース", sideLeft: "左", sideRight: "右",
     leftOnly: "左のみ", rightOnly: "右のみ", equalRows: "一致", bytes: "バイト",
     // detected encoding surfaced on file diffs (#130)
-    encodingDetected: (v) => `文字コード: OLD=${v.old} / NEW=${v.new}`,
+    encodingDetected: (v) => `文字コード: 左=${v.old} / 右=${v.new}`,
     encodingMismatch: "左右で文字コードが異なります",
     omitted: (n) => `（${n} ハンク省略。最大ハンク数を上げてください）`,
     moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
@@ -136,7 +137,7 @@ const I18N = {
     shortcutChooseSide: "左/右を採用", shortcutChooseBase: "ベースを採用",
     shortcutSearch: "結果内を検索", shortcutSearchStep: "次/前の一致へ",
     shortcutClose: "検索・ダイアログを閉じる", shortcutCompare: "比較を実行",
-    swap: "入れ替え", swapSides: "OLD と NEW を入れ替え",
+    swap: "入れ替え", swapSides: "左と右を入れ替え",
     engineTuning: "エンジン調整", engineTuningHint: "差分の計算量と表示量に効きます（何を差分と見なすかは変わりません）。結果が打ち切られたときだけ上げてください。",
     csvParsingOptions: "ファイル形式", csvProjectOptions: "保存した比較",
     csvParsingHint: "自動判定されます。読み取りがおかしいときだけ設定してください。",
@@ -148,7 +149,7 @@ const I18N = {
     searchCounter: (v) => `${v.current} / ${v.total}${v.capped} 件`,
     comparing: "比較中…", rendering: (v) => `描画中… ${v.done} / ${v.total} ハンク`, noDiff: "差分はありません。",
     completeMatch: "✔ 完全一致", filteredMatch: "✔ 比較条件適用後に一致",
-    textMatchScope: (v) => `OLD ${v.old} 行 / NEW ${v.new} 行を比較、差分 0`,
+    textMatchScope: (v) => `左 ${v.old} 行 / 右 ${v.new} 行を比較、差分 0`,
     csvMatchScope: (v) => `${v.rows} 行 / ${v.columns} 列を比較、差分 0`,
     threeWayTextMatchScope: (v) => `3入力・${v.lines} 行を比較、差分 0`,
     threeWayCSVMatchScope: (v) => `3入力・${v.columns} 列を比較、差分 0`,
@@ -158,9 +159,9 @@ const I18N = {
     invalidIndex: (v) => `${v.field}のインデックスが不正です。`,
     projectPath: "プロジェクトパス",
     emptyTitle: "比較を始める",
-    emptySteps: "1. OLDを指定 → 2. NEWを指定 → 3. 比較",
+    emptySteps: "1. 左を指定 → 2. 右を指定 → 3. 比較",
     emptyDrop: "ファイルをこの画面へドロップしても比較できます。",
-    enterPaths: "OLD と NEW のパスを入力してください。",
+    enterPaths: "左と右のパスを入力してください。",
 	csvSetup: "CSV / TSV セットアップ", inspect: "ヘッダー検査", leftFormat: "左形式", rightFormat: "右形式",
 	leftParser: "左パーサー", rightParser: "右パーサー", leftDelimiter: "左区切り", rightDelimiter: "右区切り",
 	hasHeader: "ヘッダーあり", alignColumns: "列名で整列", lazyQuotes: "不正引用を許可", trimLeadingSpace: "先頭空白を除去",
@@ -232,8 +233,9 @@ const I18N = {
     modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
     statusDifferent: "different", statusAll: "all",
     changed: "changed", removed: "removed", same: "same", left: "left", right: "right",
+    sideBase: "BASE", sideLeft: "LEFT", sideRight: "RIGHT",
     leftOnly: "left only", rightOnly: "right only", equalRows: "equal", bytes: "bytes",
-    encodingDetected: (v) => `encoding: OLD=${v.old} / NEW=${v.new}`,
+    encodingDetected: (v) => `encoding: LEFT=${v.old} / RIGHT=${v.new}`,
     encodingMismatch: "left and right encodings differ",
     omitted: (n) => `(${n} hunks omitted; raise max hunks)`,
     moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
@@ -252,7 +254,7 @@ const I18N = {
     shortcutChooseSide: "Choose left / right", shortcutChooseBase: "Choose base",
     shortcutSearch: "Search in results", shortcutSearchStep: "Next / previous match",
     shortcutClose: "Close search or dialog", shortcutCompare: "Run the comparison",
-    swap: "Swap", swapSides: "Swap OLD and NEW",
+    swap: "Swap", swapSides: "Swap LEFT and RIGHT",
     engineTuning: "Engine tuning", engineTuningHint: "Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.",
     csvParsingOptions: "File format", csvProjectOptions: "Saved comparisons",
     csvParsingHint: "Detected automatically. Set these only when a file is misread.",
@@ -264,7 +266,7 @@ const I18N = {
     searchCounter: (v) => `${v.current} / ${v.total}${v.capped}`,
     comparing: "Comparing…", rendering: (v) => `Rendering… ${v.done} / ${v.total} hunks`, noDiff: "No differences.",
     completeMatch: "✔ Complete match", filteredMatch: "✔ Match under comparison rules",
-    textMatchScope: (v) => `Compared ${v.old} OLD / ${v.new} NEW lines; 0 differences`,
+    textMatchScope: (v) => `Compared ${v.old} LEFT / ${v.new} RIGHT lines; 0 differences`,
     csvMatchScope: (v) => `Compared ${v.rows} rows / ${v.columns} columns; 0 differences`,
     threeWayTextMatchScope: (v) => `Compared 3 inputs / ${v.lines} lines; 0 differences`,
     threeWayCSVMatchScope: (v) => `Compared 3 inputs / ${v.columns} columns; 0 differences`,
@@ -274,9 +276,9 @@ const I18N = {
     invalidIndex: (v) => `${v.field} contains an invalid index.`,
     projectPath: "project path",
     emptyTitle: "Start a comparison",
-    emptySteps: "1. Choose OLD → 2. Choose NEW → 3. Compare",
+    emptySteps: "1. Choose LEFT → 2. Choose RIGHT → 3. Compare",
     emptyDrop: "You can also drop files anywhere on this screen to compare them.",
-    enterPaths: "Enter both OLD and NEW paths.",
+    enterPaths: "Enter both LEFT and RIGHT paths.",
 	csvSetup: "CSV / TSV setup", inspect: "Inspect headers", leftFormat: "left format", rightFormat: "right format",
 	leftParser: "left parser", rightParser: "right parser", leftDelimiter: "left delimiter", rightDelimiter: "right delimiter",
 	hasHeader: "header row", alignColumns: "align by name", lazyQuotes: "lazy quotes", trimLeadingSpace: "trim leading space",
@@ -301,7 +303,7 @@ const I18N = {
 	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
 	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
 	folderName: "Name", folderSize: "Size", folderModified: "Modified", folderSearch: "path search", folderSearchPlaceholder: "Search folder results", folderFileCount: (v) => `${v.count} files`,
-	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `old ${v.old_count} / new ${v.new_count} / union ${v.union_count}`,
+	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `left ${v.old_count} / right ${v.new_count} / union ${v.union_count}`,
     langButton: "English → 日本語",
     langSwitchLabel: "Switch language to Japanese",
   },
@@ -1165,8 +1167,8 @@ function paneHeads(data = {}) {
   const scratch = $("scratch").checked;
   const threeWay = $("mode").value === "threeway" || $("mode").value === "threeway-csv";
   const specs = threeWay
-    ? [["base", "BASE"], ["old", "LEFT"], ["new", "RIGHT"]]
-    : [["old", "OLD"], ["new", "NEW"]];
+    ? [["base", t("sideBase")], ["old", t("sideLeft")], ["new", t("sideRight")]]
+    : [["old", t("sideLeft")], ["new", t("sideRight")]];
   heads.classList.toggle("three", threeWay);
   for (const [side, labelText] of specs) {
     const path = $(side).value;
@@ -1175,6 +1177,7 @@ function paneHeads(data = {}) {
     const label = document.createElement("span");
     label.className = "pane-head-label";
     label.textContent = labelText;
+    if (side === "old") label.dataset.oppositeLabel = t("sideRight");
     const name = document.createElement(scratch ? "span" : "input");
     name.className = "pane-head-path";
     if (scratch) {
@@ -1399,14 +1402,14 @@ async function renderThreeWay(data, csvMode) {
     box.dataset.scrollKey = String(event.id);
     box.dataset.scrollOrder = String(event.base_start ?? index);
     indexMergeRow(event.id, box);
-    const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `BASE ${event.base_start + 1},${event.base_len}`}`));
+    const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `${t("sideBase")} ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
       for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
-    for (const [name, values] of (event.kind === "merged" ? [["BASE", event.base], ["MERGED", event.combined]] : [["BASE", event.base], ["LEFT", event.left], ["RIGHT", event.right]])) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
+    for (const [name, values] of (event.kind === "merged" ? [[t("sideBase"), event.base], ["MERGED", event.combined]] : [[t("sideBase"), event.base], [t("sideLeft"), event.left], [t("sideRight"), event.right]])) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
     box.append(head, grid);
     return box;
   };
@@ -1782,7 +1785,7 @@ function updateCSVReview() {
   const mode = $("keyMode").value;
   const keys = mode === "all" ? t("allColumns") : selectedCSVColumns().map((item) => item.name).join(", ") || "—";
   $("reviewText").textContent = [
-    `OLD: ${body.old || "—"}`, `NEW: ${body.new || "—"}`,
+    `${t("sideLeft")}: ${body.old || "—"}`, `${t("sideRight")}: ${body.new || "—"}`,
     `${body.leftFormat}/${body.leftParser} ↔ ${body.rightFormat}/${body.rightParser}`,
     `${t("keyMode")}: ${mode} (${keys})`,
     `${t("memory")}: ${body.memory}; ${t("partitions")}: ${body.partitions}; ${t("workers")}: ${body.workers}`,
@@ -3167,11 +3170,11 @@ function syncCompareReady() {
   const needsBase = mode === "threeway" || mode === "threeway-csv";
   const missing = [];
   if (scratch) {
-    if (!$("oldText").value && !$("newText").value) missing.push("OLD / NEW");
+    if (!$("oldText").value && !$("newText").value) missing.push(`${t("sideLeft")} / ${t("sideRight")}`);
   } else {
-    if (!$("old").value.trim()) missing.push("OLD");
-    if (!$("new").value.trim()) missing.push("NEW");
-    if (needsBase && !$("base").value.trim()) missing.push("BASE");
+    if (!$("old").value.trim()) missing.push(t("sideLeft"));
+    if (!$("new").value.trim()) missing.push(t("sideRight"));
+    if (needsBase && !$("base").value.trim()) missing.push(t("sideBase"));
   }
   const ready = missing.length === 0;
   $("compare").disabled = !ready;

@@ -45,7 +45,8 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 
 	header := renderFunctionBody(t, app, "function paneHeads(")
 	for _, want := range []string{
-		`? [["base", "BASE"], ["old", "LEFT"], ["new", "RIGHT"]]`,
+		`? [["base", t("sideBase")], ["old", t("sideLeft")], ["new", t("sideRight")]]`,
+		`: [["old", t("sideLeft")], ["new", t("sideRight")]]`,
 		`name = document.createElement(scratch ? "span" : "input")`,
 		`name.addEventListener("change"`,
 		`commitPanePath(name, side, path)`,
@@ -80,6 +81,60 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 		if !strings.Contains(style, want) {
 			t.Errorf("pane header styling is missing %q", want)
 		}
+	}
+}
+
+// TestVisibleSideTerminologyIsConsistent covers #111. Internal request fields
+// remain old/new for API compatibility, but every label users read follows the
+// same BASE/LEFT/RIGHT vocabulary in both languages and in every result mode.
+func TestVisibleSideTerminologyIsConsistent(t *testing.T) {
+	t.Parallel()
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	for _, want := range []string{
+		`data-i18n="sideBase">BASE</span>`,
+		`data-i18n="sideLeft">LEFT</span>`,
+		`data-i18n="sideRight">RIGHT</span>`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("input labels are missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{`<span>OLD</span>`, `<span>NEW</span>`, "OLDを指定", "NEWを指定"} {
+		if strings.Contains(index, forbidden) {
+			t.Errorf("input view still exposes legacy terminology %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		`sideBase: "ベース", sideLeft: "左", sideRight: "右"`,
+		`sideBase: "BASE", sideLeft: "LEFT", sideRight: "RIGHT"`,
+		`[t("sideBase"), event.base]`,
+		`[t("sideLeft"), event.left]`,
+		`[t("sideRight"), event.right]`,
+		`missing.push(t("sideLeft"))`,
+		`missing.push(t("sideRight"))`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("translated result labels are missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"Swap OLD and NEW",
+		"OLD と NEW",
+		"Choose OLD",
+		"Choose NEW",
+		"`OLD:",
+		"`NEW:",
+	} {
+		if strings.Contains(app, forbidden) {
+			t.Errorf("web app still exposes legacy terminology %q", forbidden)
+		}
+	}
+	if !strings.Contains(style, `attr(data-opposite-label)`) ||
+		!strings.Contains(style, "Drop LEFT and RIGHT here / 左と右をドロップ") {
+		t.Error("CSS-only labels do not follow the translated LEFT/RIGHT terminology")
 	}
 }
 

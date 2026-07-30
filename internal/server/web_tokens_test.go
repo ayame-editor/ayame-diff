@@ -364,13 +364,13 @@ func TestPrimaryCompareAndInitialEmptyState(t *testing.T) {
 			t.Errorf("index.html missing %q", want)
 		}
 	}
-	// Matched as properties of the OLD field rather than as one exact attribute
+	// Matched as properties of the left field rather than as one exact attribute
 	// sequence: the field gained a history list and the literal stopped
 	// matching, for no reason connected to what this test is about.
 	oldField := sectionBetween(t, index, `<input id="old"`, `/>`)
-	for _, attr := range []string{`placeholder="/path/to/old.txt"`, `autofocus`} {
+	for _, attr := range []string{`placeholder="/path/to/left.txt"`, `autofocus`} {
 		if !strings.Contains(oldField, attr) {
-			t.Errorf("the OLD field lost %s", attr)
+			t.Errorf("the left field lost %s", attr)
 		}
 	}
 	if !strings.Contains(sectionBetween(t, index, `<button id="exportPatch"`, `>`), "hidden") {

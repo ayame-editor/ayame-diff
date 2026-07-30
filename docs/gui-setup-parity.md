@@ -28,7 +28,7 @@ implemented; it is not a requirement to retain that control permanently.
 
 | Former wizard screen / setting | Current access route | Placement policy |
 |---|---|---|
-| Left and right input paths | Initial OLD / NEW rail; editable sticky pane headers and server-side file browser after comparison | **Input rail** initially; **Result toolbar** pane headers after comparison |
+| Left and right input paths | Initial LEFT / RIGHT rail; editable sticky pane headers and server-side file browser after comparison | **Input rail** initially; **Result toolbar** pane headers after comparison |
 | Output path | CSV **Comparison and performance** disclosure | **Settings dialog**, grouped with export choices |
 | Header present | CSV setup: **Header row** | **Settings dialog** |
 | Align headers by name / position | CSV setup: **Align by name** | **Settings dialog** |

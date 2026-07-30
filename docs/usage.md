@@ -10,13 +10,13 @@
 <!-- i18n: command-overview -->
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
-ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
-ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
-ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
-ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
+ayame-diff text   [flags] LEFT RIGHT                      # line-oriented text diff
+ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, then diff
+ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
+ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
 ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
-ayame-diff gui    [flags] [OLD [NEW]]                  # open the GUI, optionally prefilled
+ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the GUI, optionally prefilled
 ayame-diff update [--check]                            # check for or install the latest release
 ayame-diff remove [--yes]                              # uninstall a standalone binary
 ayame-diff shell-install                               # file-manager integration
@@ -185,7 +185,7 @@ reported as **Insert**, **Delete** and **Replace** hunks.
 ```bash
 ayame-diff text old.txt new.txt                 # unified (default)
 ayame-diff text clip: saved.txt                 # OS clipboard vs file
-ayame-diff text --side-by-side old.txt new.txt  # two-column (old | new)
+ayame-diff text --side-by-side left.txt right.txt  # two-column (left | right)
 ayame-diff text --json old.txt new.txt          # machine-readable JSON
 ayame-diff text --summary old.txt new.txt       # one-line summary only
 ayame-diff text --format unified -U 3 old.txt new.txt > change.patch
@@ -205,7 +205,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 | Flag | Output |
 |---|---|
 | *(none)* | Unified hunks (default). |
-| `--side-by-side` (alias `--side`) | Two-column old / new layout; set the total column width with `--width`. |
+| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
 | `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
@@ -216,7 +216,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 
 ```text
 --json                       emit the diff as JSON
---side-by-side, --side       two-column (old | new) output
+--side-by-side, --side       two-column (left | right) output
 --summary                    print only the one-line summary
 --format FORMAT              patch format: normal, context, or unified
 --normal                     alias for --format normal
@@ -235,7 +235,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 --detect-moves               pair exact delete/insert blocks as moves (default off)
 --move-min-lines N           minimum moved-block length (default 2)
 --move-max-candidates N      per-side detection guard (default 10000)
---sync OLD:NEW               force corresponding 1-based lines (repeatable)
+--sync LEFT:RIGHT               force corresponding 1-based lines (repeatable)
 --max-hunks N                maximum hunks to print; the rest are still counted (default 200)
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)
@@ -314,7 +314,7 @@ ayame-diff sorted --reverse a.txt b.txt
 
 ## `dir` — recursive folder / archive comparison { #dir }
 
-`dir OLD NEW` pairs slash-normalized relative paths. Size is checked first;
+`dir LEFT RIGHT` pairs slash-normalized relative paths. Size is checked first;
 equal-size candidates are streamed in parallel and compared byte-for-byte.
 `--quick` may trust equal size and mtime. Plain `.gz` files compare their
 decompressed content, while zip/tar/tar.gz archives compare as folder sources.
@@ -398,14 +398,14 @@ Bundled sets are `development`, `vcs`, `node`, and `rust`; list them with
 `--filter-set` is repeatable. Selected sets are combined with direct
 `--include`, `--exclude`, and `--filter` arguments. A directory-mode
 `.ayamediff.json` can be passed directly as `--filter-file`; when it contains
-OLD/NEW paths, those paths may be omitted on the command line.
+LEFT/RIGHT paths, those paths may be omitted on the command line.
 
 ---
 
 ## `bin` — byte-level binary comparison { #bin }
 
-`bin OLD NEW` streams two files and reports each differing region by byte
-offset, followed by the old and new bytes in hexadecimal. It is memory-bounded
+`bin LEFT RIGHT` streams two files and reports each differing region by byte
+offset, followed by the left and right bytes in hexadecimal. It is memory-bounded
 for large inputs and does not attempt to decode images or other file formats.
 
 ```bash

@@ -11,13 +11,13 @@
 <!-- i18n: command-overview -->
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSVキー比較（デフォルト）
-ayame-diff text   [flags] OLD NEW                      # 行指向のテキスト差分
-ayame-diff sorted [flags] OLD NEW                      # 両方のソート後に差分を比較
-ayame-diff dir    [flags] OLD NEW                      # フォルダ/アーカイブ比較
-ayame-diff bin    [flags] OLD NEW                      # バイナリ/16進比較
+ayame-diff text   [flags] LEFT RIGHT                      # 行指向のテキスト差分
+ayame-diff sorted [flags] LEFT RIGHT                      # 両方のソート後に差分を比較
+ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ比較
+ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
 ayame-diff serve  [--addr host:port] [--allow-remote]  # ローカルWeb GUI
-ayame-diff gui    [flags] [OLD [NEW]]                  # GUIを開き、必要なら入力を事前設定
+ayame-diff gui    [flags] [LEFT [RIGHT]]                  # GUIを開き、必要なら入力を事前設定
 ayame-diff update [--check]                            # 最新リリースの確認・導入
 ayame-diff remove [--yes]                              # スタンドアロン版を削除
 ayame-diff shell-install                               # ファイルマネージャー統合
@@ -206,7 +206,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 --detect-moves              削除と挿入のブロックを移動としてペアリング（デフォルトはオフ）
 --move-min-lines N          最小移動ブロック長（デフォルトは2）
 --move-max-candidates N     検出候補の上限（デフォルトは10000）
---sync OLD:NEW              対応する1ベース行を強制（繰り返し指定可能）
+--sync LEFT:RIGHT              対応する1ベース行を強制（繰り返し指定可能）
 --max-hunks N               出力する最大ハンク数。残りはカウントされる（デフォルト200）
 --max-lines N               1ハンクあたりの最大行数（デフォルト200）
 --window N                  行の差異時にリシンクの先読みウィンドウサイズ（デフォルト128）
@@ -277,7 +277,7 @@ ayame-diff sorted --reverse a.txt b.txt
 
 ## `dir` — 再帰的なフォルダ/アーカイブ比較 { #dir }
 
-`dir OLD NEW`はスラッシュ区切りの相対パスを正規化してペアにします。まずサイズを比較し、同じサイズの候補は並列でストリーミングしながらバイト単位で比較します。`--quick`を指定すると、サイズとmtimeだけを信頼します。`.gz`ファイルは解凍内容を比較し、zip/tar/tar.gzアーカイブはフォルダソースとして比較します。
+`dir LEFT RIGHT`はスラッシュ区切りの相対パスを正規化してペアにします。まずサイズを比較し、同じサイズの候補は並列でストリーミングしながらバイト単位で比較します。`--quick`を指定すると、サイズとmtimeだけを信頼します。`.gz`ファイルは解凍内容を比較し、zip/tar/tar.gzアーカイブはフォルダソースとして比較します。
 
 比較は変更のないものも含めてファイル1件につき1エントリを保持するため、ファイル数を
 `--max-entries`（既定 2,000,000。負値で無効化）で制限しています。上限を超えるツリーは
@@ -348,13 +348,13 @@ size > 1MiB and (name =~ '\.log$' or ext == '.json') and not path =~ '^vendor/'
 
 `--filter-set` は繰り返し指定でき、直接指定した `--include`、`--exclude`、`--filter`
 と組み合わせます。ディレクトリモードの `.ayamediff.json` は `--filter-file` として
-直接渡せます。OLD/NEW パスを含む場合、コマンドライン側のパスは省略できます。
+直接渡せます。LEFT/RIGHT パスを含む場合、コマンドライン側のパスは省略できます。
 
 ---
 
 ## `bin` — バイト単位のバイナリ比較 { #bin }
 
-`bin OLD NEW`は2ファイルをストリーミングし、差分領域ごとにバイトオフセットと
+`bin LEFT RIGHT`は2ファイルをストリーミングし、差分領域ごとにバイトオフセットと
 変更前後のバイト列を16進数で表示します。巨大な入力でもメモリ使用量は有界です。
 画像などのファイル形式を解釈する機能ではありません。
 

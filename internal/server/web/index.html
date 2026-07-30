@@ -21,16 +21,16 @@
            disappears instead of duplicating the same fields above the result. -->
       <div class="paths launch-paths" id="paths">
         <label id="basePathRow" hidden>
-          <span>BASE</span>
+          <span data-i18n="sideBase">BASE</span>
           <span class="path-control"><input id="base" type="text" list="baseHistory" placeholder="/path/to/base.txt" spellcheck="false" /><button class="browse" data-target="base" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
         </label>
         <label>
-          <span>OLD</span>
-          <span class="path-control"><input id="old" type="text" list="oldHistory" placeholder="/path/to/old.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+          <span data-i18n="sideLeft">LEFT</span>
+          <span class="path-control"><input id="old" type="text" list="oldHistory" placeholder="/path/to/left.txt" spellcheck="false" autofocus /><button class="browse" data-target="old" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
         </label>
         <label>
-          <span>NEW</span>
-          <span class="path-control"><input id="new" type="text" list="newHistory" placeholder="/path/to/new.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
+          <span data-i18n="sideRight">RIGHT</span>
+          <span class="path-control"><input id="new" type="text" list="newHistory" placeholder="/path/to/right.txt" spellcheck="false" /><button class="browse" data-target="new" type="button" data-i18n-title="browseFile" data-i18n-aria-label="browseFile" title="ファイルを参照" aria-label="ファイルを参照">…</button></span>
         </label>
       </div>
 
@@ -55,8 +55,8 @@
         <div id="setupBody">
         <label class="opt check scratch-toggle"><input id="scratch" type="checkbox" /><span data-i18n="scratch">paste text</span></label>
         <div class="scratch-area" id="scratchArea" hidden>
-          <label><span>OLD</span><textarea id="oldText" rows="6" spellcheck="false"></textarea></label>
-          <label><span>NEW</span><textarea id="newText" rows="6" spellcheck="false"></textarea></label>
+          <label><span data-i18n="sideLeft">LEFT</span><textarea id="oldText" rows="6" spellcheck="false"></textarea></label>
+          <label><span data-i18n="sideRight">RIGHT</span><textarea id="newText" rows="6" spellcheck="false"></textarea></label>
         </div>
         <div class="opts">
           <label class="opt">
@@ -291,7 +291,7 @@
         <section class="result" id="result">
           <div class="empty-state initial-empty">
             <strong data-i18n="emptyTitle">比較を始める</strong>
-            <p data-i18n="emptySteps">1. OLDを指定 → 2. NEWを指定 → 3. 比較</p>
+            <p data-i18n="emptySteps">1. 左を指定 → 2. 右を指定 → 3. 比較</p>
             <p data-i18n="emptyDrop">ファイルをこの画面へドロップしても比較できます。</p>
           </div>
         </section>
