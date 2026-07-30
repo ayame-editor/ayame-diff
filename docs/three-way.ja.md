@@ -51,7 +51,7 @@ ISO-2022-JP のキーもテキストとして比較されます。
 
 ## GUI
 
-**3-way text** または **3-way csv** を選び、BASE、LEFT (OLD)、RIGHT (NEW) を指定します。
+**3-way text** または **3-way csv** を選び、BASE、LEFT、RIGHT を指定します。
 結果は 3 ペインで競合数を表示します。競合カードでは BASE / LEFT / RIGHT を選択でき、
 全競合操作、元に戻す/やり直し、アトミック保存は 2-way マージの安全モデルを再利用します。
 差分ナビゲーションは 3-way イベント間でも動作し、`Alt+Left` / `Alt+Right` で側を、

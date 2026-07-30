@@ -39,8 +39,8 @@ window）とデータモデル（Insert/Delete/Replace ハンク）をそのま�
 
 ```
 ayame-diff csv    [flags] --left A --right B   # 既存: CSV/TSV キー比較
-ayame-diff text   [flags] OLD NEW              # 新規(#5): 行 diff（resync window）
-ayame-diff sorted [flags] OLD NEW              # 新規(#7): 外部ソート後に text diff
+ayame-diff text   [flags] LEFT RIGHT              # 新規(#5): 行 diff（resync window）
+ayame-diff sorted [flags] LEFT RIGHT              # 新規(#7): 外部ソート後に text diff
 ayame-diff        [flags]                      # 無印 = csv 互換（後方互換）
 ```
 

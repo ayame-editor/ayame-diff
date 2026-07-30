@@ -72,7 +72,7 @@ body {
 .statusbar-paths .side { color: var(--fg); }
 .statusbar .summary { margin: 0; flex: 0 0 auto; gap: 0.9rem; }
 body.drag-active::after {
-  content: "Drop OLD and NEW here / OLD と NEW をドロップ";
+  content: "Drop LEFT and RIGHT here / 左と右をドロップ";
   position: fixed; inset: 1rem; z-index: 100; display: grid; place-items: center;
   border: 3px dashed var(--accent); border-radius: var(--radius);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
@@ -647,7 +647,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
    by side, so a split header would be a lie. */
 .result.unified .pane-heads { grid-template-columns: 1fr; }
 .result.unified .pane-head.new { display: none; }
-.result.unified .pane-head.old .pane-head-label::after { content: " ⇄ NEW"; }
+.result.unified .pane-head.old .pane-head-label::after { content: " ⇄ " attr(data-opposite-label); }
 
 .rows { overflow-x: auto; }
 .row { display: grid; grid-template-columns: 1fr 1fr; }

@@ -61,10 +61,10 @@ You can verify file integrity using the `SHA256SUMS` file in the same Release as
 
 ```
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
-ayame-diff text   [flags] OLD NEW                      # Text line diff
-ayame-diff sorted [flags] OLD NEW                      # Sort then line diff
-ayame-diff dir    [flags] OLD NEW                      # Recursive folder/archive (zip, tar.gz) comparison
-ayame-diff bin    [flags] OLD NEW                      # Binary/hex diff
+ayame-diff text   [flags] LEFT RIGHT                      # Text line diff
+ayame-diff sorted [flags] LEFT RIGHT                      # Sort then line diff
+ayame-diff dir    [flags] LEFT RIGHT                      # Recursive folder/archive (zip, tar.gz) comparison
+ayame-diff bin    [flags] LEFT RIGHT                      # Binary/hex diff
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT three-way comparison
 ayame-diff serve  [--addr host:port] [--allow-remote]  # Browser GUI (local web)
 ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
@@ -123,7 +123,7 @@ ayame-diff csv --left a.csv --right b.csv \
 ayame-diff csv --left a.csv --right b.csv --key id \
   --cell-diff --out cells.tsv       # _changed_cols and per-column ranking
 ayame-diff csv --left a.csv --right b.csv --key id \
-  --json --out cells.jsonl          # structured output of old/new cell values
+  --json --out cells.jsonl          # structured output of left/right cell values
 ayame-diff csv --project jobs/daily.ayamediff.json --diff-exit-code
 ```
 
@@ -154,7 +154,7 @@ ayame-diff serve --addr 127.0.0.1:9000
 ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 ```
 
-Specify paths for OLD / NEW and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with header, row numbers, and word-level highlights for each hunk.
+Specify paths for LEFT / RIGHT and `text` / `sorted` mode/options, then Compare to display differences in a side-by-side grid with header, row numbers, and word-level highlights for each hunk.
 
 ## How to Choose Keys
 

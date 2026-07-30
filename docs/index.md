@@ -55,13 +55,13 @@ ayame-diff dir old-folder new-folder        # compare folder trees
 
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison
-ayame-diff text   [flags] OLD NEW                      # line-oriented text diff
-ayame-diff sorted [flags] OLD NEW                      # sort both sides, then diff
-ayame-diff dir    [flags] OLD NEW                      # directory/archive comparison
-ayame-diff bin    [flags] OLD NEW                      # binary/hex comparison
+ayame-diff text   [flags] LEFT RIGHT                      # line-oriented text diff
+ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, then diff
+ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
+ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # three-way comparison
 ayame-diff serve  [--addr host:port]                   # local web UI
-ayame-diff gui    [flags] [OLD [NEW]]                  # open the web UI in a browser
+ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the web UI in a browser
 ayame-diff update [--check]                            # check for or install the latest release
 ayame-diff remove [--yes]                              # uninstall a standalone binary
 ayame-diff shell-install                               # register file-manager integration

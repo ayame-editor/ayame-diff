@@ -16,7 +16,7 @@ import (
 )
 
 // runGUI implements: ayame-diff gui [--addr host:port] [--allow-remote]
-// [--no-open] [OLD [NEW]]
+// [--no-open] [LEFT [RIGHT]]
 //
 // It starts the same local web UI as `serve` but, by default, binds an
 // ephemeral localhost port and opens the browser — the "double-click to a GUI"
@@ -50,7 +50,7 @@ func runGUIWithDeps(args []string, stdout, stderr io.Writer, deps guiCommandDeps
 	fs.BoolVar(&noOpen, "no-open", false, "start the server but do not open the browser")
 	fs.BoolVar(&allowRemote, "allow-remote", false, "allow a non-loopback listen address (unsafe without network access controls)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--allow-remote] [--no-open] [OLD [NEW]]
+		fmt.Fprintln(fs.Output(), `ayame-diff gui [--addr host:port] [--allow-remote] [--no-open] [LEFT [RIGHT]]
 
 Start the local web UI and open it in your browser. Same UI as `+"`serve`"+`, but
 picks a free localhost port and launches the browser for you. With two paths,
@@ -67,7 +67,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		return exitUsage
 	}
 	if fs.NArg() > 2 {
-		fmt.Fprintln(stderr, "error: gui accepts at most two paths: OLD NEW")
+		fmt.Fprintln(stderr, "error: gui accepts at most two paths: LEFT RIGHT")
 		return exitUsage
 	}
 	remote, err := remoteBind(addr)

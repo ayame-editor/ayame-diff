@@ -103,7 +103,7 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 
 ## Using the web UI
 
-Enter the **OLD** and **NEW** file paths (or use the server-side file picker),
+Enter the **LEFT** and **RIGHT** file paths (or use the server-side file picker),
 choose the mode (`text`, `sorted`, or `csv / tsv`)
 and options (encoding, resync window, ignore-case, whitespace handling, EOL
 controls, repeatable regex filters entered one per line, and for
@@ -123,7 +123,7 @@ After a result appears, the initial path rail is removed from the work area.
 Each sticky pane header identifies its side and carries an editable path, a
 server-side browse button, detected encoding and line count where available.
 Press `Enter` or leave an edited field to compare that replacement immediately;
-the `⇄` control swaps OLD and NEW. Re-comparison restores the logical line that
+the `⇄` control swaps LEFT and RIGHT. Re-comparison restores the logical line that
 was in view rather than returning to the first difference.
 
 ### External changes
@@ -136,7 +136,7 @@ several writes close together are coalesced before the comparison starts.
 
 The browser uses authenticated `fetch` long polls, so the watch request carries
 the same `X-Ayame-Token` as every other filesystem API. At most the three
-BASE/OLD/NEW paths are watched, and abandoned requests stop when the page,
+BASE/LEFT/RIGHT paths are watched, and abandoned requests stop when the page,
 paths, mode, or preference changes. If a future editable result has unsaved
 changes, automatic replacement stops and a bar offers **Reload** or **Keep
 current edits**.
@@ -189,7 +189,7 @@ optional post-processing pass from dominating huge comparisons.
 
 When automatic resynchronization picks the wrong lines, click one line on each
 side and choose **Add sync**. Sync points split the diff into independent
-intervals, are listed as removable `OLD:NEW` chips, and trigger an immediate
+intervals, are listed as removable `LEFT:RIGHT` chips, and trigger an immediate
 recalculation. Points must increase on both sides; the API and CLI validate
 bounds and ordering. The CLI equivalent is repeatable `--sync 100:120` using
 1-based line numbers.

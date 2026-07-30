@@ -32,8 +32,8 @@ Will directly follow the reference implementation's algorithm (bounded resync wi
 
 ```bash
 ayame-diff csv    [flags] --left A --right B   # Existing: CSV/TSV key comparison
-ayame-diff text   [flags] OLD NEW              # New (#5): line diff (resync window)
-ayame-diff sorted [flags] OLD NEW              # New (#7): external sort + text diff
+ayame-diff text   [flags] LEFT RIGHT              # New (#5): line diff (resync window)
+ayame-diff sorted [flags] LEFT RIGHT              # New (#7): external sort + text diff
 ayame-diff        [flags]                      # Default = CSV compatibility (backward compatible)
 ```
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -302,6 +303,48 @@ func TestParseFlagsCellDiffJSON(t *testing.T) {
 	}
 	if !opts.JSON || !opts.Engine.CellDiff || opts.Engine.OutputFormat != "jsonl" {
 		t.Fatalf("options=%+v", opts)
+	}
+}
+
+func TestCLIHelpUsesLeftRightTerminology(t *testing.T) {
+	t.Parallel()
+	if strings.Contains(rootUsage, "OLD") || strings.Contains(rootUsage, "NEW") {
+		t.Fatalf("root usage still exposes legacy side labels:\n%s", rootUsage)
+	}
+	if !strings.Contains(rootUsage, "ayame-diff LEFT RIGHT") {
+		t.Fatal("root usage does not identify positional inputs as LEFT and RIGHT")
+	}
+
+	commands := []struct {
+		name string
+		run  func([]string, io.Writer, io.Writer) int
+	}{
+		{"text", runText},
+		{"sorted", runSorted},
+		{"dir", runDir},
+		{"bin", runBin},
+		{"gui", runGUI},
+	}
+	for _, command := range commands {
+		command := command
+		t.Run(command.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := command.run([]string{"--help"}, &stdout, &stderr); code != exitOK {
+				t.Fatalf("help exit code = %d, stderr = %q", code, stderr.String())
+			}
+			output := stdout.String() + stderr.String()
+			if strings.Contains(output, "OLD") || strings.Contains(output, "NEW") {
+				t.Fatalf("help still exposes legacy side labels:\n%s", output)
+			}
+			if !strings.Contains(output, "LEFT") || !strings.Contains(output, "RIGHT") {
+				t.Fatalf("help does not identify both sides:\n%s", output)
+			}
+		})
+	}
+
+	var points syncFlag
+	if err := points.Set("invalid"); err == nil || !strings.Contains(err.Error(), "LEFT:RIGHT") {
+		t.Fatalf("sync validation error = %v", err)
 	}
 }
 

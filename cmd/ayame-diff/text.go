@@ -67,7 +67,7 @@ func (s *syncFlag) String() string {
 func (s *syncFlag) Set(text string) error {
 	parts := strings.Split(text, ":")
 	if len(parts) != 2 {
-		return fmt.Errorf("sync point must be OLD:NEW (1-based line numbers)")
+		return fmt.Errorf("sync point must be LEFT:RIGHT (1-based line numbers)")
 	}
 	oldLine, oldErr := strconv.ParseUint(parts[0], 10, 64)
 	newLine, newErr := strconv.ParseUint(parts[1], 10, 64)
@@ -100,7 +100,7 @@ func (o *optionalInt) Set(text string) error {
 
 func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.json, "json", false, "emit the diff as JSON")
-	fs.BoolVar(&d.side, "side-by-side", false, "two-column (old | new) output")
+	fs.BoolVar(&d.side, "side-by-side", false, "two-column (left | right) output")
 	fs.BoolVar(&d.side, "side", false, "alias for --side-by-side")
 	fs.BoolVar(&d.summary, "summary", false, "print only the one-line summary")
 	fs.BoolVar(&d.normal, "normal", false, "GNU normal-diff (patch) output")
@@ -124,7 +124,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&d.detectMoves, "detect-moves", false, "detect exact delete/insert blocks as moves")
 	fs.Uint64Var(&d.moveMinLines, "move-min-lines", 2, "minimum lines in a moved block")
 	fs.IntVar(&d.moveMaxCandidates, "move-max-candidates", 10000, "maximum delete and insert candidates examined")
-	fs.Var(&d.syncPoints, "sync", "force corresponding lines OLD:NEW (1-based, repeatable)")
+	fs.Var(&d.syncPoints, "sync", "force corresponding lines LEFT:RIGHT (1-based, repeatable)")
 	fs.IntVar(&d.maxHunks, "max-hunks", 200, "maximum hunks to print; the rest are still counted")
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
@@ -309,18 +309,18 @@ func fileModTime(path string) time.Time {
 	return info.ModTime()
 }
 
-// runText implements: ayame-diff text [flags] OLD NEW
+// runText implements: ayame-diff text [flags] LEFT RIGHT
 func runText(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ayame-diff text", flag.ContinueOnError)
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var d diffFlags
 	d.register(fs)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff text [flags] OLD NEW
+		fmt.Fprintln(fs.Output(), `ayame-diff text [flags] LEFT RIGHT
 
 Line-level diff of two text files (plain or .gz), comparing by row order.
 Uses a bounded resync window, so it stays linear and memory-bounded on huge
-inputs. OLD or NEW may be - for standard input, or clip: for the OS clipboard.`)
+inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -356,7 +356,7 @@ inputs. OLD or NEW may be - for standard input, or clip: for the OS clipboard.`)
 	return exitOK
 }
 
-// runSorted implements: ayame-diff sorted [flags] OLD NEW
+// runSorted implements: ayame-diff sorted [flags] LEFT RIGHT
 //
 // Both inputs are sorted line-wise, then compared with the text line diff. This
 // finds the set/multiset difference of two files whose row order differs.
@@ -376,7 +376,7 @@ func runSorted(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&sortMemory, "sort-memory", "256MiB", "line data held in memory before the sort spills to disk")
 	fs.StringVar(&tempDir, "temp-dir", "", "parent directory for sort spill files (default: TMPDIR)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `ayame-diff sorted [flags] OLD NEW
+		fmt.Fprintln(fs.Output(), `ayame-diff sorted [flags] LEFT RIGHT
 
 Sort both text files (plain or .gz) line-wise, then diff. Use when the two
 files hold the same rows in a different order.
@@ -447,13 +447,13 @@ point --temp-dir at a real disk when sorting very large files.`)
 	return exitOK
 }
 
-// parseDiffArgs parses fs and validates the two positional OLD NEW paths.
+// parseDiffArgs parses fs and validates the two positional LEFT RIGHT paths.
 func parseDiffArgs(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 {
-		return fmt.Errorf("%s needs exactly two paths: OLD NEW", fs.Name())
+		return fmt.Errorf("%s needs exactly two paths: LEFT RIGHT", fs.Name())
 	}
 	return nil
 }

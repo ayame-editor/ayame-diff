@@ -9,7 +9,7 @@ project file's directory. This makes projects suitable for committing beside a
 repository's test data.
 
 Folder projects use `"mode": "dir"` and a `directory` object. They preserve
-OLD/NEW paths, include/exclude globs, the filter expression, selected comparison
+LEFT/RIGHT paths, include/exclude globs, the filter expression, selected comparison
 method, hidden-file policy, and worker count. Named external/bundled filter sets
 are flattened into the saved project, so reopening does not depend on the
 original filter file.

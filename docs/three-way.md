@@ -55,8 +55,8 @@ Shift_JIS, EUC-JP, UTF-16, and ISO-2022-JP keys compare as text.
 
 ## GUI
 
-Choose **3-way text** or **3-way csv**, then select BASE, LEFT (OLD), and RIGHT
-(NEW). Results use three panes and show a conflict count. Conflict cards offer
+Choose **3-way text** or **3-way csv**, then select BASE, LEFT, and RIGHT.
+Results use three panes and show a conflict count. Conflict cards offer
 BASE / LEFT / RIGHT; all-conflict actions, undo/redo, and atomic save reuse the
 two-way merge safety model. Difference navigation works across three-way events;
 `Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses BASE.
