@@ -40,6 +40,10 @@ its absolute path.
 
 ## Git difftool
 
+These commands make ayame-diff a tool called by Git; they do not add repository
+inspection or management to ayame-diff. See
+[ADR 0004](adr/0004-git-repository-boundary.md) for that boundary.
+
 Register the terminal diff as a custom Git tool:
 
 ```bash

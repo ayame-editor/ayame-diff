@@ -99,6 +99,7 @@ nav:
           - "0001: Project name": adr/0001-naming-unification.md
           - "0002: Diff architecture": adr/0002-diff-acceptance-architecture.md
           - "0003: Encoding dependency": adr/0003-encoding-dependency.md
+          - "0004: Git repository boundary": adr/0004-git-repository-boundary.md
   - 日本語:
       - ホーム: ja/index.md
       - はじめる:
@@ -122,3 +123,4 @@ nav:
               - "0001: プロジェクト名": adr/0001-naming-unification.ja.md
               - "0002: diff アーキテクチャ": adr/0002-diff-acceptance-architecture.ja.md
               - "0003: 文字コード依存": adr/0003-encoding-dependency.ja.md
+              - "0004: Git リポジトリ境界": adr/0004-git-repository-boundary.ja.md

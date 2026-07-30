@@ -506,6 +506,12 @@ rendering and web-page screenshot comparison are out of scope: those workflows
 need image decoders or a browser engine and are better served by WinMerge or a
 dedicated visual-regression tool.
 
+Git repository inspection and management are also out of scope. Ayame-diff
+accepts explicit paths when Git invokes it as a custom difftool or mergetool,
+but it does not read `.git`, resolve revisions, or perform staging, commits,
+branch, remote, or authentication operations. See
+[ADR 0004](adr/0004-git-repository-boundary.md).
+
 Images and other non-text files can still participate in `dir` comparisons as
 binary content. Use `ayame-diff bin LEFT RIGHT` to inspect differing byte
 offsets; there is no pixel-level image viewer or DOM/rendered-page comparison.

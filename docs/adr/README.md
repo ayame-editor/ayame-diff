@@ -11,6 +11,7 @@ numbers and have a status of Proposed, Accepted, or Superseded.
 | [0001](0001-naming-unification.md) | Standardization of project name (`fcsv-diff` → `ayame-diff`) | Accepted | #3 |
 | [0002](0002-diff-acceptance-architecture.md) | Architecture for accepting diff / sortdiff | Accepted | #4 |
 | [0003](0003-encoding-dependency.md) | Character encoding support and dependency exception (`x/text`) | Accepted | #9 |
+| [0004](0004-git-repository-boundary.md) | Keep Git repository management outside ayame-diff | Accepted | #290 |
 
 The extraction strategy for the sister project ayame-editor is tracked in
 hjosugi/ayame-editor#104.
