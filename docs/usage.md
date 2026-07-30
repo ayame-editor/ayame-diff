@@ -7,6 +7,7 @@
 
 ## Command overview
 
+<!-- i18n: command-overview -->
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
 ayame-diff text   [flags] OLD NEW                      # line-oriented text diff

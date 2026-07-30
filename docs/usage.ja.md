@@ -8,6 +8,7 @@
 
 ## コマンド一覧
 
+<!-- i18n: command-overview -->
 ```text
 ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSVキー比較（デフォルト）
 ayame-diff text   [flags] OLD NEW                      # 行指向のテキスト差分
@@ -154,6 +155,7 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 
 ```bash
 ayame-diff text old.txt new.txt                 # デフォルトのユニファイド形式
+ayame-diff text clip: saved.txt                 # OSクリップボードとファイルを比較
 ayame-diff text --side-by-side old.txt new.txt  # 2列表示（旧 | 新）
 ayame-diff text --json old.txt new.txt          # 機械可読のJSON
 ayame-diff text --summary old.txt new.txt       # 1行のサマリーのみ
@@ -163,6 +165,11 @@ ayame-diff text --format normal old.txt new.txt > change.patch
 ayame-diff text --detect-moves --move-min-lines 2 old.txt new.txt
 ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 ```
+
+どちらかの入力に`clip:`（または`clipboard:`）を指定すると、OSのクリップボードと
+直接比較できます。CLIはmacOSでは`pbpaste`、WindowsではPowerShell、Linuxでは
+`wl-paste`または`xclip`を呼び出すため、実行時ライブラリへの依存は増えません。
+クリップボードの内容にも、ファイルや標準入力と同じように`--pre`を適用できます。
 
 ### 出力フォーマット
 

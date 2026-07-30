@@ -7,6 +7,7 @@ on:
       - docs/**
       - mkdocs.yml
       - scripts/check-adr-i18n.sh
+      - scripts/check-docs-i18n.sh
       - .github/workflows/docs.yml
   workflow_dispatch:
 
@@ -19,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/check-adr-i18n.sh
+      - run: ./scripts/check-docs-i18n.sh
       - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
