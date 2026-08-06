@@ -1,6 +1,6 @@
 <div class="doc-family">
   <span>巨大なファイルを開いて編集したいですか？</span>
-  <a href="https://hjosugi.github.io/ayame-editor/ja/">Ayame Editor へ移動 →</a>
+  <a href="https://ayame-editor.github.io/ayame-editor/ja/">Ayame Editor へ移動 →</a>
 </div>
 
 <section class="doc-hero">
