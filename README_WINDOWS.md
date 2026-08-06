@@ -17,7 +17,7 @@ DLLs are not required.
 Complete installation, comparison, encoding, and large-file tuning guidance is
 maintained in one place:
 
-- Documentation: <https://hjosugi.github.io/ayame-diff/>
+- Documentation: <https://ayame-editor.github.io/ayame-diff/>
 - Japanese README: <https://github.com/hjosugi/ayame-diff/blob/main/README.ja.md>
 
 The distributed executables are not code-signed, so Windows SmartScreen or an
