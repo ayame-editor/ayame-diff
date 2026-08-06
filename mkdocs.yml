@@ -1,6 +1,6 @@
 site_name: ayame-diff
 site_description: A native CLI for comparing huge CSV/TSV and text files, with encoding auto-detection and a local web GUI.
-site_url: https://hjosugi.github.io/ayame-diff/
+site_url: https://ayame-editor.github.io/ayame-diff/
 repo_url: https://github.com/hjosugi/ayame-diff
 repo_name: hjosugi/ayame-diff
 edit_uri: edit/main/docs/
