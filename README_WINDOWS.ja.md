@@ -12,7 +12,7 @@
 
 インストール、比較、エンコーディング、大容量ファイルの調整に関する完全なガイドは一箇所にまとめられています。
 
-- ドキュメント: <https://hjosugi.github.io/ayame-diff/>
+- ドキュメント: <https://ayame-editor.github.io/ayame-diff/>
 - 日本語README: <https://github.com/hjosugi/ayame-diff/blob/main/README.ja.md>
 
 配布されている実行ファイルはコード署名されていないため、WindowsのSmartScreenや組織のポリシーによって初回起動時に警告が表示される場合があります。必要に応じてリリースの`SHA256SUMS`ファイルでアーカイブの整合性を確認してください。
