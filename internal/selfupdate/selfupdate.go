@@ -26,7 +26,7 @@ import (
 )
 
 // Repo is the GitHub repository releases are pulled from.
-const Repo = "hjosugi/ayame-diff"
+const Repo = "ayame-editor/ayame-diff"
 
 // Release is the subset of the GitHub release API we use.
 type Release struct {
