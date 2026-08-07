@@ -1,0 +1,2757 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A native CLI for comparing huge CSV/TSV and text files, with encoding auto-detection and a local web GUI.">
+      
+      
+      
+        <link rel="canonical" href="https://ayame-editor.github.io/ayame-diff/usage/">
+      
+      
+        <link rel="prev" href="../shell-integration/">
+      
+      
+        <link rel="next" href="../comparison-options/">
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+    
+    
+      
+        <title>CLI usage - ayame-diff</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.342714a4.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/ayame-docs.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#usage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ayame-diff" class="md-header__button md-logo" aria-label="ayame-diff" data-md-component="logo">
+      
+  <img src="../assets/favicon.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ayame-diff
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CLI usage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="/ayame-diff/" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="/ayame-diff/ja/" hreflang="ja" class="md-select__link">
+              日本語
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ayame-editor/ayame-diff" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hjosugi/ayame-diff
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ayame-diff" class="md-nav__button md-logo" aria-label="ayame-diff" data-md-component="logo">
+      
+  <img src="../assets/favicon.svg" alt="logo">
+
+    </a>
+    ayame-diff
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ayame-editor/ayame-diff" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hjosugi/ayame-diff
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI guide
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    File-manager integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Compare
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Compare
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    CLI usage
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI usage
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#csv" class="md-nav__link">
+    <span class="md-ellipsis">
+      csv — CSV/TSV key comparison (default)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="csv — CSV/TSV key comparison (default)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#choosing-the-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      Choosing the key
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Output
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selected-csv-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Selected csv options
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#text" class="md-nav__link">
+    <span class="md-ellipsis">
+      text — line-oriented text diff
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="text — line-oriented text diff">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      Output formats
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      text flags
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input limits
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sorted" class="md-nav__link">
+    <span class="md-ellipsis">
+      sorted — sort, then diff
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sorted — sort, then diff">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extra-sorted-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extra sorted flags
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      dir — recursive folder / archive comparison
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dir — recursive folder / archive comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparison-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison methods
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filter-expressions-and-reusable-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      Filter expressions and reusable sets
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bin" class="md-nav__link">
+    <span class="md-ellipsis">
+      bin — byte-level binary comparison
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update" class="md-nav__link">
+    <span class="md-ellipsis">
+      update — update a standalone installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      remove — uninstall a standalone installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shell-select" class="md-nav__link">
+    <span class="md-ellipsis">
+      shell-select — Windows Explorer selection helper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exit codes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scope boundaries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Comparison options
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../encoding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Encoding
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Merge and reconcile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../three-way/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Three-way comparison
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Automate
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Automate
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Comparison projects
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui-setup-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI setup parity
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-regression-checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI regression checklist
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Project
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Project
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging and Windows trust
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ayame family design
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architecture decisions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            Architecture decisions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-naming-unification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0001: Project name
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-diff-acceptance-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0002: Diff architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-encoding-dependency/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0003: Encoding dependency
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-git-repository-boundary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0004: Git repository boundary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    日本語
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            日本語
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ホーム
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    はじめる
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            はじめる
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI ガイド
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell-integration.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ファイルマネージャー統合
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    比較する
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            比較する
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI の使い方
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison-options.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    比較オプション
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../encoding.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    文字コード
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    マージと調整
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../three-way.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    3-way 比較
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    自動化する
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            自動化する
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projects.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    比較プロジェクト
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui-setup-parity.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI 設定対応表
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-regression-checklist.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI 退行防止チェックリスト
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    プロジェクト
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            プロジェクト
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    パッケージングと Windows の信頼
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ayame ファミリーのデザイン
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5_3" id="__nav_6_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    アーキテクチャ決定記録
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            アーキテクチャ決定記録
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/README.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    概要
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-naming-unification.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0001: プロジェクト名
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-diff-acceptance-architecture.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0002: diff アーキテクチャ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-encoding-dependency.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0003: 文字コード依存
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-git-repository-boundary.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0004: Git リポジトリ境界
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#csv" class="md-nav__link">
+    <span class="md-ellipsis">
+      csv — CSV/TSV key comparison (default)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="csv — CSV/TSV key comparison (default)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#choosing-the-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      Choosing the key
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Output
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selected-csv-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Selected csv options
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#text" class="md-nav__link">
+    <span class="md-ellipsis">
+      text — line-oriented text diff
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="text — line-oriented text diff">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      Output formats
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      text flags
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input limits
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sorted" class="md-nav__link">
+    <span class="md-ellipsis">
+      sorted — sort, then diff
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sorted — sort, then diff">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extra-sorted-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extra sorted flags
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      dir — recursive folder / archive comparison
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dir — recursive folder / archive comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparison-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison methods
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filter-expressions-and-reusable-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      Filter expressions and reusable sets
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bin" class="md-nav__link">
+    <span class="md-ellipsis">
+      bin — byte-level binary comparison
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update" class="md-nav__link">
+    <span class="md-ellipsis">
+      update — update a standalone installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      remove — uninstall a standalone installation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shell-select" class="md-nav__link">
+    <span class="md-ellipsis">
+      shell-select — Windows Explorer selection helper
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exit codes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scope boundaries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- i18n: language-switcher -->
+<p><a href="./">English</a> | <a href="../usage.ja/">日本語</a></p>
+<h1 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h1>
+<p><code>ayame-diff</code> provides comparison, web GUI, packaging, and maintenance commands.</p>
+<h2 id="command-overview">Command overview<a class="headerlink" href="#command-overview" title="Permanent link">&para;</a></h2>
+<!-- i18n: command-overview -->
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ayame-diff csv    [flags] --left A --right B --out D   # CSV/TSV key comparison (default)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>ayame-diff text   [flags] LEFT RIGHT                      # line-oriented text diff
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, then diff
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the GUI, optionally prefilled
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>ayame-diff update [--check]                            # check for or install the latest release
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>ayame-diff remove [--yes]                              # uninstall a standalone binary
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>ayame-diff shell-install                               # file-manager integration
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>ayame-diff shell-uninstall                             # remove integration
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>ayame-diff shell-select PATH                           # Windows Explorer integration helper
+</code></pre></div>
+<p>Invoking <code>ayame-diff</code> with <code>--left ... --right ...</code> and no subcommand runs as
+<code>csv</code> for backward compatibility. The <code>serve</code> and <code>gui</code> subcommands are covered
+in <a href="../gui/">GUI</a>.</p>
+<p>Two bare paths are a quick-launch form: files use <code>text</code>, directories use
+<code>dir</code>, and adding <code>--gui</code> opens and immediately runs the browser GUI. See
+<a href="../shell-integration/">File-manager and quick launch</a>.</p>
+<div class="doc-jump-grid">
+  <a class="doc-jump" href="#csv">Compare CSV / TSV</a>
+  <a class="doc-jump" href="#text">Compare text</a>
+  <a class="doc-jump" href="#sorted">Compare after sorting</a>
+  <a class="doc-jump" href="#dir">Compare folders</a>
+  <a class="doc-jump" href="#bin">Compare binary files</a>
+  <a class="doc-jump" href="#update">Maintain an installation</a>
+  <a class="doc-jump" href="#exit-codes">Use in scripts / CI</a>
+  <a class="doc-jump" href="../gui/">Prefer the GUI?</a>
+</div>
+
+<hr />
+<h2 id="csv"><code>csv</code> — CSV/TSV key comparison (default)<a class="headerlink" href="#csv" title="Permanent link">&para;</a></h2>
+<p>Compare two CSV/TSV files (including <code>.csv.gz</code> and <code>.tsv.gz</code>) by key, even when
+their row order differs, and write the differing rows to a TSV. Left and right
+may use different formats; if the header names match, differing column orders
+are aligned automatically.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.tsv<span class="w"> </span>--right<span class="w"> </span>new.csv<span class="w"> </span>--key<span class="w"> </span>id<span class="w"> </span>--out<span class="w"> </span>diff.tsv
+</code></pre></div>
+<h3 id="choosing-the-key">Choosing the key<a class="headerlink" href="#choosing-the-key" title="Permanent link">&para;</a></h3>
+<p>There are three key modes; inclusion and exclusion cannot be mixed.</p>
+<ol>
+<li><strong>No key options</strong> — every column is part of the key (multiset row diff).</li>
+<li><strong><code>--key</code> / <code>--key-index</code></strong> — name (or 0-based index) the columns to include.</li>
+<li><strong><code>--exclude-key</code> / <code>--exclude-key-index</code></strong> — keep every column as key
+   <em>except</em> the ones you list.</li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># All columns are the key (default)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.tsv<span class="w"> </span>--right<span class="w"> </span>new.csv<span class="w"> </span>--out<span class="w"> </span>diff.tsv
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Named key columns (repeatable)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.tsv<span class="w"> </span>--right<span class="w"> </span>new.csv<span class="w"> </span>--key<span class="w"> </span>customer_id<span class="w"> </span>--key<span class="w"> </span>event_date<span class="w"> </span>--out<span class="w"> </span>diff.tsv
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Key by column index (0-based by default; add --index-base 1 for 1-based)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.tsv<span class="w"> </span>--right<span class="w"> </span>new.tsv<span class="w"> </span>--key-index<span class="w"> </span><span class="m">0</span><span class="w"> </span>--key-index<span class="w"> </span><span class="m">3</span><span class="w"> </span>--out<span class="w"> </span>diff.tsv
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Keep every column as key except updated_at and checksum</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.tsv<span class="w"> </span>--right<span class="w"> </span>new.tsv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span>--exclude-key<span class="w"> </span>updated_at<span class="w"> </span>--exclude-key<span class="w"> </span>checksum<span class="w"> </span>--out<span class="w"> </span>diff.tsv
+</code></pre></div>
+<p>Excluded columns still appear in the full row comparison and in the output: when
+two rows share the remaining key but differ only in an excluded column, they are
+emitted as a <code>CHANGED</code> pair.</p>
+<p>Use <code>--ignore-column</code> / <code>--ignore-column-index</code> when a column should be excluded
+from value comparison as well. <code>--tolerance FLOAT</code> compares numeric value
+columns by absolute difference (with an explicit key); repeat
+<code>--column-tolerance NAME=FLOAT</code> or <code>--column-tolerance-index N=FLOAT</code> for
+per-column tolerances. Case, whitespace, and regex normalization are available
+through <code>--ignore-case</code>, <code>--ignore-whitespace</code>, and repeatable <code>--filter-line</code>.</p>
+<h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
+<p>Output is TSV by default. Two leading columns, <code>_diff</code> and <code>_side</code>, are prepended,
+followed by the original columns in the left input's column order.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>_diff       _side   id  name    amount
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>LEFT_ONLY   left    10  Alice   100
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>RIGHT_ONLY  right   20  Bob     200
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>CHANGED     left    30  Carol   300
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>CHANGED     right   30  Carol   350
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th><code>_diff</code></th>
+<th><code>_side</code></th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LEFT_ONLY</code></td>
+<td><code>left</code></td>
+<td>The key exists only on the left.</td>
+</tr>
+<tr>
+<td><code>RIGHT_ONLY</code></td>
+<td><code>right</code></td>
+<td>The key exists only on the right.</td>
+</tr>
+<tr>
+<td><code>CHANGED</code></td>
+<td><code>left</code></td>
+<td>Both sides share the key, but this left row could not be cancelled out.</td>
+</tr>
+<tr>
+<td><code>CHANGED</code></td>
+<td><code>right</code></td>
+<td>Both sides share the key, but this right row could not be cancelled out.</td>
+</tr>
+</tbody>
+</table>
+<p>Identical rows for the same key cancel one for one. Output order follows the
+hash-partition and key order — not the input order — so treat the result as a
+difference <em>set</em>.</p>
+<p>Add <code>--cell-diff</code> to insert <code>_changed_cols</code> after <code>_side</code> on <code>CHANGED</code> pairs.
+The comma-separated header names use the same ignore and numeric-tolerance
+rules as row matching. The stderr summary and <code>--summary-json</code> rank changed
+columns by pair count. The default TSV schema is unchanged when the flag is
+absent.</p>
+<p><code>--json</code> (alias for <code>--output-format jsonl --cell-diff</code>) writes one structured
+JSON object per logical difference to <code>--out</code>. A paired change contains the
+full <code>old</code> / <code>new</code> rows and typed <code>changed_columns</code> entries with index, name,
+old value, and new value. JSON Lines remains streamable for huge results.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.csv<span class="w"> </span>--right<span class="w"> </span>new.csv<span class="w"> </span>--key<span class="w"> </span>id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--cell-diff<span class="w"> </span>--out<span class="w"> </span>diff.tsv
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>ayame-diff<span class="w"> </span>csv<span class="w"> </span>--left<span class="w"> </span>old.csv<span class="w"> </span>--right<span class="w"> </span>new.csv<span class="w"> </span>--key<span class="w"> </span>id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--json<span class="w"> </span>--out<span class="w"> </span>diff.jsonl
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">gzip output</p>
+<p>A <code>.gz</code> output extension turns on gzip automatically, e.g.
+<code>--out diff.tsv.gz</code>.</p>
+</div>
+<h3 id="selected-csv-options">Selected <code>csv</code> options<a class="headerlink" href="#selected-csv-options" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>--left PATH  --right PATH  --out PATH
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>--key NAME                 (repeatable)
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>--key-index N              (repeatable)
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>--exclude-key NAME         (repeatable)
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>--exclude-key-index N      (repeatable)
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>--ignore-column NAME       (repeatable)
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>--ignore-column-index N    (repeatable)
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>--ignore-case
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>--ignore-whitespace none|change|all
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>--filter-line REGEX        (repeatable)
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>--tolerance FLOAT
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>--column-tolerance NAME=FLOAT       (repeatable)
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>--column-tolerance-index N=FLOAT    (repeatable)
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>--cell-diff
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>--json
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>--output-format tsv|jsonl
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>--index-base 0|1
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>--header=true|false
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>--align-columns-by-name=true|false
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>--left-format auto|csv|tsv     --right-format auto|csv|tsv
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>--left-parser auto|simple|rfc4180   --right-parser auto|simple|rfc4180
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>--partitions N   --parse-workers N   --workers N
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>--memory SIZE    --merge-fan-in N    --temp-dir PATH
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>--diff-exit-code
+</code></pre></div>
+<p>Run <code>ayame-diff csv --help</code> for the complete list, including tuning knobs for
+very large inputs (<code>--memory</code>, <code>--partitions</code>, <code>--parse-workers</code>, <code>--workers</code>,
+<code>--merge-fan-in</code>, <code>--temp-dir</code>).</p>
+<p>Save or replay the full configuration with <code>--save-project FILE</code> and
+<code>--project FILE</code>; see <a href="../projects/">Comparison projects</a> for the versioned JSON,
+relative paths, GUI history, and cron/CI usage.</p>
+<hr />
+<h2 id="text"><code>text</code> — line-oriented text diff<a class="headerlink" href="#text" title="Permanent link">&para;</a></h2>
+<p>Compare two text files (plain or <code>.gz</code>) in row order. A bounded resync window
+keeps it linear and memory-bounded even on huge inputs. The differences are
+reported as <strong>Insert</strong>, <strong>Delete</strong> and <strong>Replace</strong> hunks.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w">                 </span><span class="c1"># unified (default)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>clip:<span class="w"> </span>saved.txt<span class="w">                 </span><span class="c1"># OS clipboard vs file</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--side-by-side<span class="w"> </span>left.txt<span class="w"> </span>right.txt<span class="w">  </span><span class="c1"># two-column (left | right)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--json<span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w">          </span><span class="c1"># machine-readable JSON</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--summary<span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w">       </span><span class="c1"># one-line summary only</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--format<span class="w"> </span>unified<span class="w"> </span>-U<span class="w"> </span><span class="m">3</span><span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w"> </span>&gt;<span class="w"> </span>change.patch
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--format<span class="w"> </span>context<span class="w"> </span>-C<span class="w"> </span><span class="m">3</span><span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w"> </span>&gt;<span class="w"> </span>change.patch
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--format<span class="w"> </span>normal<span class="w"> </span>old.txt<span class="w"> </span>new.txt<span class="w"> </span>&gt;<span class="w"> </span>change.patch
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--detect-moves<span class="w"> </span>--move-min-lines<span class="w"> </span><span class="m">2</span><span class="w"> </span>old.txt<span class="w"> </span>new.txt
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>ayame-diff<span class="w"> </span>text<span class="w"> </span>--window<span class="w"> </span><span class="m">32</span><span class="w"> </span>--sync<span class="w"> </span><span class="m">100</span>:120<span class="w"> </span>--sync<span class="w"> </span><span class="m">5000</span>:5100<span class="w"> </span>old.txt<span class="w"> </span>new.txt
+</code></pre></div>
+<p>Use <code>clip:</code> (or <code>clipboard:</code>) as either input to compare directly against the
+OS clipboard. The CLI invokes <code>pbpaste</code> on macOS, PowerShell on Windows, and
+<code>wl-paste</code> or <code>xclip</code> on Linux without adding a runtime library dependency.
+Clipboard content can also pass through <code>--pre</code> like file and stdin input.</p>
+<h3 id="output-formats">Output formats<a class="headerlink" href="#output-formats" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Output</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>(none)</em></td>
+<td>Unified hunks (default).</td>
+</tr>
+<tr>
+<td><code>--side-by-side</code> (alias <code>--side</code>)</td>
+<td>Two-column left / right layout; set the total column width with <code>--width</code>.</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Structured JSON with hunk kinds, line numbers and counts.</td>
+</tr>
+<tr>
+<td><code>--summary</code></td>
+<td>A single summary line on stderr.</td>
+</tr>
+<tr>
+<td><code>--format unified</code> / <code>-U N</code></td>
+<td>Applyable unified patch with N context lines (default 3).</td>
+</tr>
+<tr>
+<td><code>--format context</code> / <code>-C N</code></td>
+<td>Applyable context patch with N context lines (default 3).</td>
+</tr>
+<tr>
+<td><code>--format normal</code> / <code>--normal</code></td>
+<td>Classic <code>NcN</code>, <code>NaN</code>, <code>NdN</code> normal patch.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="text-flags"><code>text</code> flags<a class="headerlink" href="#text-flags" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>--json                       emit the diff as JSON
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>--side-by-side, --side       two-column (left | right) output
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>--summary                    print only the one-line summary
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>--format FORMAT              patch format: normal, context, or unified
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>--normal                     alias for --format normal
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>-U N                         unified patch with N context lines
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>-C N                         context patch with N context lines
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>--context-lines N            context for --format context/unified (default 3)
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>--word                       highlight changed words in replace hunks (unified)
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>--encoding VALUE             auto (default), utf-8, utf-16le, utf-16be, shift_jis, euc-jp, iso-2022-jp
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>--ignore-case                ignore case when comparing lines
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>--ignore-whitespace MODE     none (default), change (collapse runs), all (remove)
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>--ignore-all-space           alias for --ignore-whitespace all
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>--ignore-space-change        alias for --ignore-whitespace change
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>--ignore-eol                 ignore CRLF/LF differences
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>--ignore-trailing-eol        ignore only the final missing line ending
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>--filter-line REGEX          remove regex matches for comparison (repeatable)
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>--detect-moves               pair exact delete/insert blocks as moves (default off)
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>--move-min-lines N           minimum moved-block length (default 2)
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>--move-max-candidates N      per-side detection guard (default 10000)
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>--sync LEFT:RIGHT               force corresponding 1-based lines (repeatable)
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>--max-hunks N                maximum hunks to print; the rest are still counted (default 200)
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>--max-lines N                maximum lines shown per hunk side (default 200)
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>--window N                   resync look-ahead window when lines differ (default 128)
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>--width N                    total width for --side-by-side (default 160)
+</code></pre></div>
+<p>Patch output is never truncated by <code>--max-hunks</code> or <code>--max-lines</code>. It preserves
+LF/CRLF and missing-final-newline markers, rejects decoded binary/NUL input, and
+uses locale-independent file-header timestamps. CI applies all three formats
+with GNU <code>patch</code> and additionally verifies unified output with <code>git apply</code>.</p>
+<p>See <a href="../encoding/">Encoding</a> for <code>--encoding</code> and
+<a href="../comparison-options/">Comparison options</a> for ignore filters, numeric
+tolerance, <code>--word</code>, <code>--window</code> and <code>--max-hunks</code>.</p>
+<h3 id="input-limits">Input limits<a class="headerlink" href="#input-limits" title="Permanent link">&para;</a></h3>
+<p>A file argument is streamed through a sliding window, so its size does not
+drive memory. Two shapes are bounded explicitly because they cannot stream:</p>
+<table>
+<thead>
+<tr>
+<th>Limit</th>
+<th>Default</th>
+<th>Applies to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max-line-bytes</code></td>
+<td>64MiB</td>
+<td>one logical line; <code>0</code> disables the check</td>
+</tr>
+<tr>
+<td>(built in)</td>
+<td>1GiB</td>
+<td><code>-</code> (stdin) and <code>--pre</code> output</td>
+</tr>
+</tbody>
+</table>
+<p>A file with no line breaks — minified JSON, a database dump — is a single line,
+so the window cannot bound it. Such a file is refused at open time with a
+pointer to <code>--max-line-bytes</code> or to <code>bin</code> mode. Peak memory while accumulating
+a long line is a small multiple of the limit, not exactly it.</p>
+<p>Standard input and a <code>--pre</code> command are pipes: their length is unknown in
+advance and their content must be materialized. Past 1GiB they are refused with
+a suggestion to write the data to a file, which streams instead.</p>
+<hr />
+<h2 id="sorted"><code>sorted</code> — sort, then diff<a class="headerlink" href="#sorted" title="Permanent link">&para;</a></h2>
+<p>For files that hold the same rows in a different order, <code>sorted</code> sorts both
+inputs line-wise and then runs the same line diff as <code>text</code>. It accepts every
+display flag from <code>text</code> plus sort controls. Patch formats are rejected because
+a patch of the sorted view cannot be applied safely to the original file.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ayame-diff<span class="w"> </span>sorted<span class="w"> </span>old.txt<span class="w"> </span>new.txt
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>ayame-diff<span class="w"> </span>sorted<span class="w"> </span>--numeric<span class="w"> </span>metrics-a.txt<span class="w"> </span>metrics-b.txt
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>ayame-diff<span class="w"> </span>sorted<span class="w"> </span>--reverse<span class="w"> </span>a.txt<span class="w"> </span>b.txt
+</code></pre></div>
+<h3 id="extra-sorted-flags">Extra <code>sorted</code> flags<a class="headerlink" href="#extra-sorted-flags" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>--numeric, -n    sort by leading numeric value
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>--reverse, -r    reverse the sort order
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>--sort-memory SIZE  line data held in memory before spilling (default 256MiB)
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>--temp-dir DIR      parent directory for spill files (default: TMPDIR)
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>sorted</code> is memory-bounded. Input within <code>--sort-memory</code> is sorted in
+memory; anything larger spills sorted runs to <code>--temp-dir</code> and merges them,
+so files larger than RAM still compare. Comparing two ~370 MB files with
+<code>--sort-memory 64MiB</code> peaks at about 114 MiB resident instead of ~1.2 GiB.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>On many Linux systems <code>TMPDIR</code> is <code>/tmp</code>, which is RAM-backed (tmpfs).
+Spilling there consumes memory rather than saving it, and a large sort can
+fail with "no space left on device" while the disk is empty. Point
+<code>--temp-dir</code> (or <code>TMPDIR</code>) at a real filesystem when sorting very large
+files.</p>
+</div>
+<hr />
+<h2 id="dir"><code>dir</code> — recursive folder / archive comparison<a class="headerlink" href="#dir" title="Permanent link">&para;</a></h2>
+<p><code>dir LEFT RIGHT</code> pairs slash-normalized relative paths. Size is checked first;
+equal-size candidates are streamed in parallel and compared byte-for-byte.
+<code>--quick</code> may trust equal size and mtime. Plain <code>.gz</code> files compare their
+decompressed content, while zip/tar/tar.gz archives compare as folder sources.
+Archive expansion is bounded to 64 MiB per selected entry and 256 MiB total per
+archive by default. Adjust these safeguards with <code>--max-archive-entry-bytes</code> and
+<code>--max-archive-bytes</code>; oversized or decompression-bomb inputs fail explicitly
+instead of exhausting process memory.</p>
+<p>A comparison also holds one entry per file — including unchanged ones — so the
+file count is bounded by <code>--max-entries</code> (default 2,000,000; a negative value
+disables the check). Trees past the limit are refused up front, before any file
+is read, with a suggestion to narrow the comparison using <code>--include</code> /
+<code>--exclude</code> or to compare a subdirectory.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--include<span class="w"> </span><span class="s1">&#39;*.csv&#39;</span><span class="w"> </span>--exclude<span class="w"> </span><span class="s1">&#39;tmp/**&#39;</span><span class="w"> </span>--workers<span class="w"> </span><span class="m">8</span><span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--tsv<span class="w"> </span>--all<span class="w"> </span>old/<span class="w"> </span>new/<span class="w"> </span>&gt;<span class="w"> </span>folders.tsv
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--json<span class="w"> </span>--diff-exit-code<span class="w"> </span>snapshot-a/<span class="w"> </span>snapshot-b/
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--html<span class="w"> </span>folder-report.html<span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--csv<span class="w"> </span>folder-summary.csv<span class="w"> </span>--all<span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--compare-by<span class="w"> </span><span class="nb">hash</span><span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;size &gt; 1MiB and name =~ &#39;\\.log</span>$<span class="s2">&#39;&quot;</span><span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--filter-set<span class="w"> </span>development<span class="w"> </span>old/<span class="w"> </span>new/
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>ayame-diff<span class="w"> </span>dir<span class="w"> </span>--filter-file<span class="w"> </span>filters.json<span class="w"> </span>--filter-set<span class="w"> </span>audit<span class="w"> </span>old/<span class="w"> </span>new/
+</code></pre></div>
+<p>Dotfiles/directories are skipped unless <code>--hidden</code> is set. Symbolic links are
+always skipped, avoiding loops and ambiguous out-of-tree reads. TSV/JSON include
+status, relative path, sizes, and mtimes. In the GUI, choose <strong>folder</strong>, filter
+the status tree, and click a changed regular file to drill into text diff.</p>
+<p><code>--html FILE</code> writes a self-contained light/dark tree report with status counts,
+paths, sizes, and modification times. <code>--csv FILE</code> writes the same entry fields
+as RFC 4180 CSV for downstream processing. Both write atomically; unchanged
+entries are omitted unless <code>--all</code> is set. These file outputs are mutually
+exclusive with <code>--json</code> and <code>--tsv</code>.</p>
+<h3 id="comparison-methods">Comparison methods<a class="headerlink" href="#comparison-methods" title="Permanent link">&para;</a></h3>
+<p><code>--compare-by</code> accepts five explicit methods:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>contents</code></td>
+<td>Stream and compare bytes, short-circuiting on the first difference (default).</td>
+</tr>
+<tr>
+<td><code>quick</code></td>
+<td>Trust equal size + mtime; otherwise fall back to content comparison. <code>--quick</code> is an alias.</td>
+</tr>
+<tr>
+<td><code>hash</code></td>
+<td>Stream both files through SHA-256 and compare digests.</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>Compare modification times only.</td>
+</tr>
+<tr>
+<td><code>size</code></td>
+<td>Compare file sizes only.</td>
+</tr>
+</tbody>
+</table>
+<p>Plain <code>.gz</code> content is decompressed for <code>contents</code> and <code>hash</code>. Metadata-only
+methods use the source/archive metadata as presented.</p>
+<h3 id="filter-expressions-and-reusable-sets">Filter expressions and reusable sets<a class="headerlink" href="#filter-expressions-and-reusable-sets" title="Permanent link">&para;</a></h3>
+<p><code>--filter</code> supports parentheses plus case-insensitive <code>and</code>, <code>or</code>, and <code>not</code>.
+Fields are <code>size</code>, <code>name</code>, <code>path</code>, <code>ext</code>, and <code>mtime</code>. Size/mtime fields accept
+<code>&lt; &lt;= == != &gt;= &gt;</code>; string fields accept <code>== != =~ !~</code>. Sizes accept decimal or
+binary units, and mtimes accept RFC 3339 or <code>YYYY-MM-DD</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>size &gt; 1MiB and (name =~ &#39;\.log$&#39; or ext == &#39;.json&#39;) and not path =~ &#39;^vendor/&#39;
+</code></pre></div>
+<p>Bundled sets are <code>development</code>, <code>vcs</code>, <code>node</code>, and <code>rust</code>; list them with
+<code>--list-filter-sets</code>. External JSON files provide named sets:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;audit&quot;</span><span class="p">,</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="nt">&quot;filters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">&quot;audit&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">      </span><span class="nt">&quot;includes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;**/*.log&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;**/*.json&quot;</span><span class="p">],</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">      </span><span class="nt">&quot;excludes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;archive/**&quot;</span><span class="p">],</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">      </span><span class="nt">&quot;expression&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;size &gt;= 1KiB&quot;</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>--filter-set</code> is repeatable. Selected sets are combined with direct
+<code>--include</code>, <code>--exclude</code>, and <code>--filter</code> arguments. A directory-mode
+<code>.ayamediff.json</code> can be passed directly as <code>--filter-file</code>; when it contains
+LEFT/RIGHT paths, those paths may be omitted on the command line.</p>
+<hr />
+<h2 id="bin"><code>bin</code> — byte-level binary comparison<a class="headerlink" href="#bin" title="Permanent link">&para;</a></h2>
+<p><code>bin LEFT RIGHT</code> streams two files and reports each differing region by byte
+offset, followed by the left and right bytes in hexadecimal. It is memory-bounded
+for large inputs and does not attempt to decode images or other file formats.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>ayame-diff<span class="w"> </span>bin<span class="w"> </span>firmware-v1.bin<span class="w"> </span>firmware-v2.bin
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>ayame-diff<span class="w"> </span>bin<span class="w"> </span>--max-regions<span class="w"> </span><span class="m">20</span><span class="w"> </span>--max-bytes<span class="w"> </span><span class="m">64</span><span class="w"> </span>old.dat<span class="w"> </span>new.dat
+</code></pre></div>
+<p><code>--max-regions</code> limits the number of regions printed (default 256), while
+<code>--max-bytes</code> limits the retained bytes shown on each side of a region (default
+32). The summary still reports the total differing byte count and whether the
+region list was truncated.</p>
+<hr />
+<h2 id="update"><code>update</code> — update a standalone installation<a class="headerlink" href="#update" title="Permanent link">&para;</a></h2>
+<p><code>update</code> checks the latest GitHub release, downloads the archive for the current
+OS and architecture, verifies it against the release's <code>SHA256SUMS</code>, and
+atomically replaces the running executable. The executable's directory must be
+writable.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>ayame-diff<span class="w"> </span>update<span class="w"> </span>--check<span class="w">   </span><span class="c1"># report whether a newer release exists</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>ayame-diff<span class="w"> </span>update<span class="w">           </span><span class="c1"># verify and install the latest release</span>
+</code></pre></div>
+<p>For Homebrew, Scoop, Nix, or another managed installation, prefer that package
+manager's update command so its package database remains authoritative.</p>
+<hr />
+<h2 id="remove"><code>remove</code> — uninstall a standalone installation<a class="headerlink" href="#remove" title="Permanent link">&para;</a></h2>
+<p><code>remove</code> asks for confirmation and then removes the running standalone binary.
+Use <code>--yes</code> for a non-interactive invocation. Installs detected under Homebrew,
+Scoop, or Nix are left untouched and must be removed with their package manager.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>ayame-diff<span class="w"> </span>shell-uninstall<span class="w">  </span><span class="c1"># optional: remove file-manager entries first</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>ayame-diff<span class="w"> </span>remove
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>ayame-diff<span class="w"> </span>remove<span class="w"> </span>--yes
+</code></pre></div>
+<p>On Windows, the running executable is renamed with a <code>.delete-me</code> suffix; delete
+that file after the process exits to finish removal.</p>
+<hr />
+<h2 id="shell-select"><code>shell-select</code> — Windows Explorer selection helper<a class="headerlink" href="#shell-select" title="Permanent link">&para;</a></h2>
+<p><code>shell-select PATH</code> is the internal bridge installed by <code>shell-install</code> for the
+Windows Explorer <strong>Compare with Ayame Diff</strong> action. The first invocation stores
+one path in the current user's configuration for up to 30 minutes. A second,
+different path clears that state and opens both paths in the GUI.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>ayame-diff shell-select PATH
+</code></pre></div>
+<p>Users normally invoke the Explorer action instead of running this command
+directly. See <a href="../shell-integration/">File-manager and quick launch</a> for setup
+and the cross-platform launch forms.</p>
+<hr />
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<p>Normally:</p>
+<ul>
+<li><code>0</code> — success</li>
+<li><code>2</code> — usage error: bad flags, arguments, or incompatible options</li>
+<li><code>3</code> — runtime error: I/O, comparison, server, or update failure</li>
+<li><code>130</code> — interrupted or explicitly cancelled (for example, declining <code>remove</code>)</li>
+</ul>
+<p>With <code>--diff-exit-code</code> (<code>csv</code> and <code>dir</code>):</p>
+<ul>
+<li><code>0</code> — no differences</li>
+<li><code>1</code> — differences found</li>
+<li><code>2</code> / <code>3</code> — usage or runtime error, as above</li>
+</ul>
+<p>With <code>3way text --merge-exit-code --output PATH</code>:</p>
+<ul>
+<li><code>0</code> — output written with no unresolved conflicts</li>
+<li><code>1</code> — output written with standard unresolved-conflict markers</li>
+<li><code>2</code> / <code>3</code> — usage or runtime/write error, as above</li>
+</ul>
+<p>A usage error and a runtime failure are deliberately distinct, so a script can
+tell "you called it wrong" from "it could not finish". An internal crash is
+reported as <code>3</code> with a stack trace on stderr; it never exits <code>2</code> and so is never
+mistaken for a usage error.</p>
+<hr />
+<h2 id="scope-boundaries">Scope boundaries<a class="headerlink" href="#scope-boundaries" title="Permanent link">&para;</a></h2>
+<p><code>ayame-diff</code> is intentionally focused on large structured/text data. Image
+rendering and web-page screenshot comparison are out of scope: those workflows
+need image decoders or a browser engine and are better served by WinMerge or a
+dedicated visual-regression tool.</p>
+<p>Git repository inspection and management are also out of scope. Ayame-diff
+accepts explicit paths when Git invokes it as a custom difftool or mergetool,
+but it does not read <code>.git</code>, resolve revisions, or perform staging, commits,
+branch, remote, or authentication operations. See
+<a href="../adr/0004-git-repository-boundary/">ADR 0004</a>.</p>
+<p>Images and other non-text files can still participate in <code>dir</code> comparisons as
+binary content. Use <code>ayame-diff bin LEFT RIGHT</code> to inspect differing byte
+offsets; there is no pixel-level image viewer or DOM/rendered-page comparison.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../shell-integration/" class="md-footer__link md-footer__link--prev" aria-label="Previous: File-manager integration">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                File-manager integration
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../comparison-options/" class="md-footer__link md-footer__link--next" aria-label="Next: Comparison options">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Comparison options
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ayame-editor/ayame-diff" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.sections", "navigation.footer", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      
+    
+  </body>
+</html>
