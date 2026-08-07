@@ -3,7 +3,7 @@
 
 # Ayame ファミリーのデザイン
 
-`ayame-diff` と [ayame-editor](https://github.com/hjosugi/ayame-editor) は、
+`ayame-diff` と [ayame-editor](https://github.com/ayame-editor/ayame-editor) は、
 各製品固有のレイアウトを保ちながら、同じビジュアルファミリーを共有します。
 editor は執筆面、diff は比較の設定・結果ビューであるため、画面構造は意図的に
 結合していません。

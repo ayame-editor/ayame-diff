@@ -3,7 +3,7 @@
 
 # Ayame family design
 
-`ayame-diff` and [ayame-editor](https://github.com/hjosugi/ayame-editor)
+`ayame-diff` and [ayame-editor](https://github.com/ayame-editor/ayame-editor)
 share a visual family while keeping layouts specific to each product. The
 editor is a writing surface; diff is a comparison setup and result viewer, so
 their screen structures are intentionally not coupled.
