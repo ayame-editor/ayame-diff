@@ -14,7 +14,7 @@
 #
 set -euo pipefail
 
-REPO="hjosugi/ayame-diff"
+REPO="ayame-editor/ayame-diff"
 API="https://api.github.com/repos/${REPO}/releases/latest"
 BINARY="ayame-diff"
 

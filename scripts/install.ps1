@@ -23,7 +23,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$Repo = "hjosugi/ayame-diff"
+$Repo = "ayame-editor/ayame-diff"
 $Binary = "ayame-diff"
 
 function Info($msg) { Write-Host "==> $msg" }
