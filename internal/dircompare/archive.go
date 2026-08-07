@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/panicguard"
+	"github.com/ayame-editor/ayame-diff/internal/panicguard"
 )
 
 // source is a comparable tree of files with content, backed by either a

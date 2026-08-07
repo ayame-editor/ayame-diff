@@ -1,4 +1,4 @@
-module github.com/hjosugi/ayame-diff
+module github.com/ayame-editor/ayame-diff
 
 go 1.23
 

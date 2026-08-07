@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 // assertLines checks a sorted Result line by line.

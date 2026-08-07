@@ -16,8 +16,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
-	"github.com/hjosugi/ayame-diff/internal/project"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/project"
 )
 
 var version = "dev"

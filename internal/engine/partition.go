@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/hjosugi/ayame-diff/internal/panicguard"
+	"github.com/ayame-editor/ayame-diff/internal/panicguard"
 )
 
 type partitionSink struct {

@@ -16,8 +16,8 @@ go vet ./...
 Packages checked:
 
 ```text
-github.com/hjosugi/ayame-diff/cmd/ayame-diff
-github.com/hjosugi/ayame-diff/internal/engine
+github.com/ayame-editor/ayame-diff/cmd/ayame-diff
+github.com/ayame-editor/ayame-diff/internal/engine
 ```
 
 The engine tests cover:

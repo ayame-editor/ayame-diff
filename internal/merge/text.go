@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/pathutil"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/pathutil"
 )
 
 // Side selects which document supplies one differing region.

@@ -98,12 +98,12 @@ PackageVersion: %s
 PackageLocale: en-US
 Publisher: hjosugi
 PublisherUrl: https://github.com/hjosugi
-PublisherSupportUrl: https://github.com/hjosugi/ayame-diff/issues
+PublisherSupportUrl: https://github.com/ayame-editor/ayame-diff/issues
 Author: hjosugi
 PackageName: ayame-diff
-PackageUrl: https://github.com/hjosugi/ayame-diff
+PackageUrl: https://github.com/ayame-editor/ayame-diff
 License: MIT
-LicenseUrl: https://github.com/hjosugi/ayame-diff/blob/v%s/LICENSE
+LicenseUrl: https://github.com/ayame-editor/ayame-diff/blob/v%s/LICENSE
 ShortDescription: Fast CSV, text, folder, and binary diff with a local web GUI
 Description: A native, memory-bounded comparison tool with Japanese encoding support, structured CSV diff, patches, reports, and a bilingual local web GUI.
 Moniker: ayame-diff
@@ -114,7 +114,7 @@ Tags:
 - japanese
 - patch
 - text
-ReleaseNotesUrl: https://github.com/hjosugi/ayame-diff/releases/tag/v%s
+ReleaseNotesUrl: https://github.com/ayame-editor/ayame-diff/releases/tag/v%s
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
 `, wingetID, version, version, version)
@@ -122,7 +122,7 @@ ManifestVersion: 1.12.0
 
 func wingetInstaller(version, hash, date string) string {
 	name := fmt.Sprintf("ayame-diff-v%s-windows", version)
-	url := fmt.Sprintf("https://github.com/hjosugi/ayame-diff/releases/download/v%s/%s.zip", version, name)
+	url := fmt.Sprintf("https://github.com/ayame-editor/ayame-diff/releases/download/v%s/%s.zip", version, name)
 	return fmt.Sprintf(`# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: %s
@@ -157,20 +157,20 @@ func scoop(version, hash string) string {
 	return fmt.Sprintf(`{
   "version": %q,
   "description": "Fast CSV, text, folder, and binary diff with a local web GUI.",
-  "homepage": "https://github.com/hjosugi/ayame-diff",
+  "homepage": "https://github.com/ayame-editor/ayame-diff",
   "license": "MIT",
   "architecture": {
-    "64bit": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v%s/ayame-diff-v%s-windows.zip", "hash": %q, "extract_dir": "ayame-diff-v%s-windows"},
-    "arm64": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v%s/ayame-diff-v%s-windows.zip", "hash": %q, "extract_dir": "ayame-diff-v%s-windows\\arm64"}
+    "64bit": {"url": "https://github.com/ayame-editor/ayame-diff/releases/download/v%s/ayame-diff-v%s-windows.zip", "hash": %q, "extract_dir": "ayame-diff-v%s-windows"},
+    "arm64": {"url": "https://github.com/ayame-editor/ayame-diff/releases/download/v%s/ayame-diff-v%s-windows.zip", "hash": %q, "extract_dir": "ayame-diff-v%s-windows\\arm64"}
   },
   "bin": "ayame-diff.exe",
-  "checkver": {"github": "https://github.com/hjosugi/ayame-diff"},
+  "checkver": {"github": "https://github.com/ayame-editor/ayame-diff"},
   "autoupdate": {
     "architecture": {
-      "64bit": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows"},
-      "arm64": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows\\arm64"}
+      "64bit": {"url": "https://github.com/ayame-editor/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows"},
+      "arm64": {"url": "https://github.com/ayame-editor/ayame-diff/releases/download/v$version/ayame-diff-v$version-windows.zip", "extract_dir": "ayame-diff-v$version-windows\\arm64"}
     },
-    "hash": {"url": "https://github.com/hjosugi/ayame-diff/releases/download/v$version/SHA256SUMS", "regex": "([a-fA-F0-9]{64})\\s+(?:\\./)?$basename"}
+    "hash": {"url": "https://github.com/ayame-editor/ayame-diff/releases/download/v$version/SHA256SUMS", "regex": "([a-fA-F0-9]{64})\\s+(?:\\./)?$basename"}
   }
 }
 `, version, version, version, hash, version, version, version, hash, version)
@@ -179,23 +179,23 @@ func scoop(version, hash string) string {
 func homebrew(version, amd64, arm64 string) string {
 	return fmt.Sprintf(`class AyameDiff < Formula
   desc "Fast CSV, text, folder, and binary diff with a local web GUI"
-  homepage "https://github.com/hjosugi/ayame-diff"
+  homepage "https://github.com/ayame-editor/ayame-diff"
   version %q
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/hjosugi/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/ayame-editor/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-arm64.tar.gz"
       sha256 %q
     end
     on_intel do
-      url "https://github.com/hjosugi/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-amd64.tar.gz"
+      url "https://github.com/ayame-editor/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-amd64.tar.gz"
       sha256 %q
     end
   end
 
   livecheck do
-    url "https://github.com/hjosugi/ayame-diff"
+    url "https://github.com/ayame-editor/ayame-diff"
     strategy :github_latest
   end
 

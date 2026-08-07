@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/panicguard"
+	"github.com/ayame-editor/ayame-diff/internal/panicguard"
 )
 
 // ProgressEvent is a transport-neutral snapshot suitable for CLI logging,

@@ -17,9 +17,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 type CSVEvent struct {

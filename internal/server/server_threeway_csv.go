@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/pathutil"
-	"github.com/hjosugi/ayame-diff/internal/threeway"
+	"github.com/ayame-editor/ayame-diff/internal/pathutil"
+	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
 
 type threeWayCSVRequest struct {

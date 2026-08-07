@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/dircompare"
-	"github.com/hjosugi/ayame-diff/internal/dirreport"
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/dircompare"
+	"github.com/ayame-editor/ayame-diff/internal/dirreport"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 // runDir implements: ayame-diff dir [flags] LEFT_DIR RIGHT_DIR

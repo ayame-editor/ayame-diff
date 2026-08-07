@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 type clipboardCommand struct {

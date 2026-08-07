@@ -42,7 +42,7 @@
 
 ## Quick start
 
-Install a binary for your OS from the [latest release](https://github.com/hjosugi/ayame-diff/releases/latest), then choose the shortest command for the job:
+Install a binary for your OS from the [latest release](https://github.com/ayame-editor/ayame-diff/releases/latest), then choose the shortest command for the job:
 
 ```bash
 ayame-diff gui                              # choose files in the browser
@@ -72,8 +72,8 @@ ayame-diff shell-select PATH                           # Windows Explorer integr
 Use [Comparison options](comparison-options.md) for whitespace, case, line filters, word highlights, and resync controls. For repeatable jobs, save the full setup as a [comparison project](projects.md).
 
 <div class="doc-link-row">
-  <a href="https://github.com/hjosugi/ayame-diff">GitHub</a>
-  <a href="https://github.com/hjosugi/ayame-diff/releases/latest">Latest release</a>
-  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md">Changelog</a>
-  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CONTRIBUTING.md">Contributing</a>
+  <a href="https://github.com/ayame-editor/ayame-diff">GitHub</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/releases/latest">Latest release</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/blob/main/CHANGELOG.md">Changelog</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/blob/main/CONTRIBUTING.md">Contributing</a>
 </div>

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/selfupdate"
+	"github.com/ayame-editor/ayame-diff/internal/selfupdate"
 )
 
 func TestConfirm(t *testing.T) {

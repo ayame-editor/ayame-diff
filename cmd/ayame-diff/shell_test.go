@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/shellintegration"
+	"github.com/ayame-editor/ayame-diff/internal/shellintegration"
 )
 
 func TestRunShellInstallAndUninstallUseIsolatedHome(t *testing.T) {

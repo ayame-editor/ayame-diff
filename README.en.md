@@ -3,7 +3,7 @@
 
 # ayame-diff
 
-[![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
+[![CI](https://github.com/ayame-editor/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/ayame-editor/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A native CLI tool for comparing huge CSV/TSV files with different row orders and outputting the difference rows as TSV.
@@ -60,7 +60,7 @@ not a claim that WebAssembly is categorically incapable. See
 
 ## Installation
 
-If you want to use it without installing Go, Python, WSL, etc., download the archive matching your OS and CPU from [GitHub Releases](https://github.com/hjosugi/ayame-diff/releases/latest).
+If you want to use it without installing Go, Python, WSL, etc., download the archive matching your OS and CPU from [GitHub Releases](https://github.com/ayame-editor/ayame-diff/releases/latest).
 
 - Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
@@ -69,7 +69,7 @@ If you want to use it without installing Go, Python, WSL, etc., download the arc
 If you have Go 1.23 or later, you can install directly from source.
 
 ```bash
-go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
+go install github.com/ayame-editor/ayame-diff/cmd/ayame-diff@latest
 ```
 
 You can verify file integrity using the `SHA256SUMS` file in the same Release as the downloaded archive.

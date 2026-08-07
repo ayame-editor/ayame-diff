@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/diffout"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/linesort"
-	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/ayame-editor/ayame-diff/internal/diffout"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linesort"
+	"github.com/ayame-editor/ayame-diff/internal/linesrc"
 )
 
 // diffRequest is the POST body for /api/diff.

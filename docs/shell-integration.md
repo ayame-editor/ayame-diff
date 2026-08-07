@@ -64,7 +64,7 @@ workflow blocks until the comparison finishes and uses the same text engine as
 the ordinary CLI. The browser GUI currently lacks the blocking lifetime and
 logical labels needed for a safe repeated `git difftool` workflow; that
 follow-up remains tracked in
-[#295](https://github.com/hjosugi/ayame-diff/issues/295).
+[#295](https://github.com/ayame-editor/ayame-diff/issues/295).
 
 ## Git mergetool
 

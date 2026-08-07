@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/packaging"
+	"github.com/ayame-editor/ayame-diff/internal/packaging"
 )
 
 func main() {

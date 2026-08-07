@@ -1,22 +1,22 @@
 class AyameDiff < Formula
   desc "Fast CSV, text, folder, and binary diff with a local web GUI"
-  homepage "https://github.com/hjosugi/ayame-diff"
+  homepage "https://github.com/ayame-editor/ayame-diff"
   version "0.0.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/hjosugi/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/ayame-editor/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-arm64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
     on_intel do
-      url "https://github.com/hjosugi/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-amd64.tar.gz"
+      url "https://github.com/ayame-editor/ayame-diff/releases/download/v#{version}/ayame-diff-v#{version}-darwin-amd64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000"
     end
   end
 
   livecheck do
-    url "https://github.com/hjosugi/ayame-diff"
+    url "https://github.com/ayame-editor/ayame-diff"
     strategy :github_latest
   end
 

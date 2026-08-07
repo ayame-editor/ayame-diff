@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 type lineEndingSource interface {

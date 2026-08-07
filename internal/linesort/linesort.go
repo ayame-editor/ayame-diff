@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linesrc"
 )
 
 // DefaultMemoryBytes bounds the line data held in memory before the sort

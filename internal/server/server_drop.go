@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
 )
 
 // handleDrop streams browser-dropped files to a private local cache. Browsers

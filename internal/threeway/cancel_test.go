@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 // TestCompareContextCancels covers #169: a cancelled context aborts the two

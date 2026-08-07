@@ -24,7 +24,7 @@
 
 | 項目 | 変更前 | 変更後 |
 | --- | --- | --- |
-| モジュールパス | `github.com/hjosugi/fcsv-diff` | `github.com/hjosugi/ayame-diff` |
+| モジュールパス | `github.com/hjosugi/fcsv-diff` | `github.com/ayame-editor/ayame-diff` |
 | バイナリ名 | `fcsv-diff` | `ayame-diff` |
 | エントリポイント | `cmd/fcsv-diff/` | `cmd/ayame-diff/` |
 | `go install` パス | `.../fcsv-diff/cmd/fcsv-diff@latest` | `.../ayame-diff/cmd/ayame-diff@latest` |

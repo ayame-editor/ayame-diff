@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/hexdiff"
+	"github.com/ayame-editor/ayame-diff/internal/hexdiff"
 )
 
 // runBin implements: ayame-diff bin [flags] LEFT RIGHT

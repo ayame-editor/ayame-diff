@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/merge"
-	"github.com/hjosugi/ayame-diff/internal/pathutil"
-	"github.com/hjosugi/ayame-diff/internal/threeway"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/merge"
+	"github.com/ayame-editor/ayame-diff/internal/pathutil"
+	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
 
 type textMergeRequest struct {

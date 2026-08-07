@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 //go:embed web

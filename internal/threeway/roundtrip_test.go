@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linesrc"
 )
 
 // encodeBytes re-encodes UTF-8 s to the named encoding. UTF-16 codecs add their

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 // TestParseArchiveLimitsClampsToServerMax covers #170: a client cannot raise the

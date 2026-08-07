@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
 )
 
 func benchFile(b *testing.B, lines int) string {

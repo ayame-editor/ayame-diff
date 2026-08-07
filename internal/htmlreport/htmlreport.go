@@ -10,8 +10,8 @@ import (
 	"html"
 	"io"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/worddiff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/worddiff"
 )
 
 const style = `

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/textwidth"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/textwidth"
 )
 
 // run renders old/new with opts and returns the stdout (w) and stderr

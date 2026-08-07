@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/shellintegration"
+	"github.com/ayame-editor/ayame-diff/internal/shellintegration"
 )
 
 func runShellInstall(args []string, stdout, stderr io.Writer) int {

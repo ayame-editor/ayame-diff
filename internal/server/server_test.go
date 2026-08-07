@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 func newTestServer(t *testing.T) http.Handler {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/dircompare"
+	"github.com/ayame-editor/ayame-diff/internal/dircompare"
 )
 
 func reportFixture() *dircompare.Result {

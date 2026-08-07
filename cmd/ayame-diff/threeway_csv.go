@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
-	"github.com/hjosugi/ayame-diff/internal/pathutil"
-	"github.com/hjosugi/ayame-diff/internal/threeway"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/pathutil"
+	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
 
 type stringChoices map[string]string

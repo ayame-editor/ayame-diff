@@ -18,7 +18,7 @@ Complete installation, comparison, encoding, and large-file tuning guidance is
 maintained in one place:
 
 - Documentation: <https://ayame-editor.github.io/ayame-diff/>
-- Japanese README: <https://github.com/hjosugi/ayame-diff/blob/main/README.ja.md>
+- Japanese README: <https://github.com/ayame-editor/ayame-diff/blob/main/README.ja.md>
 
 The distributed executables are not code-signed, so Windows SmartScreen or an
 organization policy may show a warning on first launch. Verify the archive with

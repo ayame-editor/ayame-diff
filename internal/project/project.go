@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/dircompare"
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/dircompare"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 const Version = 1

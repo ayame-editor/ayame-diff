@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/diffout"
+	"github.com/ayame-editor/ayame-diff/internal/diffout"
 )
 
 func TestSubcommandDispatch(t *testing.T) {

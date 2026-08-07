@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/dircompare"
-	"github.com/hjosugi/ayame-diff/internal/project"
+	"github.com/ayame-editor/ayame-diff/internal/dircompare"
+	"github.com/ayame-editor/ayame-diff/internal/project"
 )
 
 func (s *Server) handleProjectSave(w http.ResponseWriter, r *http.Request) {

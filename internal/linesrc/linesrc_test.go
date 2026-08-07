@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 // FileLines must satisfy the interface the diff walk consumes.

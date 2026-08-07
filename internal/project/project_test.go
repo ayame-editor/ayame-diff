@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/dircompare"
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/dircompare"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 func TestProjectRoundTripResolvesRelativePaths(t *testing.T) {

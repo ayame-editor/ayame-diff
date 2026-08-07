@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hjosugi/ayame-diff/internal/selfupdate"
+	"github.com/ayame-editor/ayame-diff/internal/selfupdate"
 )
 
 // runUpdate implements: ayame-diff update [--check]

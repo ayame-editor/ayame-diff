@@ -3,7 +3,7 @@
 
 # ayame-diff
 
-[![CI](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/hjosugi/ayame-diff/actions/workflows/build.yml)
+[![CI](https://github.com/ayame-editor/ayame-diff/actions/workflows/build.yml/badge.svg)](https://github.com/ayame-editor/ayame-diff/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 行順が異なる巨大な CSV / TSV を比較し、差分行を TSV に出力するネイティブ CLI です。
@@ -63,7 +63,7 @@ ayame-diff プロセスが、直接パスアクセス、ファイル変更監視
 
 ## インストール
 
-Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https://github.com/hjosugi/ayame-diff/releases/latest) からOSとCPUに合うアーカイブを取得してください。
+Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https://github.com/ayame-editor/ayame-diff/releases/latest) からOSとCPUに合うアーカイブを取得してください。
 
 - Windows x64 / ARM64: `ayame-diff-<version>-windows.zip`
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
@@ -72,7 +72,7 @@ Go、Python、WSLなどを入れずに使う場合は、[GitHub Releases](https:
 Go 1.23以降がある場合は、ソースから直接インストールできます。
 
 ```bash
-go install github.com/hjosugi/ayame-diff/cmd/ayame-diff@latest
+go install github.com/ayame-editor/ayame-diff/cmd/ayame-diff@latest
 ```
 
 ダウンロードしたアーカイブと同じReleaseにある `SHA256SUMS` で、ファイルの完全性を確認できます。

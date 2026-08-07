@@ -24,7 +24,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
 )
 
 const (

@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/textwidth"
-	"github.com/hjosugi/ayame-diff/internal/worddiff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/textwidth"
+	"github.com/ayame-editor/ayame-diff/internal/worddiff"
 )
 
 // Format selects the rendering of a diff result.

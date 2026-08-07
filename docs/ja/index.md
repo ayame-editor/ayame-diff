@@ -42,7 +42,7 @@
 
 ## クイックスタート
 
-[最新リリース](https://github.com/hjosugi/ayame-diff/releases/latest)から OS に合うバイナリをインストールし、目的に合う最短のコマンドを実行します。
+[最新リリース](https://github.com/ayame-editor/ayame-diff/releases/latest)から OS に合うバイナリをインストールし、目的に合う最短のコマンドを実行します。
 
 ```bash
 ayame-diff gui                              # ブラウザでファイルを選ぶ
@@ -72,8 +72,8 @@ ayame-diff shell-select PATH                           # Windows Explorer 統合
 空白・大文字小文字・行フィルター・単語ハイライト・再同期は[比較オプション](../comparison-options.ja.md)を参照してください。繰り返す処理は設定全体を[比較プロジェクト](../projects.ja.md)として保存できます。
 
 <div class="doc-link-row">
-  <a href="https://github.com/hjosugi/ayame-diff">GitHub</a>
-  <a href="https://github.com/hjosugi/ayame-diff/releases/latest">最新リリース</a>
-  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CHANGELOG.md">変更履歴</a>
-  <a href="https://github.com/hjosugi/ayame-diff/blob/main/CONTRIBUTING.md">コントリビューション</a>
+  <a href="https://github.com/ayame-editor/ayame-diff">GitHub</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/releases/latest">最新リリース</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/blob/main/CHANGELOG.md">変更履歴</a>
+  <a href="https://github.com/ayame-editor/ayame-diff/blob/main/CONTRIBUTING.md">コントリビューション</a>
 </div>

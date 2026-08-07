@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 // TestRunGuardedMapsAPanicToTheRuntimeExitCode is the #137 regression. An

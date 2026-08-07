@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/hjosugi/ayame-diff/internal/server"
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
 // runGUI implements: ayame-diff gui [--addr host:port] [--allow-remote]

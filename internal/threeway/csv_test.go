@@ -9,7 +9,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 func TestCompareAndMergeCSV(t *testing.T) {

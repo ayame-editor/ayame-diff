@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/diffout"
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/engine"
-	"github.com/hjosugi/ayame-diff/internal/htmlreport"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
-	"github.com/hjosugi/ayame-diff/internal/linesort"
-	"github.com/hjosugi/ayame-diff/internal/linesrc"
+	"github.com/ayame-editor/ayame-diff/internal/diffout"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/htmlreport"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linesort"
+	"github.com/ayame-editor/ayame-diff/internal/linesrc"
 )
 
 // diffFlags are the output/algorithm options shared by the text and sorted

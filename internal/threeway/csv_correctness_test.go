@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
 )
 
 // readMergedCSV decodes a merged file with encName and returns its records, so

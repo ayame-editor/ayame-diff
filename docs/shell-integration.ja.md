@@ -56,7 +56,7 @@ git difftool --tool=ayame-diff HEAD~1 HEAD -- path/to/file
 Git は一時ファイルを `$LOCAL` と `$REMOTE` で渡します。この端末ワークフローは
 比較完了まで待機し、通常の CLI と同じ text engine を使います。ブラウザ GUI には、
 `git difftool` から安全に繰り返し使うための blocking lifetime と論理ラベルがまだ
-ないため、[#295](https://github.com/hjosugi/ayame-diff/issues/295)で追跡します。
+ないため、[#295](https://github.com/ayame-editor/ayame-diff/issues/295)で追跡します。
 
 ## Git mergetool
 

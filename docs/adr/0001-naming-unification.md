@@ -23,7 +23,7 @@ Unify the product name, module path, and binary name **completely to `ayame-diff
 
 | Item | Before | After |
 | --- | --- | --- |
-| Module path | `github.com/hjosugi/fcsv-diff` | `github.com/hjosugi/ayame-diff` |
+| Module path | `github.com/hjosugi/fcsv-diff` | `github.com/ayame-editor/ayame-diff` |
 | Binary name | `fcsv-diff` | `ayame-diff` |
 | Entry point | `cmd/fcsv-diff/` | `cmd/ayame-diff/` |
 | `go install` path | `.../fcsv-diff/cmd/fcsv-diff@latest` | `.../ayame-diff/cmd/ayame-diff@latest` |

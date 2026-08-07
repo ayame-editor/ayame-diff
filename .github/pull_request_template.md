@@ -19,7 +19,7 @@
 <!-- ui-regression-checklist -->
 ## GUI regression checklist
 
-[GUI変更の退行防止チェックリスト](https://github.com/hjosugi/ayame-diff/blob/main/docs/ui-regression-checklist.ja.md)を
+[GUI変更の退行防止チェックリスト](https://github.com/ayame-editor/ayame-diff/blob/main/docs/ui-regression-checklist.ja.md)を
 GUIに影響する変更で使用し、該当しない場合は最初の項目を選んでください。
 
 - [ ] GUIの動作・配置に影響しない

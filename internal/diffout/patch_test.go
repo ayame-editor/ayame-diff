@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 func renderPatch(t *testing.T, oldText, newText string, format Format, context int, oldLabel, newLabel string) []byte {

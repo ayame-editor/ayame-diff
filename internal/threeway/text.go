@@ -10,9 +10,9 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/encoding"
-	"github.com/hjosugi/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/encoding"
+	"github.com/ayame-editor/ayame-diff/internal/linediff"
 )
 
 type Kind string

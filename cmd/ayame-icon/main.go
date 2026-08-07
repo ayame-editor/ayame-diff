@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hjosugi/ayame-diff/internal/appicon"
+	"github.com/ayame-editor/ayame-diff/internal/appicon"
 )
 
 func main() {

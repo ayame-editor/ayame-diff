@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/hjosugi/ayame-diff/internal/server"
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
 // runServe implements: ayame-diff serve [--addr host:port] [--allow-remote]

@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/atomicfile"
-	"github.com/hjosugi/ayame-diff/internal/panicguard"
+	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
+	"github.com/ayame-editor/ayame-diff/internal/panicguard"
 )
 
 func Run(ctx context.Context, cfg Config) (Summary, error) {
