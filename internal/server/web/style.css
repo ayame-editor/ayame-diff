@@ -279,6 +279,28 @@ button:active:not(:disabled) {
 }
 @keyframes status-spin { to { transform: rotate(360deg); } }
 
+/* Message lane (#97). Progress keeps .status above; outcomes stack here, newest
+   last, so the history of a trial-and-error session stays readable. */
+.messages { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+.message {
+  display: flex; align-items: baseline; gap: 0.55rem;
+  padding: 0.5rem 0.7rem; border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--border); background: var(--panel);
+  animation: message-in 0.14s ease-out;
+}
+.message-text { flex: 1 1 auto; overflow-wrap: anywhere; }
+.message-time { flex: 0 0 auto; color: var(--muted); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; }
+.message-dismiss {
+  flex: 0 0 auto; padding: 0 0.4rem; line-height: 1.4;
+  background: transparent; border-color: transparent; color: inherit;
+}
+.message-dismiss:hover:not(:disabled) { border-color: currentColor; }
+.message.error { background: var(--del-bg); color: var(--del-fg); border-color: var(--del-fg); }
+.message.warning { background: var(--chg-bg); color: var(--chg-fg); border-color: var(--chg-fg); }
+.message.success { background: var(--add-bg); color: var(--add-fg); border-color: var(--add-fg); }
+.message.error .message-time, .message.warning .message-time, .message.success .message-time { color: inherit; opacity: 0.75; }
+@keyframes message-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;
   margin-top: 0.6rem; padding: 0.5rem 0.7rem;
@@ -810,6 +832,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
+  .message { animation: none; }
   button, .cell.selectable-line, .hunk, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }
 }

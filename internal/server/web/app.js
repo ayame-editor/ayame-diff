@@ -20,6 +20,10 @@ const {
   calculateMinimapViewport,
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
+const { createMessageLog } = globalThis.AyameMessages;
+// Declared with the other module wiring: setStatus runs during start-up, before
+// the lane helpers further down the file are reached.
+const messageLog = createMessageLog({ onChange: renderMessages });
 
 function resultScrollInset() {
   return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
@@ -118,6 +122,8 @@ const I18N = {
 	lineFiltersPlaceholder: "1行に1つの正規表現",
 	cancel: "キャンセル",
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
+    messageLane: "メッセージ", dismissMessage: "このメッセージを閉じる",
+    messageRepeated: (v) => `${v.message}（${v.count}回）`,
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
     menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
     hunkList: "差分一覧",
@@ -243,6 +249,8 @@ const I18N = {
 	lineFiltersPlaceholder: "one regular expression per line",
 	cancel: "Cancel",
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
+    messageLane: "Messages", dismissMessage: "Dismiss this message",
+    messageRepeated: (v) => `${v.message} (${v.count}\u00d7)`,
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
     menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
     hunkList: "Difference list",
@@ -816,7 +824,7 @@ async function copyComparisonURL() {
     const url = buildShareURL(location.href, state);
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
     else if (!fallbackCopyText(url)) throw new Error("clipboard unavailable");
-    setStatus(t("sharedURLCopied"), "");
+    setStatus(t("sharedURLCopied"), "success");
   } catch (error) {
     setStatus(t(error?.code === "STATE_TOO_LARGE" ? "urlStateTooLarge" : "sharedURLCopyFailed"), "error");
   }
@@ -1386,7 +1394,7 @@ async function saveTextMerge() {
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    setStatus(t("mergeSaved", data.output), "");
+    setStatus(t("mergeSaved", data.output), "success");
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
@@ -1404,7 +1412,7 @@ async function saveCSVMerge() {
   try {
     const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    setStatus(t("mergeSaved", data.output), "");
+    setStatus(t("mergeSaved", data.output), "success");
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
@@ -1528,7 +1536,7 @@ async function saveThreeWayMerge() {
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
-  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), ""); }
+  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 
@@ -1770,16 +1778,92 @@ function clearSyncPoints() {
   if (lastData) compare();
 }
 
+// Progress and results own separate lanes (#97). A running operation writes
+// progress; its outcome ends that progress and joins the message lane, where
+// success withdraws itself and a failure waits to be dismissed. setStatus keeps
+// its old signature so every call site reads the same as before.
 function setStatus(msg, cls) {
+  if (cls === "busy") { setProgress(msg); return; }
+  setProgress("");
+  if (msg) messageLog.post(msg, cls || "info");
+}
+
+function setProgress(msg) {
   const el = $("status");
-  const error = cls === "error";
-  el.setAttribute("role", error ? "alert" : "status");
-  el.setAttribute("aria-live", error ? "assertive" : "polite");
   if (!msg) { el.textContent = ""; el.hidden = true; return; }
-  el.className = "status " + (cls || "");
+  el.className = "status busy";
   el.textContent = msg;
   el.hidden = false;
 }
+
+function messageText(entry) {
+  return entry.count > 1 ? t("messageRepeated", { message: entry.message, count: entry.count }) : entry.message;
+}
+
+function renderMessages(entries) {
+  const lane = $("messages");
+  const focusedID = document.activeElement?.closest?.(".message")?.dataset.messageId;
+  lane.textContent = "";
+  lane.hidden = entries.length === 0;
+  for (const entry of entries) {
+    const error = entry.tone === "error";
+    const item = document.createElement("div");
+    item.className = "message " + entry.tone;
+    item.dataset.messageId = String(entry.id);
+    // Only a failure interrupts a screen reader; the rest wait their turn.
+    item.setAttribute("role", error ? "alert" : "status");
+    item.setAttribute("aria-live", error ? "assertive" : "polite");
+
+    const text = document.createElement("span");
+    text.className = "message-text";
+    text.textContent = messageText(entry);
+
+    const stamp = new Date(entry.at);
+    const time = document.createElement("time");
+    time.className = "message-time";
+    time.dateTime = stamp.toISOString();
+    time.textContent = stamp.toLocaleTimeString(lang === "ja" ? "ja-JP" : "en-US");
+
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "message-dismiss";
+    dismiss.title = t("dismissMessage");
+    dismiss.setAttribute("aria-label", t("dismissMessage"));
+    dismiss.textContent = "\u00d7";
+    dismiss.addEventListener("click", () => dismissMessage(entry.id));
+
+    item.append(text, time, dismiss);
+    lane.append(item);
+  }
+  if (focusedID) focusMessage(Number(focusedID));
+}
+
+function focusMessage(id) {
+  const button = $("messages").querySelector(`.message[data-message-id="${id}"] .message-dismiss`);
+  if (button) button.focus();
+  return Boolean(button);
+}
+
+// Dismissing keeps the keyboard somewhere useful: the next message if the lane
+// still holds one, otherwise whichever of Re-compare / Compare the current
+// layout actually shows, which is where the work continues.
+function dismissMessage(id) {
+  const remaining = messageLog.entries().filter((entry) => entry.id !== id);
+  messageLog.dismiss(id);
+  const next = remaining[0];
+  if (next) {
+    focusMessage(next.id);
+    return;
+  }
+  for (const controlID of ["setupRecompare", "compare"]) {
+    const control = $(controlID);
+    if (control && !control.hidden && control.offsetParent) {
+      control.focus();
+      return;
+    }
+  }
+}
+
 
 function splitList(value) {
   return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -2011,7 +2095,7 @@ async function runExportCSV() {
 	if (!validateInputs(body)) return;
   if (!body.output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
-  try { const resp = await apiFetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), ""); }
+  try { const resp = await apiFetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
 }
 
@@ -2063,7 +2147,7 @@ async function runSaveProject() {
   if (!body.projectPath) missing.push(t("projectPath"));
   if (!body.output) missing.push(t("outputPath"));
   if (missing.length) { setStatus(t("requiredFields", { fields: missing }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -2094,7 +2178,7 @@ function applyDirectoryProject(body) {
 async function runSaveDirectoryProject() {
   const body = dirRequestBody(); body.projectPath = $("dirProjectPath").value.trim();
   if (!validateInputs(body) || !body.projectPath) { if (!body.projectPath) setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), ""); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -2466,7 +2550,7 @@ async function compare(options = {}) {
       sameWatchPaths(preparedWatch.paths, currentWatchPaths())) {
     fileWatcher.start(preparedWatch.paths, preparedWatch.snapshot);
   }
-  if (options.external && result) setStatus(t("externalReloaded"), "");
+  if (options.external && result) setStatus(t("externalReloaded"), "success");
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
@@ -2768,7 +2852,7 @@ async function stopServer() {
       throw new Error(body.error || `HTTP ${response.status}`);
     }
     stopBrowserHeartbeat();
-    setStatus(t("stoppedServer"), "");
+    setStatus(t("stoppedServer"), "success");
   } catch (error) {
     button.disabled = false;
     setStatus(t("shutdownFailed", { message: error.message || String(error) }), "error");
@@ -2862,7 +2946,7 @@ function makeCellExpandable(td, value) {
     event.stopPropagation();
     try {
       await navigator.clipboard.writeText(value);
-      setStatus(t("copied"), "");
+      setStatus(t("copied"), "success");
     } catch {
       // Clipboard access can be refused; selecting the text keeps the value
       // obtainable rather than leaving the button dead.
@@ -2959,7 +3043,7 @@ async function runExportPatch() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    setStatus(t("exported"), "");
+    setStatus(t("exported"), "success");
   } catch (err) {
     setStatus(String(err.message || err), "error");
   } finally {
@@ -3669,6 +3753,15 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     stepSearch(event.shiftKey ? -1 : 1);
   }
+});
+// Escape dismisses the focused message (#97), so the lane can be cleared
+// without reaching for the mouse.
+$("messages").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const item = event.target.closest?.(".message");
+  if (!item) return;
+  event.preventDefault();
+  dismissMessage(Number(item.dataset.messageId));
 });
 $("searchInput").addEventListener("input", scheduleSearch);
 for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEventListener("change", runSearch);
