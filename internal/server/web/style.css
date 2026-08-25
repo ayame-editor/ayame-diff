@@ -301,6 +301,27 @@ button:active:not(:disabled) {
 .message.error .message-time, .message.warning .message-time, .message.success .message-time { color: inherit; opacity: 0.75; }
 @keyframes message-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 
+/* Editable panes (#255). The editor is a textarea mounted in the line being
+   changed rather than contenteditable, which IME handles badly; it inherits the
+   cell's metrics so the text does not jump when it opens. */
+.cell.editing { position: relative; }
+.line-editor {
+  display: block; width: 100%; box-sizing: border-box;
+  margin: 0; padding: 0; border: 0; border-radius: 2px;
+  font: inherit; font-family: var(--mono); line-height: inherit;
+  color: var(--fg); background: var(--bg-elevated);
+  resize: none; overflow: hidden;
+  outline: var(--focus-ring); outline-offset: -2px;
+}
+.pane-head.dirty .pane-head-path { font-style: italic; }
+.pane-head-dirty { flex: 0 0 auto; color: var(--chg-fg); font-size: var(--fs-caption); line-height: 1; }
+.pane-head-save { flex: 0 0 auto; padding: 0.1rem 0.5rem; font-size: var(--fs-label); }
+.pane-head-readonly {
+  flex: 0 0 auto; padding: 0.05rem 0.4rem; border-radius: calc(var(--radius) - 6px);
+  border: 1px solid var(--border); color: var(--muted); font-size: var(--fs-caption);
+}
+.edit-toggle.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;
   margin-top: 0.6rem; padding: 0.5rem 0.7rem;

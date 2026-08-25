@@ -143,6 +143,32 @@ Press `Enter` or leave an edited field to compare that replacement immediately;
 the `⇄` control swaps LEFT and RIGHT. Re-comparison restores the logical line that
 was in view rather than returning to the first difference.
 
+### Editing a pane
+
+**Edit** in the result toolbar opens both files for editing. It appears for a
+two-file `text` comparison of real files: pasted text has nowhere to save to,
+and `sorted`, `csv / tsv`, folder and three-way views reshape or reorder rows,
+so a row there no longer addresses a line in a file.
+
+Turning it on loads both files in full — up to 8 MiB each — and compares what is
+in the panes rather than what is on disk. Click a line, or focus it and press
+`Enter`, to edit it; `Enter` commits, `Escape` restores the line as it was, and
+moving away commits too. The comparison catches up when a line is committed
+rather than on every keystroke, and an IME composition is left alone until it
+ends, so Japanese input is not interrupted mid-word.
+
+Each pane header carries its own state: a marker when it holds unsaved lines, a
+**Save** button for that side alone, and a `read-only` badge when the file
+cannot be written. `Ctrl+S` saves the pane being edited. A save preserves the
+file's encoding, BOM, line terminator and final-newline state — an edited line
+does not quietly convert the rest of the file. If the file changed on disk after
+it was opened, the save is refused and offers to overwrite instead of discarding
+the other change silently. Leaving the page with unsaved lines warns first, and
+an external change no longer reloads over unsaved work: the reload bar asks.
+
+Editing changes lines; it does not add or remove them, and the comparison
+settings continue to apply as they do while reading.
+
 ### Progress and messages
 
 A running comparison writes to its own progress line, and the outcome of an
@@ -380,6 +406,13 @@ formats are `normal`, `context`, and `unified`; `context` is non-negative and
 defaults to 3 when omitted.
 
 ### CSV and file APIs
+
+`POST /api/file/read` returns a whole text file for editing — its lines, the
+encoding/BOM/terminator profile a later save restores, a size-and-mtime stamp,
+and whether it is writable — refusing anything over 8 MiB. `POST /api/file/save`
+writes lines back through that profile. It requires `overwrite: true`, and when
+the request carries the `expect` stamp it refuses a file that changed since,
+answering `409` with code `stale_write` unless `force` is set.
 
 - `GET /api/files?path=...` lists up to 2,000 local directory entries for the
   setup file picker.
