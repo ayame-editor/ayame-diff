@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestI18NParityAndRequiredKeys extracts the I18N table from app.js and asserts
+// TestI18NParityAndRequiredKeys extracts the message catalog from i18n.js and asserts
 // the ja and en tables define exactly the same keys (so no string is left
 // untranslated in one language) and that the #125 keys exist. Runs via node
 // because the table is a JS object literal with function-valued entries.
@@ -17,13 +17,13 @@ func TestI18NParityAndRequiredKeys(t *testing.T) {
 	}
 	script := `
 const fs = require('fs');
-const src = fs.readFileSync('./web/app.js', 'utf8');
-const s = src.indexOf('const I18N = {');
+const src = fs.readFileSync('./web/i18n.js', 'utf8');
+const s = src.indexOf('const CATALOG = {');
 if (s < 0) process.exit(20);
 const open = src.indexOf('{', s);
-const e = src.indexOf('\n};', open);       // the table's closing "};" at column 0
+const e = src.indexOf('\n  };', open);     // the table's closing "};" inside the module
 if (e < 0) process.exit(21);
-const I18N = eval('(' + src.slice(open, e + 2) + ')');
+const I18N = eval('(' + src.slice(open, e + 4) + ')');
 const ja = Object.keys(I18N.ja), en = Object.keys(I18N.en);
 const jaSet = new Set(ja), enSet = new Set(en);
 const onlyJa = ja.filter((k) => !enSet.has(k));
@@ -77,6 +77,48 @@ func TestI18NControlsAreWired(t *testing.T) {
 	for _, gone := range []string{`add("left only"`, `add("right only"`, `add("left"`, "` bytes\\n"} {
 		if strings.Contains(app, gone) {
 			t.Errorf("app.js still has hardcoded %q", gone)
+		}
+	}
+}
+
+// TestMessageCatalogLivesInItsOwnModule guards the extraction: the page must
+// load the catalog before app.js consumes it, and app.js must not grow a second
+// copy of the table it was split out of.
+func TestMessageCatalogLivesInItsOwnModule(t *testing.T) {
+	t.Parallel()
+
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	module := readWebAsset(t, "i18n.js")
+
+	if !strings.Contains(index, `<script src="i18n.js"></script>`) {
+		t.Error("index.html does not load i18n.js")
+	}
+	if strings.Index(index, `src="i18n.js"`) > strings.Index(index, `src="app.js"`) {
+		t.Error("i18n.js must load before app.js")
+	}
+	if strings.Contains(app, "const I18N = {") {
+		t.Error("app.js still defines its own catalog, so the tested copy is not the used one")
+	}
+	for _, want := range []string{
+		"globalThis.AyameI18N",
+		"const { CATALOG: I18N, translate, pickLanguage } = globalThis.AyameI18N;",
+		"pickLanguage(localStorage.getItem(\"ayame-lang\"), navigator.language)",
+		"return translate(I18N, lang, key, arg);",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js is missing catalog wiring %q", want)
+		}
+	}
+	for _, want := range []string{"function translate(", "function pickLanguage(", "module.exports = api"} {
+		if !strings.Contains(module, want) {
+			t.Errorf("i18n.js is missing %q", want)
+		}
+	}
+	// The catalog is data. Application wiring belongs in app.js.
+	for _, leaked := range []string{"document.", "localStorage", "addEventListener", "apiFetch("} {
+		if strings.Contains(module, leaked) {
+			t.Errorf("i18n.js contains application wiring (%q); it must stay a catalog", leaked)
 		}
 	}
 }
