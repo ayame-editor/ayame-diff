@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.14 - 2026-08-26
+
+- A folder comparison can now be read in one scroll. **Continuous** stacks
+  every differing file in a single pass, each introduced by a header carrying
+  its relative path, status and hunk count, so a change set is read straight
+  through instead of opened and returned to once per file — a hundred differing
+  files no longer means a hundred round trips. The header stays in view while
+  its file is read and collapses the file when clicked, and the status filter
+  and path search narrow this view exactly as they narrow the tree.
+  A file's diff is fetched as it comes near the viewport and released once it
+  has drifted away, holding the space it took so the page does not pull up
+  under the reader; a hundred-file change set keeps only a handful loaded.
+  Difference navigation crosses file boundaries, stepping hunk to hunk inside
+  the file being read and moving to the next differing file at its edge, and
+  the minimap marks the files rather than the hunks. (#291)
+
 ## v0.8.13 - 2026-08-26
 
 - Either pane can now be edited and saved, which was the one condition for
