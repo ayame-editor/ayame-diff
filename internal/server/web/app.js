@@ -22,13 +22,24 @@ const {
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+const {
+  continuousEntries,
+  windowAround,
+  unloadTargets,
+  stepSection,
+  sectionAt,
+} = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
 
 function resultScrollInset() {
-  return document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
+  const inset = document.querySelector("#result > .pane-heads")?.getBoundingClientRect().height || 0;
+  // The continuous view's file headers stick below these, so the measurement
+  // has to reach CSS as well (#291).
+  $("result").style.setProperty("--pane-heads-height", `${Math.round(inset)}px`);
+  return inset;
 }
 
 function captureResultScrollAnchor() {
@@ -454,6 +465,391 @@ async function saveEditedPane(side, options = {}) {
     setStatus(String(err.message || err), "error");
     return false;
   }
+}
+
+// ---- folder comparison: continuous view (#291) ----
+//
+// The tree opens one file and comes back; a hundred differing files is a
+// hundred round trips. This stacks every differing file in one scroll, and only
+// works by never holding all of them: a file's diff is fetched as it nears the
+// viewport, and files that drift far away give their DOM back. Which files that
+// means is decided in continuous.js, which node exercises directly.
+let continuousView = null;
+
+const CONTINUOUS_LOADED_LIMIT = 12;
+const CONTINUOUS_TRACK_DELAY = 60;
+
+function continuousActive() {
+  return continuousView !== null;
+}
+
+function syncContinuousControls() {
+  const button = $("dirContinuous");
+  if (!button) return;
+  button.hidden = !directoryData;
+  button.setAttribute("aria-pressed", continuousActive() ? "true" : "false");
+  button.classList.toggle("active", continuousActive());
+}
+
+async function toggleContinuousView() {
+  if (!directoryData || !directoryBody) return;
+  if (continuousActive()) {
+    teardownContinuousView();
+    await renderDirectory(directoryData, directoryBody);
+    return;
+  }
+  await renderContinuous(directoryData, directoryBody);
+}
+
+function teardownContinuousView() {
+  if (continuousView?.frame) clearTimeout(continuousView.frame);
+  continuousView = null;
+  syncContinuousControls();
+}
+
+async function renderContinuous(data, body) {
+  teardownContinuousView();
+  const filtered = filterDirectoryEntries(data.entries, $("dirStatus").value, $("dirSearch").value);
+  const entries = continuousEntries(filtered);
+
+  csvData = null; lastData = null; lastComparedRequest = null;
+  $("syncPanel").hidden = true; $("mergePanel").hidden = true;
+  $("diffNav").hidden = false;
+  $("dirStatusWrap").hidden = false;
+  $("dirSearchWrap").hidden = false;
+  for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle"]) {
+    const node = $(id); if (node) node.hidden = true;
+  }
+  // Navigation crosses file boundaries here, so the buttons that the tree hides
+  // are exactly the ones this view needs.
+  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "diffCounter"]) {
+    const node = $(id); if (node) node.hidden = false;
+  }
+  syncExportPatchVisibility();
+
+  const result = $("result");
+  result.innerHTML = "";
+  result.append(paneHeads(data));
+  if (!entries.length) {
+    result.append(resultStateCard(t("completeMatch"), t("folderMatchScope", { total: data.entries.length.toLocaleString() })));
+    continuousView = { entries: [], sections: [], loaded: new Set(), pending: new Map(), focus: 0, frame: 0 };
+    syncContinuousControls();
+    updateContinuousCounter();
+    return;
+  }
+
+  const sections = [];
+  continuousView = { entries, sections, loaded: new Set(), pending: new Map(), focus: 0, body, frame: 0 };
+
+  await renderInSlices(result, entries, (entry, index) => {
+    const section = buildContinuousSection(entry, index);
+    sections.push(section);
+    return section;
+  });
+
+  syncContinuousControls();
+  updateContinuousCounter();
+  buildContinuousMinimap();
+  await focusContinuousSection(0);
+  setStatus("");
+}
+
+// Which file the scroll is at is measured rather than observed: the result pane
+// is its own scroll container, and reading its offsets keeps the decision in
+// sectionAt(), which node exercises directly. Work is done once per frame.
+function trackContinuousScroll() {
+  const view = continuousView;
+  if (!view || !view.entries.length || view.frame) return;
+  // A timer rather than an animation frame: a hidden tab never runs the frame,
+  // which would leave the scroll position it was scheduled for unanswered and
+  // the tracker wedged until the tab came back.
+  view.frame = setTimeout(() => {
+    view.frame = 0;
+    if (continuousView !== view) return;
+    const result = $("result");
+    const offsets = view.sections.map((section) => section.offsetTop - result.offsetTop);
+    const index = sectionAt(offsets, result.scrollTop + resultScrollInset() + 1);
+    if (index >= 0 && index !== view.focus) void focusContinuousSection(index);
+    else if (index >= 0) void primeContinuousWindow();
+  }, CONTINUOUS_TRACK_DELAY);
+}
+
+// Loading only on a change of file would leave the first screen half-empty
+// after a jump; priming keeps the window around the current file filled.
+async function primeContinuousWindow() {
+  const view = continuousView;
+  if (!view) return;
+  for (const target of windowAround(view.focus, view.entries.length)) {
+    void loadContinuousSection(target);
+  }
+}
+
+function buildContinuousSection(entry, index) {
+  const section = document.createElement("section");
+  section.className = `file-diff ${entry.status}`;
+  section.dataset.sectionIndex = String(index);
+  section.dataset.dirPath = entry.path;
+  section.dataset.scrollAnchor = "continuous";
+  section.dataset.scrollKey = entry.path;
+  section.dataset.scrollOrder = String(index);
+
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "file-diff-head";
+  head.setAttribute("aria-expanded", "true");
+  const marker = document.createElement("span");
+  marker.className = "dir-marker";
+  marker.textContent = DIR_MARKERS[entry.status];
+  marker.setAttribute("aria-hidden", "true");
+  const path = document.createElement("span");
+  path.className = "file-diff-path";
+  path.textContent = entry.path;
+  const meta = document.createElement("span");
+  meta.className = "file-diff-meta";
+  meta.textContent = t(entry.status);
+  head.append(marker, path, meta);
+  head.setAttribute("aria-label", `${t(entry.status)} ${entry.path}`);
+  head.addEventListener("click", () => toggleContinuousSection(index));
+
+  const bodyElement = document.createElement("div");
+  bodyElement.className = "file-diff-body";
+
+  section.append(head, bodyElement);
+  return section;
+}
+
+// Collapsing is what makes a long change set navigable, and it also releases
+// the file's DOM: a collapsed file is not worth holding.
+function toggleContinuousSection(index) {
+  const section = continuousView?.sections[index];
+  if (!section) return;
+  const head = section.querySelector(".file-diff-head");
+  const open = head.getAttribute("aria-expanded") === "true";
+  head.setAttribute("aria-expanded", open ? "false" : "true");
+  section.classList.toggle("collapsed", open);
+  if (open) unloadContinuousSection(index, { keepHeight: false });
+  else void loadContinuousSection(index);
+}
+
+async function focusContinuousSection(index) {
+  const view = continuousView;
+  if (!view || !view.entries.length) return;
+  view.focus = Math.max(0, Math.min(index, view.entries.length - 1));
+  updateContinuousCounter();
+  for (const target of windowAround(view.focus, view.entries.length)) {
+    void loadContinuousSection(target);
+  }
+  trimContinuousWindow();
+}
+
+// The budget is enforced after each load rather than only on a focus change:
+// a load that lands later would otherwise push the set past the limit and stay
+// there until the reader moved on again.
+function trimContinuousWindow() {
+  const view = continuousView;
+  if (!view) return;
+  for (const target of unloadTargets([...view.loaded], view.focus, CONTINUOUS_LOADED_LIMIT)) {
+    unloadContinuousSection(target, { keepHeight: true });
+  }
+}
+
+async function loadContinuousSection(index) {
+  const view = continuousView;
+  const section = view?.sections[index];
+  if (!view || !section) return;
+  if (view.loaded.has(index) || view.pending.has(index)) return;
+  if (section.classList.contains("collapsed")) return;
+
+  const entry = view.entries[index];
+  const request = directoryEntryRequest(entry, view.body.old, view.body.new);
+  const payload = {
+    ...requestBody(),
+    inline: false,
+    mode: "text",
+    old: request.old,
+    new: request.new,
+    oldAbsent: request.oldAbsent,
+    newAbsent: request.newAbsent,
+    oldText: "",
+    newText: "",
+    syncPoints: [],
+  };
+  const bodyElement = section.querySelector(".file-diff-body");
+  bodyElement.textContent = "";
+  bodyElement.style.minHeight = "";
+  section.classList.add("loading");
+
+  const pending = (async () => {
+    try {
+      const response = await apiFetch("/api/diff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) throw apiError(data, response);
+      if (continuousView !== view) return;
+      renderContinuousSectionBody(section, data, index);
+      view.loaded.add(index);
+      trimContinuousWindow();
+    } catch (error) {
+      if (continuousView !== view) return;
+      const failure = document.createElement("p");
+      failure.className = "file-diff-error";
+      failure.textContent = String(error.message || error);
+      bodyElement.append(failure);
+      // A file that cannot be read is answered once, not retried on every
+      // scroll frame that brings it back into view.
+      view.loaded.add(index);
+    } finally {
+      section.classList.remove("loading");
+      view.pending.delete(index);
+    }
+  })();
+  view.pending.set(index, pending);
+  await pending;
+}
+
+function renderContinuousSectionBody(section, data, index) {
+  const bodyElement = section.querySelector(".file-diff-body");
+  bodyElement.textContent = "";
+  const meta = section.querySelector(".file-diff-meta");
+  const entry = continuousView?.entries[index];
+  if (!data.hunks?.length) {
+    meta.textContent = `${t(entry?.status || "changed")} · ${t("completeMatch")}`;
+    bodyElement.append(resultStateCard(t("completeMatch"), t("textMatchScope", {
+      old: Number(data.old_lines || 0).toLocaleString(),
+      new: Number(data.new_lines || 0).toLocaleString(),
+    })));
+    return;
+  }
+  meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: data.hunks.length.toLocaleString() })}`;
+  for (const [hunkIndex, hunk] of data.hunks.entries()) {
+    const node = renderHunk(hunk, hunkIndex);
+    // renderHunk names a hunk for the single-file view; here the same number
+    // repeats once per file, so the id would no longer be unique.
+    node.id = `file-${index}-hunk-${hunkIndex}`;
+    node.dataset.sectionIndex = String(index);
+    bodyElement.append(node);
+  }
+}
+
+function unloadContinuousSection(index, { keepHeight = true } = {}) {
+  const view = continuousView;
+  const section = view?.sections[index];
+  if (!view || !section || !view.loaded.has(index)) return;
+  const bodyElement = section.querySelector(".file-diff-body");
+  // Releasing a file above the viewport would pull the page up under the
+  // reader, so the space it took is held until it is loaded again.
+  if (keepHeight) {
+    const height = bodyElement.getBoundingClientRect().height;
+    if (height > 0) bodyElement.style.minHeight = `${Math.round(height)}px`;
+  } else {
+    bodyElement.style.minHeight = "";
+  }
+  bodyElement.textContent = "";
+  view.loaded.delete(index);
+}
+
+// Navigation crosses file boundaries a file at a time: it moves hunk to hunk
+// inside the file being read, and steps to the next file at its edge. It walks
+// the change set rather than the DOM, so a file that is not loaded yet is
+// visited rather than skipped over.
+async function continuousStep(direction, options = {}) {
+  const view = continuousView;
+  if (!view || !view.entries.length) return;
+  if (options.edge === "first") return continuousGoToSection(0, "first");
+  if (options.edge === "last") return continuousGoToSection(view.entries.length - 1, "last");
+
+  const section = view.sections[view.focus];
+  const hunks = section && !section.classList.contains("collapsed")
+    ? [...section.querySelectorAll(".hunk")]
+    : [];
+  const current = continuousCurrentHunk(hunks);
+  const next = current + (direction < 0 ? -1 : 1);
+  if (next >= 0 && next < hunks.length) {
+    scrollContinuousInto(hunks[next]);
+    updateContinuousCounter();
+    return;
+  }
+  const sectionIndex = stepSection(view.focus, direction, view.entries.length);
+  if (sectionIndex < 0) return;
+  await continuousGoToSection(sectionIndex, direction < 0 ? "last" : "first");
+}
+
+async function continuousGoToSection(index, edge) {
+  const view = continuousView;
+  const section = view?.sections[index];
+  if (!section) return;
+  await focusContinuousSection(index);
+  await loadContinuousSection(index);
+  if (continuousView !== view) return;
+  const hunks = section.classList.contains("collapsed") ? [] : [...section.querySelectorAll(".hunk")];
+  // Arriving at a file shows the file: scrolling straight to its first hunk
+  // would leave the header that names it just above the viewport.
+  const target = edge === "last" ? hunks[hunks.length - 1] || section : section;
+  scrollContinuousInto(target);
+  updateContinuousCounter();
+}
+
+function continuousCurrentHunk(hunks) {
+  const result = $("result");
+  const line = result.getBoundingClientRect().top + resultScrollInset() + 1;
+  let current = -1;
+  for (const [index, hunk] of hunks.entries()) {
+    if (hunk.getBoundingClientRect().top <= line) current = index;
+    else break;
+  }
+  return current;
+}
+
+function scrollContinuousInto(node) {
+  if (!node) return;
+  const result = $("result");
+  const top = node.getBoundingClientRect().top - result.getBoundingClientRect().top + result.scrollTop - resultScrollInset();
+  result.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+  if (typeof node.focus === "function") node.focus({ preventScroll: true });
+}
+
+function updateContinuousCounter() {
+  const view = continuousView;
+  const counter = $("diffCounter");
+  if (!view || !counter) return;
+  counter.textContent = t("continuousCounter", {
+    current: (view.entries.length ? view.focus + 1 : 0).toLocaleString(),
+    total: view.entries.length.toLocaleString(),
+  });
+}
+
+// The minimap marks file boundaries here rather than hunks: it is the change
+// set that is being scrolled, and a file is the unit worth aiming at.
+function buildContinuousMinimap() {
+  const view = continuousView;
+  const map = $("minimap");
+  map.querySelectorAll(".minimap-marker").forEach((el) => el.remove());
+  if (!view?.entries.length) { map.hidden = true; minimapHasMarkers = false; return; }
+  const wasHidden = map.hidden;
+  map.hidden = false;
+  const trackPixels = Math.max(1, Math.floor(map.getBoundingClientRect().height || 1));
+  map.hidden = wasHidden;
+  const segments = calculateMinimapSegments(view.entries.map((entry, index) => ({
+    index,
+    kind: entry.status === "changed" ? "Replace" : entry.status === "added" ? "Insert" : "Delete",
+    displayLength: 1,
+  })), trackPixels);
+  for (const segment of segments) {
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = `minimap-marker ${segment.kind}`;
+    marker.dataset.hunk = String(segment.index);
+    marker.title = view.entries[segment.index]?.path || "";
+    marker.style.top = `${segment.top * 100}%`;
+    marker.style.height = `${segment.height * 100}%`;
+    marker.addEventListener("click", () => void continuousGoToSection(segment.index, "first"));
+    map.append(marker);
+  }
+  minimapHasMarkers = map.querySelector(".minimap-marker") !== null;
+  updateMinimapViewport();
 }
 
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
@@ -2339,6 +2735,7 @@ function captureFolderTreeState(selectedPath = "") {
 }
 
 async function openFromFolder(entry, body) {
+  teardownContinuousView();
   folderReturn = {
     data: directoryData,
     body: directoryBody,
@@ -2393,6 +2790,8 @@ async function renderDirectory(data, body, state = {}) {
   directoryData = data; directoryBody = body;
   folderReturn = null; syncFolderReturn();
   directoryEntryView = null;
+  teardownContinuousView();
+  syncContinuousControls();
   csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("minimap").hidden = true; $("syncPanel").hidden = true;
   // The toolbar used to be hidden outright for a folder result, which took the
   // theme and colour choices with it and left the status filter stranded in the
@@ -3753,6 +4152,10 @@ $("browserUp").addEventListener("click", async () => { try { await loadBrowser($
 $("chooseFolder").addEventListener("click", () => selectBrowserPath($("browserPath").value));
 $("dirStatus").addEventListener("change", async () => {
   if (!directoryData) return;
+  if (continuousActive()) {
+    await renderContinuous(directoryData, directoryBody);
+    return;
+  }
   const state = captureFolderTreeState();
   await renderDirectory(directoryData, directoryBody, state);
   restoreResultScrollAnchor(state.anchor, true);
@@ -3761,6 +4164,10 @@ $("dirSearch").addEventListener("input", () => {
   clearTimeout(directorySearchTimer);
   directorySearchTimer = setTimeout(async () => {
     if (!directoryData || $("mode").value !== "dir") return;
+    if (continuousActive()) {
+      await renderContinuous(directoryData, directoryBody);
+      return;
+    }
     const state = captureFolderTreeState();
     await renderDirectory(directoryData, directoryBody, state);
     restoreResultScrollAnchor(state.anchor, true);
@@ -3780,10 +4187,23 @@ for (const id of ["base", "old", "new", "oldText", "newText"]) {
   $(id).addEventListener("keydown", compareFromKeyboard);
 }
 $("patchFormat").addEventListener("change", syncPatchOpts);
-$("firstDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]); });
-$("prevDiff").addEventListener("click", () => stepHunk(-1));
-$("nextDiff").addEventListener("click", () => stepHunk(1));
-$("lastDiff").addEventListener("click", () => { const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]); });
+$("firstDiff").addEventListener("click", () => {
+  if (continuousActive()) { void continuousStep(1, { edge: "first" }); return; }
+  const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[0]);
+});
+$("prevDiff").addEventListener("click", () => {
+  if (continuousActive()) { void continuousStep(-1); return; }
+  stepHunk(-1);
+});
+$("nextDiff").addEventListener("click", () => {
+  if (continuousActive()) { void continuousStep(1); return; }
+  stepHunk(1);
+});
+$("lastDiff").addEventListener("click", () => {
+  if (continuousActive()) { void continuousStep(1, { edge: "last" }); return; }
+  const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]);
+});
+$("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
 $("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
@@ -3822,6 +4242,7 @@ function refreshMinimapGeometry() {
   updateMinimapViewport();
 }
 $("result").addEventListener("scroll", scheduleMinimapViewport, { passive: true });
+$("result").addEventListener("scroll", trackContinuousScroll, { passive: true });
 // Throttled like scroll above: a resize fires continuously while dragging, and
 // each call forces a layout read (#155).
 let minimapResizeTimer = 0;

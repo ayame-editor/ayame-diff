@@ -64,8 +64,9 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 			t.Errorf("editing a pane path does not commit through %q", want)
 		}
 	}
-	if strings.Count(app, "result.append(paneHeads(data))") != 4 {
-		t.Error("text, CSV, 3-way, and folder results must all carry pane headers")
+	// Text, CSV, 3-way, the folder tree, and the folder continuous view (#291).
+	if strings.Count(app, "result.append(paneHeads(data))") != 5 {
+		t.Error("every result kind must carry pane headers")
 	}
 	visibility := renderFunctionBody(t, app, "function syncLaunchPathsVisibility(")
 	if !strings.Contains(visibility, "lastData || csvData || threeWayData || directoryData") ||
