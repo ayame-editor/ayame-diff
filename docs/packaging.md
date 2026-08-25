@@ -55,6 +55,42 @@ installer if shell integration becomes automatic, machine-wide registration is
 added, Start Menu/file associations require transactional rollback, or support
 data shows that the explicit uninstall step is insufficient.
 
+## Release signing and self-update trust
+
+`ayame-diff update` downloads the release asset for the running platform and
+checks its SHA-256 against the `SHA256SUMS` published in the same release. That
+alone only proves the download was not corrupted: whoever can publish the
+assets can publish a matching checksum list. A detached ed25519 signature over
+`SHA256SUMS`, checked against a public key compiled into the binary, is what
+makes a tampered release fail instead of install.
+
+The release workflow signs `SHA256SUMS` with `cmd/release-sign` when the
+repository secret `RELEASE_SIGNING_KEY` is configured, publishing
+`SHA256SUMS.sig` beside it. Without the secret it records an explicit skip and
+the release goes out unsigned, exactly as before. The private key never reaches
+a command line: the tool reads it from `AYAME_RELEASE_SIGNING_KEY`.
+
+An updater built with an empty key cannot verify anything, so it says the
+release is unsigned and continues on the checksum alone. An updater built with
+a key refuses a release that has no signature, whose signature does not parse,
+or whose signature belongs to another key.
+
+To configure signing:
+
+```bash
+go run ./cmd/release-sign keygen
+```
+
+Store the printed private key as the `RELEASE_SIGNING_KEY` repository secret,
+put the public key in `releasePublicKey` in `internal/selfupdate/verify.go`, and
+release. From the first signed release onward, binaries built with that key
+refuse unsigned updates — so publish at least one signed release before
+shipping a binary that carries the key.
+
+Downloads and archive extraction are bounded: a release asset, the expanded
+executable, and the number of archive entries all have limits, so a
+decompression bomb or an oversized response is refused rather than allocated.
+
 ## Signing and malware scanning
 
 Windows executables are currently unsigned. A SHA-256 list is generated inside
