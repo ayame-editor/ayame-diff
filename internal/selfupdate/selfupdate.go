@@ -1,7 +1,11 @@
 // Package selfupdate implements the `update` and `remove` subcommands: resolve
-// the latest GitHub release, download the matching asset, verify its SHA-256
-// against the release's SHA256SUMS, and replace the running binary in place.
-// It is standard-library only.
+// the latest GitHub release, download the matching asset, verify the release
+// signature and the asset's SHA-256 against the release's SHA256SUMS, and
+// replace the running binary in place. It is standard-library only.
+//
+// Downloads and archive extraction are bounded, and a build carrying a release
+// public key refuses an unsigned release; see verify.go and
+// docs/packaging.md (#148).
 package selfupdate
 
 import (
@@ -59,8 +63,12 @@ func LatestRelease(ctx context.Context) (*Release, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github release lookup failed: HTTP %d", resp.StatusCode)
 	}
+	body, err := readBounded(resp.Body, maxMetadataBytes, "release metadata")
+	if err != nil {
+		return nil, err
+	}
 	var rel Release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(body, &rel); err != nil {
 		return nil, err
 	}
 	if rel.TagName == "" {
@@ -133,8 +141,25 @@ func parseVersion(v string) []int {
 	return out
 }
 
-// download fetches url into memory (release assets are small).
-func download(ctx context.Context, url string) ([]byte, error) {
+// Bounds for everything this package reads from the network or an archive
+// (#148). An update must not be able to exhaust memory, whether the release is
+// hostile or merely wrong.
+const (
+	// maxArchiveBytes bounds a release archive. The largest published archive
+	// is a few tens of megabytes.
+	maxArchiveBytes = 128 << 20
+	// maxMetadataBytes bounds SHA256SUMS and the release API response.
+	maxMetadataBytes = 4 << 20
+	// maxBinaryBytes bounds the executable expanded out of the archive, which
+	// is what a decompression bomb would target.
+	maxBinaryBytes = 256 << 20
+	// maxArchiveEntries bounds how far the archive is scanned for the binary.
+	maxArchiveEntries = 10000
+)
+
+// download fetches url into memory, refusing a body larger than limit so a
+// hostile or corrupt asset cannot exhaust memory.
+func download(ctx context.Context, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -147,7 +172,23 @@ func download(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download failed: HTTP %d (%s)", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > limit {
+		return nil, fmt.Errorf("download is %d bytes, over the %d byte limit (%s)", resp.ContentLength, limit, url)
+	}
+	return readBounded(resp.Body, limit, url)
+}
+
+// readBounded reads at most limit bytes and treats one byte more as a failure,
+// so a truncated read is never mistaken for a complete one.
+func readBounded(r io.Reader, limit int64, what string) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("%s is larger than the %d byte limit", what, limit)
+	}
+	return body, nil
 }
 
 // findAsset returns the asset with the given name.
@@ -186,15 +227,24 @@ func extractBinary(archive []byte, version string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(zr.File) > maxArchiveEntries {
+			return nil, fmt.Errorf("archive holds %d entries, over the %d entry limit", len(zr.File), maxArchiveEntries)
+		}
 		for _, f := range zr.File {
-			if f.Name == want {
-				rc, err := f.Open()
-				if err != nil {
-					return nil, err
-				}
-				defer rc.Close()
-				return io.ReadAll(rc)
+			if f.Name != want {
+				continue
 			}
+			// The declared size is a hint, not a promise: check it to reject an
+			// obvious bomb early, then hold the read to the same bound.
+			if f.UncompressedSize64 > maxBinaryBytes {
+				return nil, fmt.Errorf("%s declares %d bytes, over the %d byte limit", want, f.UncompressedSize64, uint64(maxBinaryBytes))
+			}
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer rc.Close()
+			return readBounded(rc, maxBinaryBytes, want)
 		}
 		return nil, fmt.Errorf("%s not found in archive", want)
 	}
@@ -204,7 +254,7 @@ func extractBinary(archive []byte, version string) ([]byte, error) {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	for {
+	for entries := 0; entries < maxArchiveEntries; entries++ {
 		h, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -212,9 +262,13 @@ func extractBinary(archive []byte, version string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if h.Name == want {
-			return io.ReadAll(tr)
+		if h.Name != want {
+			continue
 		}
+		if h.Size > maxBinaryBytes {
+			return nil, fmt.Errorf("%s declares %d bytes, over the %d byte limit", want, h.Size, int64(maxBinaryBytes))
+		}
+		return readBounded(tr, maxBinaryBytes, want)
 	}
 	return nil, fmt.Errorf("%s not found in archive", want)
 }
@@ -245,12 +299,17 @@ func Update(ctx context.Context, currentVersion string, w io.Writer) error {
 	}
 
 	fmt.Fprintf(w, "downloading %s...\n", assetName)
-	archive, err := download(ctx, asset.URL)
+	archive, err := download(ctx, asset.URL, maxArchiveBytes)
 	if err != nil {
 		return err
 	}
-	sums, err := download(ctx, sumsAsset.URL)
+	sums, err := download(ctx, sumsAsset.URL, maxMetadataBytes)
 	if err != nil {
+		return err
+	}
+	// The signature is checked before the checksums are trusted: the checksums
+	// are only as good as the file they come from (#148).
+	if err := verifyRelease(ctx, rel, sums, w); err != nil {
 		return err
 	}
 	want, ok := expectedSHA(sums, assetName)
@@ -271,6 +330,32 @@ func Update(ctx context.Context, currentVersion string, w io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(w, "updated to %s\n", rel.TagName)
+	return nil
+}
+
+// verifyRelease checks the release signature over SHA256SUMS. A build with no
+// compiled-in key cannot verify anything, so it says so and continues on the
+// checksum alone; a build with a key refuses a release that is unsigned or
+// signed by someone else.
+func verifyRelease(ctx context.Context, rel *Release, sums []byte, w io.Writer) error {
+	sigAsset, signed := findAsset(rel, signatureAssetName)
+	if !signatureRequired() {
+		if !signed {
+			fmt.Fprintf(w, "warning: release %s is unsigned; verifying the checksum only\n", rel.TagName)
+		}
+		return nil
+	}
+	if !signed {
+		return fmt.Errorf("release %s has no %s: %w", rel.TagName, signatureAssetName, errUnsignedRelease)
+	}
+	signature, err := download(ctx, sigAsset.URL, maxSignatureBytes)
+	if err != nil {
+		return err
+	}
+	if err := verifySums(sums, signature); err != nil {
+		return fmt.Errorf("release %s failed signature verification: %w", rel.TagName, err)
+	}
+	fmt.Fprintln(w, "signature verified")
 	return nil
 }
 

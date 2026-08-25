@@ -45,6 +45,17 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: ./scripts/package-release.sh
+      - name: Sign the release checksums
+        env:
+          AYAME_RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AYAME_RELEASE_SIGNING_KEY}" ]; then
+            echo "RELEASE_SIGNING_KEY is not configured; publishing an unsigned release." >&2
+            echo "Self-update falls back to checksum-only verification for it." >&2
+            exit 0
+          fi
+          go run ./cmd/release-sign sign -in release/SHA256SUMS -out release/SHA256SUMS.sig
       - name: VirusTotal pre-release scan
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
