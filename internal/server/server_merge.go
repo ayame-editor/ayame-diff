@@ -109,13 +109,13 @@ func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, 
 	left, closeLeft, err := openMode(req.Old, "text", req.Encoding, false, false)
 	if err != nil {
 		closeBase()
-		return nil, nil, nil, func() {}, fmt.Errorf("left: %w", err)
+		return nil, nil, nil, func() {}, leftError(err)
 	}
 	right, closeRight, err := openMode(req.New, "text", req.Encoding, false, false)
 	if err != nil {
 		closeLeft()
 		closeBase()
-		return nil, nil, nil, func() {}, fmt.Errorf("right: %w", err)
+		return nil, nil, nil, func() {}, rightError(err)
 	}
 	return base, left, right, func() { closeRight(); closeLeft(); closeBase() }, nil
 }
@@ -188,7 +188,8 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if aliases := pathutil.Equal(req.Output, req.Base) || pathutil.Equal(req.Output, req.Old) || pathutil.Equal(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
-		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		writeCodedError(w, http.StatusBadRequest, CodeOverwriteRefused,
+			"overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
 	base, result, closeLines, err := threeWayTextResult(r.Context(), req)

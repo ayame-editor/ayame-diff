@@ -343,7 +343,8 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	overwriteInput := pathutil.Equal(req.Output, req.Old) || pathutil.Equal(req.Output, req.New)
 	if overwriteInput && (!req.Overwrite || !req.ConfirmOverwrite) {
-		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		writeCodedError(w, http.StatusBadRequest, CodeOverwriteRefused,
+			"overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
 	target := req.Output

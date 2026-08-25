@@ -338,8 +338,20 @@ requested but omitted hunks made a complete result impossible. Errors return
 an HTTP 4xx status with a JSON body:
 
 ```json
-{ "error": "..." }
+{ "error": "right: open /data/right.csv: no such file or directory",
+  "code": "file_not_found",
+  "path": "/data/right.csv",
+  "side": "right" }
 ```
+
+`error` is the English diagnostic and never disappears. `code` is a stable
+identifier the web UI turns into a localized sentence with a remedy, so a raw
+syscall, `strconv`, or `encoding/json` string is never what the user reads;
+`path` and `side` name the input a message would otherwise have to be parsed
+for. Codes are added rather than renamed: `file_not_found`,
+`permission_denied`, `invalid_path`, `invalid_request`, `overwrite_refused`,
+`unsupported_input`, `timeout`, `busy`, `unauthorized`, and `internal`. Treat
+an unknown code as the HTTP status alone would suggest.
 
 ### Example request
 
