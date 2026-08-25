@@ -211,3 +211,98 @@ func TestListenWithPortFallbackFallsBackOnPlatformErrnos(t *testing.T) {
 		}
 	}
 }
+
+// A stop must not wait out a long poll. The GUI holds an external-change watch
+// open for up to twenty seconds, four times the drain budget, so before #323
+// every stop with a GUI tab open failed with a deadline error.
+func TestServeUntilContextEndsWaitingRequestsOnStop(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := make(chan struct{})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(waiting)
+		<-r.Context().Done()
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan error, 1)
+	go func() { stopped <- serveUntilContext(ctx, listener, handler, nil) }()
+
+	go func() {
+		response, err := (&http.Client{Timeout: 10 * time.Second}).Get("http://" + listener.Addr().String())
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+
+	select {
+	case <-waiting:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("the long-poll handler never started")
+	}
+	cancel()
+
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("serveUntilContext: %v", err)
+		}
+	case <-time.After(gracefulShutdownTimeout):
+		t.Fatal("the stop waited for the long poll instead of ending it")
+	}
+}
+
+// A handler that ignores cancellation still forces the close escalation. That
+// is the designed fallback, so the command must report a clean stop.
+func TestServeUntilContextReportsForcedCloseAsCleanStop(t *testing.T) {
+	original := gracefulShutdownTimeout
+	gracefulShutdownTimeout = 20 * time.Millisecond
+	defer func() { gracefulShutdownTimeout = original }()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serving := make(chan struct{})
+	release := make(chan struct{})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(serving)
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan error, 1)
+	go func() { stopped <- serveUntilContext(ctx, listener, handler, nil) }()
+	go func() {
+		response, err := (&http.Client{Timeout: 10 * time.Second}).Get("http://" + listener.Addr().String())
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+
+	select {
+	case <-serving:
+	case <-time.After(5 * time.Second):
+		cancel()
+		close(release)
+		t.Fatal("the handler never started")
+	}
+	cancel()
+
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("a forced close was reported as a failure: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop never completed")
+	}
+	close(release)
+}
