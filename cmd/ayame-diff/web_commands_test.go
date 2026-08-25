@@ -13,9 +13,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
-func healthCheckingServe(t *testing.T, ln net.Listener, handler http.Handler) error {
+func healthCheckingServe(t *testing.T, ln net.Listener, handler http.Handler, _ <-chan struct{}) error {
 	t.Helper()
 	errCh := make(chan error, 1)
 	go func() {
@@ -70,8 +72,8 @@ func TestRunServeStartsHealthEndpointAndStops(t *testing.T) {
 	deps := serveCommandDeps{
 		newHandler: newServerHandler,
 		listen:     net.Listen,
-		serve: func(ln net.Listener, handler http.Handler) error {
-			return healthCheckingServe(t, ln, handler)
+		serve: func(ln net.Listener, handler http.Handler, shutdown <-chan struct{}) error {
+			return healthCheckingServe(t, ln, handler, shutdown)
 		},
 	}
 	var stdout, stderr bytes.Buffer
@@ -93,23 +95,29 @@ func TestRunServeMapsStartupAndServeErrors(t *testing.T) {
 		{
 			name: "handler",
 			deps: serveCommandDeps{
-				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return nil, "", errTest },
-				listen:     net.Listen,
+				newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+					return nil, "", errTest
+				},
+				listen: net.Listen,
 			},
 		},
 		{
 			name: "listen",
 			deps: serveCommandDeps{
-				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
-				listen:     func(string, string) (net.Listener, error) { return nil, errTest },
+				newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+					return http.NotFoundHandler(), "", nil
+				},
+				listen: func(string, string) (net.Listener, error) { return nil, errTest },
 			},
 		},
 		{
 			name: "serve",
 			deps: serveCommandDeps{
-				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
-				listen:     net.Listen,
-				serve:      func(net.Listener, http.Handler) error { return errTest },
+				newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+					return http.NotFoundHandler(), "", nil
+				},
+				listen: net.Listen,
+				serve:  func(net.Listener, http.Handler, <-chan struct{}) error { return errTest },
 			},
 		},
 	}
@@ -140,8 +148,8 @@ func TestRunGUIStartsHealthEndpointOpensExpectedURLAndStops(t *testing.T) {
 	deps := guiCommandDeps{
 		newHandler: newServerHandler,
 		listen:     net.Listen,
-		serve: func(ln net.Listener, handler http.Handler) error {
-			return healthCheckingServe(t, ln, handler)
+		serve: func(ln net.Listener, handler http.Handler, shutdown <-chan struct{}) error {
+			return healthCheckingServe(t, ln, handler, shutdown)
 		},
 		openBrowser: func(target string) error {
 			opened = target
@@ -167,8 +175,8 @@ func TestRunGUIStartsHealthEndpointOpensExpectedURLAndStops(t *testing.T) {
 
 func TestRunGUINoOpenAndBrowserFailure(t *testing.T) {
 	t.Parallel()
-	serve := func(ln net.Listener, handler http.Handler) error {
-		return healthCheckingServe(t, ln, handler)
+	serve := func(ln net.Listener, handler http.Handler, shutdown <-chan struct{}) error {
+		return healthCheckingServe(t, ln, handler, shutdown)
 	}
 	t.Run("no open", func(t *testing.T) {
 		deps := guiCommandDeps{
@@ -213,9 +221,11 @@ func TestRunGUIRejectsTooManyPathsAndMapsServeError(t *testing.T) {
 
 	errServe := errors.New("serve failed")
 	deps := guiCommandDeps{
-		newHandler:  func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
+		newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+			return http.NotFoundHandler(), "", nil
+		},
 		listen:      net.Listen,
-		serve:       func(net.Listener, http.Handler) error { return errServe },
+		serve:       func(net.Listener, http.Handler, <-chan struct{}) error { return errServe },
 		openBrowser: func(string) error { return nil },
 	}
 	stdout.Reset()
@@ -238,15 +248,19 @@ func TestRunGUIMapsHandlerAndListenErrors(t *testing.T) {
 		{
 			name: "handler",
 			deps: guiCommandDeps{
-				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return nil, "", errTest },
-				listen:     net.Listen,
+				newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+					return nil, "", errTest
+				},
+				listen: net.Listen,
 			},
 		},
 		{
 			name: "listen",
 			deps: guiCommandDeps{
-				newHandler: func(string, net.Addr, bool) (http.Handler, string, error) { return http.NotFoundHandler(), "", nil },
-				listen:     func(string, string) (net.Listener, error) { return nil, errTest },
+				newHandler: func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error) {
+					return http.NotFoundHandler(), "", nil
+				},
+				listen: func(string, string) (net.Listener, error) { return nil, errTest },
 			},
 		},
 	}

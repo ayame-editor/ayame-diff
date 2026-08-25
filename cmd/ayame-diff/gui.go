@@ -24,19 +24,17 @@ import (
 // cross-compiled binary). See ADR 0002 / hjosugi/ayame-diff#14.
 func runGUI(args []string, stdout, stderr io.Writer) int {
 	return runGUIWithDeps(args, stdout, stderr, guiCommandDeps{
-		newHandler: newServerHandler,
-		listen:     net.Listen,
-		serve: func(ln net.Listener, handler http.Handler) error {
-			return server.NewHTTPServer("", handler).Serve(ln)
-		},
+		newHandler:  newServerHandler,
+		listen:      net.Listen,
+		serve:       serveUntilShutdown,
 		openBrowser: openBrowser,
 	})
 }
 
 type guiCommandDeps struct {
-	newHandler  func(string, net.Addr, bool) (http.Handler, string, error)
+	newHandler  func(string, net.Addr, bool, server.LifecycleOptions) (http.Handler, string, error)
 	listen      func(string, string) (net.Listener, error)
-	serve       func(net.Listener, http.Handler) error
+	serve       func(net.Listener, http.Handler, <-chan struct{}) error
 	openBrowser func(string) error
 }
 
@@ -82,13 +80,21 @@ addresses require the explicit --allow-remote safety opt-in.`)
 
 	// Listen first: the Host allowlist and the launch URL both need the port
 	// actually bound, which the default "port 0" only reveals here.
-	ln, err := deps.listen("tcp", addr)
+	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", addr)
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}
 	defer ln.Close()
-	handler, token, err := deps.newHandler(version, ln.Addr(), remote)
+	if portFallback {
+		fmt.Fprintf(stderr, "warning: %s is unavailable; using %s\n", addr, ln.Addr())
+	}
+	shutdownRequests, requestShutdown := newShutdownRequest()
+	handler, token, err := deps.newHandler(version, ln.Addr(), remote, server.LifecycleOptions{
+		Shutdown:            requestShutdown,
+		BrowserLeaseTimeout: guiBrowserLeaseTimeout,
+		BrowserCloseGrace:   guiBrowserCloseGrace,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
@@ -97,13 +103,13 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		printRemoteWarning(stderr)
 	}
 	guiURL := guiLaunchURL(browserBaseURL(ln.Addr()), fs.Args(), token)
-	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Ctrl+C to stop)\n", guiURL)
+	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Stop server or Ctrl+C)\n", guiURL)
 	if !noOpen {
 		if err := deps.openBrowser(guiURL); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, guiURL)
 		}
 	}
-	if err := deps.serve(ln, handler); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := deps.serve(ln, handler, shutdownRequests); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}

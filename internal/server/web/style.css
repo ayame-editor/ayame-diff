@@ -99,6 +99,15 @@ body.drag-active::after {
   border: 1px solid var(--border); border-radius: var(--radius-control);
   padding: 0.2rem 0.6rem; font-size: var(--fs-label); font-weight: 500;
 }
+.stop-server {
+  background: transparent; color: var(--danger);
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: 0.2rem 0.6rem; font-size: var(--fs-label); font-weight: 500;
+}
+.stop-server:hover, .stop-server:focus-visible {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 /* No centred 1200px column. Horizontal space is the scarce resource in a diff
    tool — it decides whether a side-by-side line wraps, how many folder columns
    fit, how much of a CSV row is visible — and this runs locally in a window the

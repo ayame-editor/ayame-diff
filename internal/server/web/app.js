@@ -68,6 +68,45 @@ function apiFetch(input, init = {}) {
   return fetch(input, { ...init, headers });
 }
 
+// ---- Browser/server lifecycle (#96) ----
+// One lease belongs to one loaded tab, rather than sessionStorage, so closing
+// one of several tabs cannot stop a server that another tab still uses.
+const BROWSER_HEARTBEAT_INTERVAL_MS = 30_000;
+const browserSessionID = globalThis.crypto?.randomUUID?.() ||
+  `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+let browserHeartbeatTimer = 0;
+
+async function postBrowserLifecycle(path) {
+  if (!apiToken) return;
+  const response = await apiFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session: browserSessionID }),
+    keepalive: true,
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+}
+
+function heartbeatBrowserSession() {
+  void postBrowserLifecycle("/api/lifecycle/heartbeat").catch(() => {});
+}
+
+function startBrowserSession() {
+  if (!apiToken || browserHeartbeatTimer) return;
+  heartbeatBrowserSession();
+  browserHeartbeatTimer = setInterval(heartbeatBrowserSession, BROWSER_HEARTBEAT_INTERVAL_MS);
+}
+
+function stopBrowserHeartbeat() {
+  clearInterval(browserHeartbeatTimer);
+  browserHeartbeatTimer = 0;
+}
+
+function releaseBrowserSession() {
+  stopBrowserHeartbeat();
+  void postBrowserLifecycle("/api/lifecycle/release").catch(() => {});
+}
+
 // ---- i18n (JA/EN) ----
 const I18N = {
   ja: {
@@ -133,6 +172,11 @@ const I18N = {
     theme: "テーマ", themeSystem: "OS に合わせる", themeLight: "ライト", themeDark: "ダーク",
     jumpToKind: (v) => `${v.label}の差分へ移動`,
     confirmTitle: "確認", confirmProceed: "実行", cancel: "キャンセル", close: "閉じる",
+    stopServer: "サーバーを停止",
+    stopServerConfirm: "ayame-diff サーバーを停止しますか？開いているすべてのタブから切断されます。",
+    stoppingServer: "サーバーを停止しています…",
+    stoppedServer: "サーバーを停止しました。このタブを閉じられます。",
+    shutdownFailed: (v) => `サーバーを停止できませんでした: ${v.message}`,
     shortcutNavigate: "次/前の差分へ移動", shortcutFirstLast: "最初/最後の差分へ",
     shortcutChooseSide: "左/右を採用", shortcutChooseBase: "ベースを採用",
     shortcutSearch: "結果内を検索", shortcutSearchStep: "次/前の一致へ",
@@ -250,6 +294,11 @@ const I18N = {
     theme: "Theme", themeSystem: "Match system", themeLight: "Light", themeDark: "Dark",
     jumpToKind: (v) => `Jump to ${v.label}`,
     confirmTitle: "Confirm", confirmProceed: "Proceed", cancel: "Cancel", close: "Close",
+    stopServer: "Stop server",
+    stopServerConfirm: "Stop the ayame-diff server? Every open tab will be disconnected.",
+    stoppingServer: "Stopping the server…",
+    stoppedServer: "The server has stopped. You can close this tab.",
+    shutdownFailed: (v) => `Could not stop the server: ${v.message}`,
     shortcutNavigate: "Next / previous difference", shortcutFirstLast: "First / last difference",
     shortcutChooseSide: "Choose left / right", shortcutChooseBase: "Choose base",
     shortcutSearch: "Search in results", shortcutSearchStep: "Next / previous match",
@@ -2707,6 +2756,25 @@ function askConfirm(message) {
   });
 }
 
+async function stopServer() {
+  if (!await askConfirm(t("stopServerConfirm"))) return;
+  const button = $("stopServer");
+  button.disabled = true;
+  setStatus(t("stoppingServer"), "busy");
+  try {
+    const response = await apiFetch("/api/shutdown", { method: "POST" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${response.status}`);
+    }
+    stopBrowserHeartbeat();
+    setStatus(t("stoppedServer"), "");
+  } catch (error) {
+    button.disabled = false;
+    setStatus(t("shutdownFailed", { message: error.message || String(error) }), "error");
+  }
+}
+
 // SHORTCUTS is the single source for the help dialog, so the list cannot drift
 // from what the handlers actually bind.
 const SHORTCUTS = [
@@ -3390,7 +3458,11 @@ $("externalKeep").addEventListener("click", () => {
     fileWatcher.start(change.paths, change.snapshot);
   }
 });
-window.addEventListener("pagehide", stopFileWatch);
+window.addEventListener("pagehide", () => {
+  stopFileWatch();
+  releaseBrowserSession();
+});
+window.addEventListener("pageshow", startBrowserSession);
 syncCompareReady();
 renderPathHistory();
 $("sidebarToggle").addEventListener("click", () => {
@@ -3660,9 +3732,11 @@ $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
+$("stopServer").addEventListener("click", stopServer);
 syncModeOpts();
 syncPatchOpts();
 applyLang(lang);
+startBrowserSession();
 
 const launch = new URLSearchParams(location.search);
 const launchState = readComparisonState(location.href);

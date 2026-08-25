@@ -67,7 +67,9 @@ reachable under cannot be known here. The token is the defense there.
 ayame-diff serve [--addr host:port] [--allow-remote]
 ```
 
-Starts the web UI and keeps running until you stop it with `Ctrl+C`.
+Starts the web UI and keeps running until you use **Stop server** in the top bar
+or stop it with `Ctrl+C`, `SIGINT`, or `SIGTERM`. Shutdown drains active HTTP
+requests before the listener closes.
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080
@@ -79,6 +81,9 @@ ayame-diff serve --addr 0.0.0.0:8080 --allow-remote
 |---|---|---|
 | `--addr` | `127.0.0.1:8080` | Listen address (`host:port`). |
 | `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
+
+If a requested fixed port is already in use, the command reports the conflict
+and binds the next available port instead.
 
 ## `gui`
 
@@ -100,6 +105,16 @@ ayame-diff gui --no-open   # start the server but don't open a browser
 | `--addr` | `127.0.0.1:0` | Listen address; port `0` picks a free port. |
 | `--allow-remote` | off | Explicitly allow a non-loopback listen address. The API token still applies; the `Host` pin does not. |
 | `--no-open` | off | Start the server but do not open the browser. |
+
+An explicitly requested fixed GUI port uses the same next-port fallback;
+the default port `0` already asks the operating system for a free port.
+
+Each `gui` browser tab holds an authenticated lease. Closing the last tab
+releases that lease and stops the server after a short reload grace period, so
+a double-click launch does not leave an orphan process. A tab or browser that
+crashes without sending its release expires after 90 seconds. With `--no-open`,
+open the printed URL within 90 seconds. The explicit **Stop server** button
+remains available in both `gui` and `serve`.
 
 ## Using the web UI
 
