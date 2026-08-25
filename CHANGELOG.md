@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.8.11 - 2026-08-25
+
+- Moved the project to the `ayame-editor` organization. The module path, the
+  install scripts, and self-update follow the new repository, so an existing
+  installation keeps updating without manual intervention.
+- The GUI can now be stopped without a console: an authenticated Stop action
+  and graceful SIGINT/SIGTERM shutdown end the server, independent
+  browser-tab leases stop a server whose last GUI tab closed (with crash
+  expiry and a reload grace period), and an occupied fixed port falls back to
+  the next free one — including on Windows, which reports a busy port under
+  its own error code. (#96)
+- Stopping is immediate again: a stop ends requests that are only waiting,
+  such as an external-change watch, instead of holding the drain open for
+  their full poll window and reporting the deadline as a failure. Before
+  this, stopping with a GUI tab open hung five seconds and exited non-zero.
+  (#323)
+- Progress and results occupy separate lanes in the GUI. Outcomes stack
+  rather than overwrite one another, a success withdraws itself after a few
+  seconds, and a warning or failure stays until it is dismissed with its
+  close button or `Escape`, so the result of a failed attempt is still
+  readable after the next one starts. Repeated messages are counted on their
+  existing line, and only failures announce assertively. (#97)
+- Failures explain themselves. Failing API responses carry a stable code
+  beside the unchanged English message, plus the path and side concerned, and
+  the web UI turns the code into a language-linked sentence that also says
+  what to do — instead of showing a raw syscall, `strconv`, or
+  `encoding/json` string. The setup note no longer prints a literal
+  `{fields}`. (advances #94; the CLI messages remain)
+- Moved the GUI message catalog out of the application file into its own
+  tested module, so a third language becomes a new table rather than another
+  250 lines in the middle of `app.js`. (advances #144)
+
 ## v0.8.10 - 2026-07-30
 
 - Split the 2,059-line GUI server into focused handler modules without
