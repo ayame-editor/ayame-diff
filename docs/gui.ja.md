@@ -272,8 +272,20 @@ GUIは小さなJSON APIを通じた薄いクライアントです。直接呼び
 各ハンクの`kind`は`Insert`、`Delete`、`Replace`のいずれかで、`old`/`new`配列に影響行が格納されます（`maxLines`により側ごとに制限）。移動検出を要求したもののハンク省略により完全な結果を出せない場合は、`move_detection_skipped: true`が追加されます。エラーはHTTP 4xxステータスとともにJSON本文で返されます。
 
 ```json
-{ "error": "..." }
+{ "error": "right: open /data/right.csv: no such file or directory",
+  "code": "file_not_found",
+  "path": "/data/right.csv",
+  "side": "right" }
 ```
+
+`error`は英語の診断メッセージで、これまでどおり常に含まれます。`code`は安定した
+識別子で、ウェブUIはこれを対処方法つきのローカライズされた文へ変換します。
+そのため、syscallや`strconv`、`encoding/json`が生成した生の文字列が利用者の目に
+触れることはありません。`path`と`side`は、従来ならメッセージを解析しなければ
+分からなかった対象の入力を示します。コードは改名せず追加していきます:
+`file_not_found`、`permission_denied`、`invalid_path`、`invalid_request`、
+`overwrite_refused`、`unsupported_input`、`timeout`、`busy`、`unauthorized`、
+`internal`。未知のコードはHTTPステータスどおりに扱ってください。
 
 ### リクエスト例
 

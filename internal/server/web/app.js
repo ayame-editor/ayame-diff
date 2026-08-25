@@ -20,6 +20,7 @@ const {
   calculateMinimapViewport,
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
+const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createMessageLog } = globalThis.AyameMessages;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
@@ -124,10 +125,22 @@ const I18N = {
     cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
     messageLane: "メッセージ", dismissMessage: "このメッセージを閉じる",
     messageRepeated: (v) => `${v.message}（${v.count}回）`,
+    errFileNotFound: "ファイルが見つかりません。パスを確認するか、「…」ボタンで選び直してください。",
+    errPermissionDenied: "アクセス権限がありません。ファイルの権限を確認するか、読み取れる場所のファイルを指定してください。",
+    errInvalidPath: "パスが不正です。絶対パス、または存在するフォルダからの相対パスを指定してください。",
+    errInvalidRequest: "リクエストを解釈できませんでした。ページを再読み込みしてから、もう一度実行してください。",
+    errOverwriteRefused: "出力先が比較対象のファイルです。別の出力先を指定するか、上書きを明示的に確認してください。",
+    errUnsupportedInput: "この入力はこの操作に対応していません。モードと対象ファイルを確認してください。",
+    errTimeout: "処理が時間切れになりました。対象を絞るか、比較設定を軽くしてからもう一度実行してください。",
+    errBusy: "実行中の処理が上限に達しています。少し待ってからもう一度実行してください。",
+    errUnauthorized: "APIトークンが無効です。ayame-diffが表示したURLを開き直してください。",
+    errInternal: "内部エラーが発生しました。もう一度実行しても解決しない場合は、問題として報告してください。",
+    errHTTP: (v) => `通信に失敗しました（HTTP ${v.status}）。`,
+    errorAt: (v) => (v.side ? `（${v.side}: ${v.path}）` : `（${v.path}）`),
     view: "表示", viewSide: "左右に並べる", viewUnified: "1列にまとめる",
     menuBar: "メニュー", menuViewLabel: "表示", menuExportLabel: "出力",
     hunkList: "差分一覧",
-    compareSettings: "比較設定", needPaths: "{fields} を指定してください",
+    compareSettings: "比較設定", needPaths: (v) => `${v.fields} を指定してください`,
     backToFolder: "フォルダ一覧へ戻る",
     setupSettings: "設定", recompare: "再比較",
     syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
@@ -251,10 +264,22 @@ const I18N = {
     cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
     messageLane: "Messages", dismissMessage: "Dismiss this message",
     messageRepeated: (v) => `${v.message} (${v.count}\u00d7)`,
+    errFileNotFound: "The file was not found. Check the path, or pick the file again with the … button.",
+    errPermissionDenied: "Access was denied. Check the file's permissions, or choose a file you can read.",
+    errInvalidPath: "The path is not valid. Give an absolute path, or one relative to an existing folder.",
+    errInvalidRequest: "The request could not be read. Reload the page and try again.",
+    errOverwriteRefused: "The output is one of the compared files. Choose another output, or confirm the overwrite explicitly.",
+    errUnsupportedInput: "This input is not supported for the operation. Check the mode and the files you chose.",
+    errTimeout: "The operation timed out. Narrow the input or lighten the comparison settings, then try again.",
+    errBusy: "Too many operations are running. Wait a moment and try again.",
+    errUnauthorized: "The API token is not valid. Open the URL that ayame-diff printed again.",
+    errInternal: "Something went wrong inside ayame-diff. Report it if it happens again.",
+    errHTTP: (v) => `The request failed (HTTP ${v.status}).`,
+    errorAt: (v) => (v.side ? ` (${v.side}: ${v.path})` : ` (${v.path})`),
     view: "view", viewSide: "side-by-side", viewUnified: "unified",
     menuBar: "menu", menuViewLabel: "View", menuExportLabel: "Export",
     hunkList: "Difference list",
-    compareSettings: "Comparison settings", needPaths: "Specify {fields}",
+    compareSettings: "Comparison settings", needPaths: (v) => `Specify ${v.fields}`,
     backToFolder: "Back to the folder list",
     setupSettings: "Settings", recompare: "Re-compare",
     syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
@@ -532,7 +557,7 @@ async function requestFileWatch(paths, baseline = [], signal) {
     signal,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) throw apiError(data, response);
   return data;
 }
 
@@ -1393,7 +1418,7 @@ async function saveTextMerge() {
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const data = await response.json(); if (!response.ok) throw apiError(data, response);
     setStatus(t("mergeSaved", data.output), "success");
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
@@ -1411,7 +1436,7 @@ async function saveCSVMerge() {
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const data = await response.json(); if (!response.ok) throw apiError(data, response);
     setStatus(t("mergeSaved", data.output), "success");
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
@@ -1511,7 +1536,7 @@ async function compareThreeWay(csvMode) {
   const timer = setInterval(tick, 100);
   try {
     const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const data = await response.json(); if (!response.ok) throw apiError(data, response);
     if (!isCurrentRequest(generation)) return false;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
@@ -1536,7 +1561,7 @@ async function saveThreeWayMerge() {
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
-  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`); setStatus(t("mergeSaved", data.output), "success"); }
+  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); setStatus(t("mergeSaved", data.output), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 
@@ -1796,6 +1821,28 @@ function setProgress(msg) {
   el.hidden = false;
 }
 
+// A failed API call becomes a sentence the user can act on (#94): the server's
+// stable code picks the explanation and its remedy, and the path it names is
+// appended rather than parsed out of the message. An unrecognized failure keeps
+// the server's own words instead of a wrong guess.
+function apiError(body, response) {
+  const key = apiErrorKey(body?.code, response?.status);
+  const fallback = body?.error || t("errHTTP", { status: response?.status ?? 0 });
+  const error = new Error(key ? t(key) + apiErrorLocation(body) : fallback);
+  error.code = body?.code || "";
+  error.status = response?.status ?? 0;
+  error.serverMessage = body?.error || "";
+  return error;
+}
+
+function apiErrorLocation(body) {
+  if (!body?.path) return "";
+  const side = body.side === "left" ? t("left") : body.side === "right" ? t("right") : "";
+  // The separator belongs to the language: Japanese sets the full-width
+  // parentheses against the sentence, English wants a space first.
+  return t("errorAt", { side, path: body.path });
+}
+
 function messageText(entry) {
   return entry.count > 1 ? t("messageRepeated", { message: entry.message, count: entry.count }) : entry.message;
 }
@@ -1955,7 +2002,7 @@ async function inspectCSV() {
   try {
     const resp = await apiFetch("/api/csv/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    if (!resp.ok) throw apiError(data, resp);
     csvInspection = data;
     $("inspection").textContent = t("inspectionDone", data);
     renderColumnSelection(data);
@@ -2078,7 +2125,7 @@ async function compareCSV() {
   const timer = setInterval(tick, 100);
   try {
     const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
-    const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
     threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
@@ -2095,7 +2142,7 @@ async function runExportCSV() {
 	if (!validateInputs(body)) return;
   if (!body.output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
   $("exportCSV").disabled = true; setStatus(t("comparing"), "busy");
-  try { const resp = await apiFetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); setStatus(t("exportedCSV", data.output), "success"); }
+  try { const resp = await apiFetch("/api/csv/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); setStatus(t("exportedCSV", data.output), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("exportCSV").disabled = false; }
 }
 
@@ -2147,13 +2194,13 @@ async function runSaveProject() {
   if (!body.projectPath) missing.push(t("projectPath"));
   if (!body.output) missing.push(t("outputPath"));
   if (missing.length) { setStatus(t("requiredFields", { fields: missing }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function runLoadProject() {
   const path = $("projectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
+  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); if (data.mode === "dir") applyDirectoryProject(data); else await applyCSVProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -2162,7 +2209,7 @@ function dirRequestBody() { return { mode: "dir", old: $("old").value.trim(), ne
 async function runPreviewDirectoryFilter() {
   const body = dirRequestBody(); if (!validateInputs(body)) return;
   $("dirPreview").disabled = true; $("dirPreviewResult").textContent = t("comparing");
-  try { const resp = await apiFetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
+  try { const resp = await apiFetch("/api/dir/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); $("dirPreviewResult").textContent = t("filterPreviewResult", data); $("dirPreviewResult").title = (data.sample || []).join("\n"); }
   catch (err) { $("dirPreviewResult").textContent = String(err.message || err); }
   finally { $("dirPreview").disabled = false; }
 }
@@ -2178,13 +2225,13 @@ function applyDirectoryProject(body) {
 async function runSaveDirectoryProject() {
   const body = dirRequestBody(); body.projectPath = $("dirProjectPath").value.trim();
   if (!validateInputs(body) || !body.projectPath) { if (!body.projectPath) setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
+  try { const resp = await apiFetch("/api/project/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); rememberComparison(body); setStatus(t("projectSaved"), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
 async function runLoadDirectoryProject() {
   const path = $("dirProjectPath").value.trim(); if (!path) { setStatus(t("requiredField", { field: t("projectPath") }), "error"); return; }
-  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
+  try { const resp = await apiFetch("/api/project/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) }); const data = await resp.json(); if (!resp.ok) throw apiError(data, resp); if (data.mode !== "dir") throw new Error("not a folder project"); applyDirectoryProject(data); rememberComparison(data); setStatus(""); }
   catch (err) { setStatus(String(err.message || err), "error"); }
 }
 
@@ -2459,7 +2506,7 @@ async function compareDirectory() {
   const timer = setInterval(tick, 100);
   try {
     const resp = await apiFetch("/api/dir/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
-    const data = await resp.json(); if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
     clearInterval(timer);
     await renderDirectory(data, body);
@@ -2499,7 +2546,7 @@ async function runCompare() {
       signal: ac.signal,
     });
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    if (!resp.ok) throw apiError(data, resp);
     // Drag and drop, folder-entry clicks, and sync-point edits all call
     // compare() directly, so a newer comparison can already be running (#128).
     if (!isCurrentRequest(generation)) return false;
@@ -2849,7 +2896,7 @@ async function stopServer() {
     const response = await apiFetch("/api/shutdown", { method: "POST" });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || `HTTP ${response.status}`);
+      throw apiError(body, response);
     }
     stopBrowserHeartbeat();
     setStatus(t("stoppedServer"), "success");
@@ -3032,7 +3079,7 @@ async function runExportPatch() {
     });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${resp.status}`);
+      throw apiError(data, resp);
     }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
@@ -3163,7 +3210,7 @@ function applyColumnFilter() {
 
 async function loadBrowser(path) {
   const resp = await apiFetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  if (!resp.ok) throw apiError(data, resp);
   $("browserPath").value = data.Path || data.path; $("browserUp").dataset.path = data.Parent || data.parent;
   const entries = $("browserEntries"); entries.innerHTML = "";
   for (const item of (data.Entries || data.entries || [])) {
@@ -3439,7 +3486,7 @@ async function uploadDrop(file, session, relative, directory = false) {
   if (directory) query.set("directory", "1");
   const response = await apiFetch(`/api/drop?${query}`, { method: "POST", body: directory ? new Blob([]) : file });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) throw apiError(data, response);
   return data.path;
 }
 

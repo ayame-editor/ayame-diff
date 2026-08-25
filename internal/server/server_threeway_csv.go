@@ -54,7 +54,8 @@ func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if aliases := pathutil.Equal(req.Output, req.Base) || pathutil.Equal(req.Output, req.Old) || pathutil.Equal(req.Output, req.New); aliases && (!req.Overwrite || !req.ConfirmOverwrite) {
-		writeError(w, http.StatusBadRequest, "overwriting an input requires overwrite and explicit confirmation")
+		writeCodedError(w, http.StatusBadRequest, CodeOverwriteRefused,
+			"overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
 	result, err := compareThreeWayCSV(r, req)

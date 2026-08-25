@@ -331,12 +331,12 @@ func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), 
 	}
 	oldLines, closeOld, err := openSide(req.Old, req.OldAbsent)
 	if err != nil {
-		return nil, nil, func() {}, fmt.Errorf("left: %w", err)
+		return nil, nil, func() {}, leftError(err)
 	}
 	newLines, closeNew, err := openSide(req.New, req.NewAbsent)
 	if err != nil {
 		closeOld()
-		return nil, nil, func() {}, fmt.Errorf("right: %w", err)
+		return nil, nil, func() {}, rightError(err)
 	}
 	return oldLines, newLines, func() { closeNew(); closeOld() }, nil
 }

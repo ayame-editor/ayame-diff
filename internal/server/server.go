@@ -5,13 +5,11 @@
 package server
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -23,8 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/ayame-editor/ayame-diff/internal/engine"
 )
 
 //go:embed web
@@ -411,10 +407,7 @@ func decodePostJSON[T any](w http.ResponseWriter, r *http.Request, invalidMessag
 func decodeJSON[T any](w http.ResponseWriter, r *http.Request, invalidMessage string) (T, bool) {
 	var request T
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		if invalidMessage == "" {
-			invalidMessage = "invalid JSON: " + err.Error()
-		}
-		writeError(w, http.StatusBadRequest, invalidMessage)
+		invalidRequestError(w, invalidMessage, err)
 		return request, false
 	}
 	return request, true
@@ -426,25 +419,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func writeClassifiedError(w http.ResponseWriter, err error, fallback int) {
-	writeError(w, statusForError(err, fallback), err.Error())
-}
-
-func statusForError(err error, fallback int) int {
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return http.StatusRequestTimeout
-	case errors.Is(err, fs.ErrNotExist):
-		return http.StatusNotFound
-	case errors.Is(err, fs.ErrPermission):
-		return http.StatusForbidden
-	case errors.Is(err, engine.ErrUnresolvedRows):
-		return http.StatusBadRequest
-	default:
-		return fallback
-	}
-}
+// Failure responses and their classification live in errors.go (#94).
