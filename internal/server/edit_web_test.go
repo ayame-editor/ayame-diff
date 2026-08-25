@@ -81,6 +81,56 @@ func TestEditablePaneAssetsAreWired(t *testing.T) {
 	}
 }
 
+// Unsaved work has to be visible and hard to lose (#256): the pane says it, the
+// gutter says which lines, and the routes that would replace what is being
+// edited ask first.
+func TestUnsavedEditsAreVisibleAndGuarded(t *testing.T) {
+	t.Parallel()
+
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	if !strings.Contains(app, `if (editBufferFor(side)?.changedLines().includes(lineNo - 1)) c.classList.add("edited");`) {
+		t.Error("an edited line is not marked in the gutter")
+	}
+	if !strings.Contains(style, ".cell.edited > .ln") {
+		t.Error("style.css has no gutter mark for an edited line")
+	}
+	if !strings.Contains(app, "async function guardUnsavedEdits()") {
+		t.Error("app.js has no guard for routes that discard edits")
+	}
+	// Each of these replaces what is being edited, so each has to ask.
+	for _, guarded := range []string{
+		`async function commitPanePath(input, side, comparedPath) {
+  const value = input.value.trim();
+  if (value === comparedPath || busyOperation) return;
+  if (!(await guardUnsavedEdits())) {`,
+		`$("mode").addEventListener("change", async () => {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {`,
+		`$("scratch").addEventListener("change", async () => {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {`,
+	} {
+		if !strings.Contains(app, guarded) {
+			t.Errorf("a route that discards edits does not ask first:\n%s", guarded)
+		}
+	}
+	// A refused switch has to undo what the change already started, since the
+	// other listeners ran before the question could be asked.
+	if strings.Count(app, "await compare();\n    return;") < 2 {
+		t.Error("a refused switch does not restore the comparison it interrupted")
+	}
+	// Ending a session by any route clears the flag the watcher reads.
+	if !strings.Contains(app, "function clearEditSession()") ||
+		strings.Count(app, "clearEditSession();") < 3 {
+		t.Error("ending an editing session does not consistently clear the watcher flag")
+	}
+	// A second question while one is on screen would reject into a caller with
+	// no answer to give.
+	if !strings.Contains(app, "if (dialog.open) return Promise.resolve(false);") {
+		t.Error("askConfirm can still be asked twice at once")
+	}
+}
+
 // Editing is offered only where a line maps back to a file line that can be
 // written. Offering it elsewhere would produce a save with nowhere to go.
 func TestEditingIsOfferedOnlyWhereItCanWork(t *testing.T) {
