@@ -9,15 +9,25 @@
   --bg: #fbf8f1; --bg-elevated: #fdfcf8; --panel: var(--bg-elevated);
   --fg: #2a2140; --fg-dim: #6e6383; --muted: var(--fg-dim);
   --border: #e7e0d3; --accent: #7a5cc0; --accent-bright: #6a4cb0;
-  --danger: #c0506a; --gold: #c79a2e; --radius: 10px; --radius-control: 6px;
+  --danger: #ca564f; --success: #4c9b45; --gold: #c79a2e;
+  --radius: 10px; --radius-control: 6px;
   --on-accent: #fff; --modal-backdrop: rgb(0 0 0 / 0.45);
   --focus-ring: 2px solid var(--accent-bright); --focus-ring-offset: 2px;
   --selection-ring-width: 2px;
   --shadow: 0 10px 30px rgb(42 33 64 / .10);
-  --add-bg: color-mix(in srgb, #39a66b 18%, transparent); --add-fg: #23794c;
-  --del-bg: color-mix(in srgb, var(--danger) 16%, transparent); --del-fg: #a33f58;
-  --chg-bg: color-mix(in srgb, var(--gold) 20%, transparent); --chg-fg: #76570e;
-  --word-add: color-mix(in srgb, #39a66b 35%, transparent); --word-del: color-mix(in srgb, var(--danger) 32%, transparent);
+  /* Diff palette. Addition, deletion and change are one system: inside a theme
+     the three washes share an OKLCH lightness and the two semantic text colors
+     share a lightness and chroma, so neither side of a comparison reads louder
+     than the other. Only hue separates them, and the hues sit in the warm
+     family of the cream ground -- deletion 26, change 85, addition 142 -- where
+     the older emerald (156) and raspberry (8) turned muddy.
+     The change wash is the quietest of the three on purpose: word highlights
+     are painted over it, and a strong third hue underneath was what drained
+     their color. */
+  --add-bg: color-mix(in srgb, var(--success) 14%, transparent); --add-fg: #296f23;
+  --del-bg: color-mix(in srgb, var(--danger) 13%, transparent); --del-fg: #993935;
+  --chg-bg: color-mix(in srgb, var(--gold) 12%, transparent); --chg-fg: #76570e;
+  --word-add: color-mix(in srgb, var(--success) 55%, transparent); --word-del: color-mix(in srgb, var(--danger) 55%, transparent);
   --move-bg: color-mix(in srgb, var(--accent) 16%, transparent); --move-fg: var(--accent-bright);
 }
 @media (prefers-color-scheme: dark) {
@@ -26,8 +36,13 @@
   :root:not([data-theme]) {
     --bg: #1e1e1e; --bg-elevated: #252526; --fg: #d4d4d4; --fg-dim: #9a9a9a;
     --border: #3c3c3c; --accent: #9b82d8; --accent-bright: #b49de6;
-    --danger: #f14c4c; --gold: #d9b45a; --shadow: 0 12px 34px rgb(0 0 0 / .35);
-    --add-fg: #66c991; --del-fg: #ff7b7b; --chg-fg: #e4c46d;
+    --danger: #e66f66; --success: #5fae57; --gold: #d9b45a;
+    --shadow: 0 12px 34px rgb(0 0 0 / .35);
+    --add-fg: #84c47d; --del-fg: #f49289; --chg-fg: #e4c46d;
+    /* A wash mixed toward a dark ground gets lighter, so the weight that reads
+       on cream would wash out the text here. */
+    --word-add: color-mix(in srgb, var(--success) 40%, transparent);
+    --word-del: color-mix(in srgb, var(--danger) 40%, transparent);
   }
 }
 
@@ -35,25 +50,34 @@
 :root[data-theme="dark"] {
     --bg: #1e1e1e; --bg-elevated: #252526; --fg: #d4d4d4; --fg-dim: #9a9a9a;
     --border: #3c3c3c; --accent: #9b82d8; --accent-bright: #b49de6;
-    --danger: #f14c4c; --gold: #d9b45a; --shadow: 0 12px 34px rgb(0 0 0 / .35);
-    --add-fg: #66c991; --del-fg: #ff7b7b; --chg-fg: #e4c46d;
+    --danger: #e66f66; --success: #5fae57; --gold: #d9b45a;
+    --shadow: 0 12px 34px rgb(0 0 0 / .35);
+    --add-fg: #84c47d; --del-fg: #f49289; --chg-fg: #e4c46d;
+    /* A wash mixed toward a dark ground gets lighter, so the weight that reads
+       on cream would wash out the text here. */
+    --word-add: color-mix(in srgb, var(--success) 40%, transparent);
+    --word-del: color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
 /* Colorblind-safe Ayame palette: the token structure and translucent washes
    stay identical to the default scheme; only the red/green hues become
    orange/blue. */
 :root[data-scheme="colorblind"] {
-  --add-bg: color-mix(in srgb, #2563eb 18%, transparent); --add-fg: #1d4ed8;
-  --del-bg: color-mix(in srgb, #ea580c 18%, transparent); --del-fg: #c2410c;
-  --chg-bg: color-mix(in srgb, var(--gold) 20%, transparent);
-  --word-add: color-mix(in srgb, #2563eb 35%, transparent);
-  --word-del: color-mix(in srgb, #ea580c 35%, transparent);
+  --add-bg: color-mix(in srgb, #2563eb 14%, transparent); --add-fg: #1d4ed8;
+  --del-bg: color-mix(in srgb, #ea580c 13%, transparent); --del-fg: #c2410c;
+  --chg-bg: color-mix(in srgb, var(--gold) 12%, transparent);
+  --word-add: color-mix(in srgb, #2563eb 45%, transparent);
+  --word-del: color-mix(in srgb, #ea580c 45%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme])[data-scheme="colorblind"] {
     --add-fg: #93b4ff; --del-fg: #ff9b62;
+    --word-add: color-mix(in srgb, #2563eb 40%, transparent);
+    --word-del: color-mix(in srgb, #ea580c 32%, transparent);
   }
 }
 :root[data-theme="dark"][data-scheme="colorblind"] {
   --add-fg: #93b4ff; --del-fg: #ff9b62;
+  --word-add: color-mix(in srgb, #2563eb 40%, transparent);
+  --word-del: color-mix(in srgb, #ea580c 32%, transparent);
 }
