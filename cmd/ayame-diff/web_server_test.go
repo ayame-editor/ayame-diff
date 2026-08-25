@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/server"
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
 func TestServeUntilContextGracefullyStops(t *testing.T) {
@@ -167,5 +167,47 @@ func TestShutdownEndpointStopsOwnedServer(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("server did not shut down after authenticated API request")
+	}
+}
+
+func TestIsPortConflictRecognizesPlatformErrnos(t *testing.T) {
+	t.Parallel()
+
+	if !isPortConflict(syscall.EADDRINUSE) {
+		t.Fatal("EADDRINUSE is not reported as a port conflict")
+	}
+	for _, errno := range extraPortConflictErrnos {
+		if !isPortConflict(errno) {
+			t.Fatalf("errno %d is not reported as a port conflict", uintptr(errno))
+		}
+	}
+	if isPortConflict(errors.New("listen failed")) {
+		t.Fatal("an unrelated error is reported as a port conflict")
+	}
+}
+
+func TestListenWithPortFallbackFallsBackOnPlatformErrnos(t *testing.T) {
+	t.Parallel()
+
+	for _, errno := range extraPortConflictErrnos {
+		calls := 0
+		listener, fellBack, err := listenWithPortFallback(
+			func(string, string) (net.Listener, error) {
+				calls++
+				if calls == 1 {
+					return nil, &net.OpError{Op: "listen", Net: "tcp", Err: errno}
+				}
+				return net.Listen("tcp", "127.0.0.1:0")
+			},
+			"tcp",
+			"127.0.0.1:8080",
+		)
+		if err != nil {
+			t.Fatalf("errno %d: %v", uintptr(errno), err)
+		}
+		_ = listener.Close()
+		if !fellBack {
+			t.Fatalf("errno %d did not trigger a port fallback", uintptr(errno))
+		}
 	}
 }

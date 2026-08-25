@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/server"
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
 const (
@@ -37,7 +37,7 @@ func listenWithPortFallback(
 	address string,
 ) (net.Listener, bool, error) {
 	listener, err := listen(network, address)
-	if err == nil || !errors.Is(err, syscall.EADDRINUSE) {
+	if err == nil || !isPortConflict(err) {
 		return listener, false, err
 	}
 
@@ -55,7 +55,7 @@ func listenWithPortFallback(
 		if candidateErr == nil {
 			return listener, true, nil
 		}
-		if !errors.Is(candidateErr, syscall.EADDRINUSE) {
+		if !isPortConflict(candidateErr) {
 			return nil, false, candidateErr
 		}
 		err = candidateErr

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hjosugi/ayame-diff/internal/server"
+	"github.com/ayame-editor/ayame-diff/internal/server"
 )
 
 func healthCheckingServe(t *testing.T, ln net.Listener, handler http.Handler, _ <-chan struct{}) error {
