@@ -321,6 +321,35 @@ button:active:not(:disabled) {
   border: 1px solid var(--border); color: var(--muted); font-size: var(--fs-caption);
 }
 .edit-toggle.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.continuous-toggle.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+/* Continuous folder view (#291). Each file is a section with a sticky header,
+   so the file a hunk belongs to stays readable while scrolling through it. */
+.file-diff { border-top: 1px solid var(--border); }
+.file-diff:first-of-type { border-top: 0; }
+.file-diff-head {
+  /* Below the pane headers, which are sticky at the very top of the result;
+     app.js measures them into --pane-heads-height so the two never overlap. */
+  position: sticky; top: var(--pane-heads-height, 0px); z-index: 2;
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.4rem 0.7rem; border: 0; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: var(--bg-elevated); color: var(--fg);
+  font: var(--fs-label) var(--ui); text-align: left;
+}
+.file-diff-head:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 8%, transparent); }
+.file-diff-path { flex: 1 1 auto; font-family: var(--mono); overflow-wrap: anywhere; }
+.file-diff-meta { flex: 0 0 auto; color: var(--muted); font-size: var(--fs-caption); }
+.file-diff.added .dir-marker { color: var(--add-fg); }
+.file-diff.removed .dir-marker { color: var(--del-fg); }
+.file-diff.changed .dir-marker { color: var(--chg-fg); }
+.file-diff-body { padding-bottom: 0.4rem; }
+.file-diff.collapsed .file-diff-body { display: none; }
+.file-diff.loading .file-diff-head::after {
+  content: ""; width: 0.8rem; height: 0.8rem; flex: 0 0 auto;
+  border: var(--selection-ring-width) solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: status-spin 0.75s linear infinite;
+}
+.file-diff-error { margin: 0.5rem 0.7rem; color: var(--del-fg); }
 /* An edited line carries its own gutter mark, so unsaved work is visible in
    the result and not only in the pane header (#256). */
 .cell.edited > .ln { position: relative; color: var(--chg-fg); font-weight: 600; }
@@ -860,6 +889,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
+  .file-diff.loading .file-diff-head::after { animation: none; }
   .message { animation: none; }
   button, .cell.selectable-line, .hunk, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }

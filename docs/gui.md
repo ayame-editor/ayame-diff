@@ -290,6 +290,23 @@ indented, status-colored tree with status filters. Clicking a changed file
 switches to text mode and opens the paired relative paths. Symbolic links are
 skipped and `.gz` files compare decompressed content.
 
+**Continuous** switches the same result to one scroll through every differing
+file, so a change set is read straight through instead of opened and returned to
+once per file. Each file is introduced by a header carrying its relative path,
+its status and its hunk count; the header sticks while you read that file, and
+clicking it collapses the file away. The status filter and the path search
+narrow this view exactly as they narrow the tree; unchanged files are left out,
+since there is nothing in them to read.
+
+A file's diff is fetched when it comes near the viewport and released again once
+it has drifted far enough away, so a change set of a hundred files holds only a
+handful of them at a time and a released file keeps the space it took rather
+than pulling the page up under you. Difference navigation crosses file
+boundaries here: it steps hunk to hunk inside the file being read and moves to
+the next differing file at its edge, loading it if it has not been read yet. The
+minimap marks the files rather than the hunks, and clicking a mark jumps to that
+file.
+
 ## HTTP API
 
 The GUI is a thin client over a small JSON API. You can call it directly.
