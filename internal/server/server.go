@@ -170,6 +170,8 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s.mux.HandleFunc("/api/project/save", s.handleProjectSave)
 	s.mux.HandleFunc("/api/project/load", s.handleProjectLoad)
 	s.mux.HandleFunc("/api/dir/preview", s.limited(s.handleDirPreview))
+	s.mux.HandleFunc("/api/file/read", s.limited(s.handleFileRead))
+	s.mux.HandleFunc("/api/file/save", s.limited(s.handleFileSave))
 	s.mux.HandleFunc("/api/lifecycle/heartbeat", s.handleBrowserHeartbeat)
 	s.mux.HandleFunc("/api/lifecycle/release", s.handleBrowserRelease)
 	s.mux.HandleFunc("/api/shutdown", s.handleShutdown)

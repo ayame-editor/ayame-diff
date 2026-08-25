@@ -21,6 +21,7 @@ const {
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
+const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { createMessageLog } = globalThis.AyameMessages;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
@@ -132,6 +133,300 @@ function applyLang(next) {
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	renderRecentComparisons();
+}
+
+// ---- editable panes (#255) ----
+//
+// The diff response carries hunk slices, not whole files, so editing loads both
+// files in full and compares the buffers instead of the paths. Nothing reaches
+// disk until a save, which sends the file's own encoding, BOM and terminator
+// back with it so an edited file is not quietly normalized.
+//
+// The editor is a textarea mounted on the line being changed rather than
+// contenteditable: contenteditable and IME are a bad pair, and Japanese input
+// is a first-class case here, not an afterthought.
+let editSession = null;
+let lineEditor = null;
+let editComposing = false;
+let editRecompareTimer = null;
+
+const EDIT_RECOMPARE_DELAY = 150;
+
+function editingEnabled() {
+  return editSession !== null;
+}
+
+function editBufferFor(side) {
+  return editSession ? editSession[side] || null : null;
+}
+
+function editedSides() {
+  return editSession ? ["old", "new"].filter((side) => editSession[side]?.isDirty()) : [];
+}
+
+function syncEditControls() {
+  const button = $("editMode");
+  const available = editableComparison($("mode").value, $("scratch").checked) && hasComparisonResult();
+  button.hidden = !available;
+  button.setAttribute("aria-pressed", editingEnabled() ? "true" : "false");
+  button.classList.toggle("active", editingEnabled());
+}
+
+async function toggleEditMode() {
+  if (editingEnabled()) {
+    await leaveEditMode();
+    return;
+  }
+  await enterEditMode();
+}
+
+async function enterEditMode(options = {}) {
+  if (!editableComparison($("mode").value, $("scratch").checked)) return false;
+  const paths = { old: $("old").value.trim(), new: $("new").value.trim() };
+  if (!paths.old || !paths.new) return false;
+  setStatus(t("editLoading"), "busy");
+  try {
+    const loaded = {};
+    for (const side of ["old", "new"]) {
+      const response = await apiFetch("/api/file/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: paths[side], encoding: $("encoding").value }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw apiError(data, response);
+      loaded[side] = createEditBuffer(data);
+    }
+    editSession = loaded;
+  } catch (err) {
+    editSession = null;
+    setStatus(String(err.message || err), "error");
+    return false;
+  }
+  setStatus("");
+  syncEditControls();
+  const readOnly = ["old", "new"].filter((side) => editSession[side].readOnly());
+  if (readOnly.length) {
+    setStatus(t("editReadOnly", { sides: readOnly.map(sideLabel).join(" / ") }), "warning");
+  }
+  markEditedPanes();
+  if (options.recompare !== false) await compare();
+  return true;
+}
+
+// Reloading after an external change is an explicit discard: drop the buffers,
+// let the comparison run on what is now on disk, then re-open the panes on that
+// content so the user stays in the mode they chose.
+let editReloadPending = false;
+
+document.addEventListener("ayame:discard-unsaved-changes", () => {
+  if (!editingEnabled()) return;
+  closeLineEditor({ revert: false });
+  editSession = null;
+  editReloadPending = true;
+  syncEditControls();
+});
+
+async function resumeEditingAfterReload() {
+  if (!editReloadPending || editingEnabled()) return;
+  editReloadPending = false;
+  await enterEditMode({ recompare: false });
+}
+
+// Leaving keeps whatever is on disk: unsaved lines are the user's, so ask
+// before dropping them rather than deciding for them.
+async function leaveEditMode(options = {}) {
+  if (!editingEnabled()) return true;
+  closeLineEditor({ commit: true });
+  const dirty = editedSides();
+  if (dirty.length && !options.discard) {
+    const confirmed = await askConfirm(t("editDiscardConfirm", { sides: dirty.map(sideLabel).join(" / ") }));
+    if (!confirmed) return false;
+  }
+  editSession = null;
+  syncEditControls();
+  await compare();
+  return true;
+}
+
+function sideLabel(side) {
+  return side === "old" ? t("sideLeft") : t("sideRight");
+}
+
+// A line cell knows its side and its zero-based file line, so the buffer is
+// addressed by exactly what the renderer already put on the element.
+function openLineEditor(cellElement) {
+  if (!editingEnabled() || !cellElement?.dataset?.side) return false;
+  const side = cellElement.dataset.side;
+  const index = Number(cellElement.dataset.line);
+  const buffer = editBufferFor(side);
+  if (!buffer || buffer.readOnly() || !Number.isInteger(index)) return false;
+  if (index >= buffer.count()) return false;
+  closeLineEditor({ commit: true });
+
+  const initial = buffer.line(index) ?? "";
+  const editor = document.createElement("textarea");
+  editor.className = "line-editor";
+  editor.rows = 1;
+  editor.spellcheck = false;
+  editor.value = initial;
+  editor.setAttribute("aria-label", t("editLine", { line: index + 1, side: sideLabel(side) }));
+  const content = cellElement.querySelector(".tx");
+  if (content) content.hidden = true;
+  cellElement.classList.add("editing");
+  cellElement.append(editor);
+  lineEditor = { element: editor, cell: cellElement, side, index, initial };
+
+  // An IME composition is a sequence of intermediate values, none of which is
+  // what the user means. Re-comparing on them would fight the input method.
+  editor.addEventListener("compositionstart", () => { editComposing = true; });
+  editor.addEventListener("compositionend", () => {
+    editComposing = false;
+    applyLineEdit();
+  });
+  editor.addEventListener("input", () => {
+    if (editComposing) return;
+    applyLineEdit();
+  });
+  // The editor sits inside the cell that opens it, so every key and click in it
+  // would otherwise bubble up and re-open the editor on top of itself, taking
+  // the caret to the end of the line each time.
+  editor.addEventListener("click", (event) => event.stopPropagation());
+  editor.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.isComposing || editComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeLineEditor({ revert: true });
+      cellElement.focus();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      closeLineEditor({ commit: true });
+      cellElement.focus();
+    }
+  });
+  editor.addEventListener("blur", () => closeLineEditor({ commit: true }));
+  editor.focus();
+  editor.setSelectionRange(initial.length, initial.length);
+  return true;
+}
+
+// Typing updates the buffer and the pane's unsaved marker, but not the
+// comparison: re-rendering mid-word would tear the editor out of the DOM, and a
+// line that stops differing would take its own hunk off the screen while the
+// caret is still in it. The comparison catches up when the line is committed.
+// (#258 covers making it live, with the optimistic render that needs.)
+function applyLineEdit() {
+  if (!lineEditor) return;
+  const buffer = editBufferFor(lineEditor.side);
+  if (!buffer) return;
+  if (buffer.setLine(lineEditor.index, lineEditor.element.value)) {
+    markEditedPanes();
+  }
+}
+
+function closeLineEditor(options = {}) {
+  if (!lineEditor) return;
+  const { element, cell, side, index, initial } = lineEditor;
+  lineEditor = null;
+  editComposing = false;
+  const buffer = editBufferFor(side);
+  let moved = false;
+  if (options.revert) moved = Boolean(buffer && buffer.setLine(index, initial));
+  else if (options.commit) moved = Boolean(buffer && buffer.setLine(index, element.value));
+  // A line that was typed and then closed differs from the comparison on
+  // screen; anything the caller changed here, including a revert, has to reach
+  // it. The value may also have moved during the edit without moving now.
+  const differs = buffer && buffer.line(index) !== renderedLine(side, index);
+  if (moved) markEditedPanes();
+  element.remove();
+  cell.classList.remove("editing");
+  const content = cell.querySelector(".tx");
+  if (content) content.hidden = false;
+  if (differs) scheduleEditRecompare();
+}
+
+// renderedLine reports what the comparison on screen was built from, so a
+// closed editor only triggers a re-comparison when the two disagree.
+function renderedLine(side, index) {
+  const cellElement = document.querySelector(
+    `#result .cell.selectable-line[data-side="${side}"][data-line="${index}"] .tx`);
+  return cellElement ? cellElement.textContent : null;
+}
+
+// Typing must not re-run the comparison on every keystroke, and never while an
+// IME is mid-word.
+// Committing several lines in quick succession (tabbing through a column, say)
+// should cost one comparison, not one each.
+function scheduleEditRecompare() {
+  if (editRecompareTimer) clearTimeout(editRecompareTimer);
+  editRecompareTimer = setTimeout(() => {
+    editRecompareTimer = null;
+    if (editComposing || !editingEnabled() || lineEditor) return;
+    void compare();
+  }, EDIT_RECOMPARE_DELAY);
+}
+
+function markEditedPanes() {
+  // The file watcher refuses to auto-reload over unsaved work by reading this
+  // flag; owning it here is what connects the editor to that guard.
+  document.body.dataset.unsavedChanges = editedSides().length ? "true" : "false";
+  for (const side of ["old", "new"]) {
+    const buffer = editBufferFor(side);
+    const head = document.querySelector(`.pane-head.${side}`);
+    if (!head) continue;
+    head.classList.toggle("dirty", Boolean(buffer?.isDirty()));
+    const marker = head.querySelector(".pane-head-dirty");
+    if (marker) marker.hidden = !buffer?.isDirty();
+    const save = head.querySelector(".pane-head-save");
+    if (save) save.disabled = !buffer?.isDirty();
+  }
+}
+
+async function saveEditedPane(side, options = {}) {
+  const buffer = editBufferFor(side);
+  if (!buffer || buffer.readOnly() || !buffer.isDirty()) return false;
+  closeLineEditor({ commit: true });
+  const body = {
+    path: buffer.path(),
+    lines: buffer.lines(),
+    profile: buffer.profile(),
+    expect: buffer.stamp(),
+    overwrite: true,
+    force: Boolean(options.force),
+  };
+  try {
+    const response = await apiFetch("/api/file/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      // The file moved under the editor. That is the one case worth asking
+      // about: overwriting silently would discard someone else's work.
+      if (data?.code === "stale_write" && !options.force) {
+        if (await askConfirm(t("editStaleConfirm", { path: buffer.path() }))) {
+          return saveEditedPane(side, { force: true });
+        }
+        return false;
+      }
+      throw apiError(data, response);
+    }
+    buffer.accept({ stamp: data.stamp });
+    markEditedPanes();
+    // The watcher would otherwise report this very write as an external change
+    // and re-compare on top of it, so give it the new baseline (#251, #255).
+    const prepared = await prepareFileWatch();
+    if (prepared) fileWatcher.start(prepared.paths, prepared.snapshot);
+    setStatus(t("editSaved", { side: sideLabel(side), path: buffer.path() }), "success");
+    return true;
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+    return false;
+  }
 }
 
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
@@ -673,12 +968,17 @@ function cell(cls, lineNo, node, side) {
     c.tabIndex = 0;
     c.setAttribute("role", "button");
     c.setAttribute("aria-pressed", "false");
-    const select = () => selectSyncLine(c);
-    c.addEventListener("click", select);
+    // Editing and manual alignment both want this click, so the mode decides:
+    // while editing, a line opens for typing; otherwise it marks a sync point.
+    const activate = () => {
+      if (editingEnabled() && openLineEditor(c)) return;
+      selectSyncLine(c);
+    };
+    c.addEventListener("click", activate);
     c.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      select();
+      activate();
     });
   }
   return c;
@@ -1012,6 +1312,37 @@ function paneHeads(data = {}) {
         lines != null ? t("lineCount", { count: Number(lines).toLocaleString() }) : "",
       ].filter(Boolean).join(" · ");
       head.append(meta);
+    }
+    // While editing, the header is where the pane's state and its save live:
+    // a marker for unsaved lines, a save button for this side alone (Meld saves
+    // the file the cursor is in), and a read-only badge when there is no point
+    // offering either (#255).
+    const buffer = editBufferFor(side);
+    if (buffer) {
+      if (buffer.readOnly()) {
+        const locked = document.createElement("span");
+        locked.className = "pane-head-readonly";
+        locked.textContent = t("editReadOnlyBadge");
+        locked.title = t("editReadOnlyTitle");
+        head.append(locked);
+      } else {
+        const dirty = document.createElement("span");
+        dirty.className = "pane-head-dirty";
+        dirty.textContent = "\u25cf";
+        dirty.title = t("editUnsaved");
+        dirty.setAttribute("aria-label", t("editUnsaved"));
+        dirty.hidden = !buffer.isDirty();
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "pane-head-save";
+        save.textContent = t("editSave");
+        save.title = t("editSaveTitle", { side: labelText });
+        save.setAttribute("aria-label", t("editSaveTitle", { side: labelText }));
+        save.disabled = !buffer.isDirty();
+        save.addEventListener("click", () => void saveEditedPane(side));
+        head.append(dirty, save);
+      }
+      head.classList.toggle("dirty", Boolean(buffer.isDirty()));
     }
     if (!scratch) {
       const browse = document.createElement("button");
@@ -2318,6 +2649,7 @@ async function compare(options = {}) {
     fileWatcher.start(preparedWatch.paths, preparedWatch.snapshot);
   }
   if (options.external && result) setStatus(t("externalReloaded"), "success");
+  await resumeEditingAfterReload();
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
@@ -2736,14 +3068,17 @@ function requestBody() {
     && directoryEntryView?.old === old && directoryEntryView?.new === newPath
     ? directoryEntryView
     : null;
+  // While editing, the comparison runs on what is in the panes rather than what
+  // is on disk — that is what makes typing show up in the diff (#255).
+  const editing = editingEnabled();
   return {
-    inline: scratch,
+    inline: scratch || editing,
     old,
     new: newPath,
     oldAbsent: Boolean(directoryView?.oldAbsent),
     newAbsent: Boolean(directoryView?.newAbsent),
-    oldText: $("oldText").value,
-    newText: $("newText").value,
+    oldText: editing ? editBufferFor("old").text() : $("oldText").value,
+    newText: editing ? editBufferFor("new").text() : $("newText").value,
     mode: $("mode").value,
     encoding: $("encoding").value,
     window: Number($("window").value) || 128,
@@ -2890,6 +3225,7 @@ function syncExportPatchVisibility() {
   $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
   syncPatchSettingsVisibility();
   syncViewModeVisibility();
+  syncEditControls();
 }
 
 function syncKeyMode() {
@@ -3529,6 +3865,24 @@ $("messages").addEventListener("keydown", (event) => {
   if (!item) return;
   event.preventDefault();
   dismissMessage(Number(item.dataset.messageId));
+});
+$("editMode").addEventListener("click", () => void toggleEditMode());
+// Ctrl+S saves the pane being edited. With edits on both sides and no editor
+// focused, the left one goes first, and a second press saves the right.
+document.addEventListener("keydown", (event) => {
+  if (!editingEnabled()) return;
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+  event.preventDefault();
+  const focused = lineEditor?.side || document.activeElement?.closest?.(".pane-head")?.classList.contains("new") && "new";
+  const target = focused || editedSides()[0];
+  if (target) void saveEditedPane(target);
+});
+// Unsaved lines live only in this tab, so leaving has to say so. The browser
+// shows its own wording; what matters is that the prompt appears at all.
+window.addEventListener("beforeunload", (event) => {
+  if (!editedSides().length) return;
+  event.preventDefault();
+  event.returnValue = "";
 });
 $("searchInput").addEventListener("input", scheduleSearch);
 for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEventListener("change", runSearch);

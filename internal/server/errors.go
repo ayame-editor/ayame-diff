@@ -22,6 +22,7 @@ const (
 	CodeInvalidRequest   = "invalid_request"
 	CodeOverwriteRefused = "overwrite_refused"
 	CodeUnsupportedInput = "unsupported_input"
+	CodeStaleWrite       = "stale_write"
 	CodeTimeout          = "timeout"
 	CodeBusy             = "busy"
 	CodeUnauthorized     = "unauthorized"

@@ -22,6 +22,7 @@
     timeout: "errTimeout",
     busy: "errBusy",
     unauthorized: "errUnauthorized",
+    stale_write: "errStaleWrite",
     internal: "errInternal",
   };
 
@@ -31,6 +32,7 @@
     404: "errFileNotFound",
     408: "errTimeout",
     413: "errUnsupportedInput",
+    409: "errStaleWrite",
     429: "errBusy",
   };
 
