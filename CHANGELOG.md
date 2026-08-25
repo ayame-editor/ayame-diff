@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.8.12 - 2026-08-26
+
+- Retuned the diff palette for the warm Ayame ground. Word-level highlights
+  used to be an emerald and a raspberry composited onto a gold change row,
+  which drained more than half their color and left a dusty mauve beside a
+  grey sage; addition text also sat under the AA contrast minimum on its own
+  wash. Within a theme the three washes now share a lightness and the semantic
+  text colors share a lightness and chroma, so neither side of a comparison
+  reads louder, and only hue separates them — deletion, change, and addition
+  all sit in the warm family of the background. The two word highlights end up
+  half again as far apart as before, and a new test flattens every translucent
+  wash over what is actually behind it to hold contrast, balance, and color
+  clarity in place.
+- Self-update now verifies a detached ed25519 signature over `SHA256SUMS`
+  before trusting its checksums. A checksum taken from the same release only
+  proves the download was not corrupted; a signature checked against a key
+  compiled into the binary is what makes a tampered release fail instead of
+  install. A build without a key says the release is unsigned and continues on
+  the checksum alone, so nothing changes until a signing key is configured.
+  Downloads, the expanded executable, and the archive entry count are now
+  bounded, so a decompression bomb is refused rather than allocated. (#148)
+
 ## v0.8.11 - 2026-08-25
 
 - Moved the project to the `ayame-editor` organization. The module path, the
