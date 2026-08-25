@@ -321,6 +321,13 @@ button:active:not(:disabled) {
   border: 1px solid var(--border); color: var(--muted); font-size: var(--fs-caption);
 }
 .edit-toggle.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+/* An edited line carries its own gutter mark, so unsaved work is visible in
+   the result and not only in the pane header (#256). */
+.cell.edited > .ln { position: relative; color: var(--chg-fg); font-weight: 600; }
+.cell.edited > .ln::after {
+  content: "*"; position: absolute; right: -0.35em; top: 0;
+  color: var(--chg-fg);
+}
 
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;

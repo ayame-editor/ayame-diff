@@ -218,13 +218,16 @@ async function enterEditMode(options = {}) {
 // let the comparison run on what is now on disk, then re-open the panes on that
 // content so the user stays in the mode they chose.
 let editReloadPending = false;
+// The mode a refused switch has to be put back to.
+let editModeValue = "text";
+// Kept in step with the control wherever the app sets the mode itself.
+function rememberEditMode() { editModeValue = $("mode").value; }
 
 document.addEventListener("ayame:discard-unsaved-changes", () => {
   if (!editingEnabled()) return;
   closeLineEditor({ revert: false });
-  editSession = null;
+  clearEditSession();
   editReloadPending = true;
-  syncEditControls();
 });
 
 async function resumeEditingAfterReload() {
@@ -243,9 +246,29 @@ async function leaveEditMode(options = {}) {
     const confirmed = await askConfirm(t("editDiscardConfirm", { sides: dirty.map(sideLabel).join(" / ") }));
     if (!confirmed) return false;
   }
-  editSession = null;
-  syncEditControls();
+  clearEditSession();
   await compare();
+  return true;
+}
+
+// Anything that replaces what is being compared also throws away lines the user
+// typed, so it asks first. Re-comparing, changing display or comparison options
+// and adding sync points all keep the buffers, and do not (#256).
+// Ending a session in any of its three ways — the toggle, a refused route, an
+// explicit discard — has to clear the watcher flag too, or auto-reload stays
+// blocked for the rest of the session.
+function clearEditSession() {
+  editSession = null;
+  markEditedPanes();
+  syncEditControls();
+}
+
+async function guardUnsavedEdits() {
+  const dirty = editedSides();
+  if (!dirty.length) return true;
+  closeLineEditor({ commit: true });
+  if (!(await askConfirm(t("editDiscardConfirm", { sides: dirty.map(sideLabel).join(" / ") })))) return false;
+  clearEditSession();
   return true;
 }
 
@@ -375,6 +398,10 @@ function markEditedPanes() {
   document.body.dataset.unsavedChanges = editedSides().length ? "true" : "false";
   for (const side of ["old", "new"]) {
     const buffer = editBufferFor(side);
+    const changed = new Set(buffer ? buffer.changedLines() : []);
+    for (const marked of document.querySelectorAll(`#result .cell.selectable-line[data-side="${side}"]`)) {
+      marked.classList.toggle("edited", changed.has(Number(marked.dataset.line)));
+    }
     const head = document.querySelector(`.pane-head.${side}`);
     if (!head) continue;
     head.classList.toggle("dirty", Boolean(buffer?.isDirty()));
@@ -960,6 +987,9 @@ function cell(cls, lineNo, node, side) {
   c.append(ln, node);
   if (lineNo != null && side) {
     c.classList.add("selectable-line");
+    // A line the user typed into is marked in the gutter, so which lines are
+    // unsaved is readable without comparing against memory (#256).
+    if (editBufferFor(side)?.changedLines().includes(lineNo - 1)) c.classList.add("edited");
     c.dataset.side = side;
     c.dataset.line = String(lineNo - 1);
     c.dataset.scrollAnchor = side;
@@ -1246,6 +1276,10 @@ function showResultSkeleton() {
 async function commitPanePath(input, side, comparedPath) {
   const value = input.value.trim();
   if (value === comparedPath || busyOperation) return;
+  if (!(await guardUnsavedEdits())) {
+    input.value = comparedPath;
+    return;
+  }
   $(side).value = value;
   csvInspection = null;
   $("inspection").textContent = "";
@@ -2925,6 +2959,10 @@ function swapSides() {
 // shape so the call sites stay a single awaited expression.
 function askConfirm(message) {
   const dialog = $("confirmDialog");
+  // showModal throws on an already-open dialog, which would reject into a
+  // caller that has no answer to give. A second question while one is on
+  // screen is declined instead, leaving the first one to be answered.
+  if (dialog.open) return Promise.resolve(false);
   $("confirmMessage").textContent = message;
   const opener = document.activeElement;
   return new Promise((resolve) => {
@@ -3678,7 +3716,23 @@ $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
 $("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
-$("mode").addEventListener("change", syncModeOpts);
+// The refusal has to put the control back itself. The event object is not a
+// reliable handle by the time the dialog resolves, so the element is looked up
+// again rather than read off the event.
+// A refused switch has to undo what the change already set in motion: the other
+// change listeners ran before the question could be asked, so putting the value
+// back is not enough on its own. Nothing is lost either way — the buffers only
+// die when the user says so.
+$("mode").addEventListener("change", async () => {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {
+    $("mode").value = editModeValue;
+    syncModeOpts();
+    await compare();
+    return;
+  }
+  editModeValue = $("mode").value;
+  syncModeOpts();
+});
 $("detectMoves").addEventListener("change", syncMoveMinLines);
 $("setup").addEventListener("input", syncExportPatchVisibility);
 $("setup").addEventListener("change", syncExportPatchVisibility);
@@ -3936,7 +3990,15 @@ function applyScratch() {
   $("scratchArea").hidden = !on;
   syncCopyComparisonURLVisibility();
 }
-$("scratch").addEventListener("change", applyScratch);
+$("scratch").addEventListener("change", async () => {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {
+    $("scratch").checked = !$("scratch").checked;
+    applyScratch();
+    await compare();
+    return;
+  }
+  applyScratch();
+});
 applyScratch();
 applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyTheme(localStorage.getItem("ayame-theme") || "system");
