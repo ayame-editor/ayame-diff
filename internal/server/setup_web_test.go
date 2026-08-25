@@ -90,7 +90,7 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 func TestVisibleSideTerminologyIsConsistent(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 	style := readWebAsset(t, "style.css")
 
 	for _, want := range []string{

@@ -22,6 +22,18 @@ func readWebAsset(t *testing.T, name string) string {
 	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
+// readWebCatalog returns the message catalog, which moved out of app.js into
+// its own module. Assertions about user-visible strings read this; assertions
+// about behavior keep reading app.js.
+func readWebCatalog(t *testing.T, extra ...string) string {
+	t.Helper()
+	parts := []string{readWebAsset(t, "i18n.js")}
+	for _, name := range extra {
+		parts = append(parts, readWebAsset(t, name))
+	}
+	return strings.Join(parts, "\n")
+}
+
 func TestWebStylesUseAyameTokens(t *testing.T) {
 	t.Parallel()
 	tokens := readWebAsset(t, "tokens.css")
@@ -105,7 +117,7 @@ func TestSelectionBusyAndResultEmptyStatesAreConsistent(t *testing.T) {
 
 func TestCompleteMatchCardsIncludeScopeAndDistinguishTruncation(t *testing.T) {
 	t.Parallel()
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 	style := readWebAsset(t, "style.css")
 	for _, want := range []string{
 		`completeMatch: "✔ 完全一致"`, `completeMatch: "✔ Complete match"`,
@@ -323,7 +335,7 @@ func TestDirectoryFilterEditorIsWired(t *testing.T) {
 func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 
 	for _, want := range []string{
 		`data-i18n-aria-label="langSwitchLabel"`,
@@ -418,7 +430,7 @@ func TestCSVPaginationIsDirectAndAccessible(t *testing.T) {
 func TestLocalizedWebAttributesCoverStaticLabels(t *testing.T) {
 	t.Parallel()
 	index := readWebAsset(t, "index.html")
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 
 	for _, tag := range regexp.MustCompile(`<[^>]+>`).FindAllString(index, -1) {
 		if strings.Contains(tag, ` title="`) && !strings.Contains(tag, `data-i18n-title=`) {
@@ -447,7 +459,7 @@ func TestLocalizedWebAttributesCoverStaticLabels(t *testing.T) {
 
 func TestClientValidationMessagesAreFullyLocalized(t *testing.T) {
 	t.Parallel()
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 
 	for _, line := range strings.Split(app, "\n") {
 		if strings.Contains(line, "setStatus(") && (strings.Contains(line, " required") || strings.Contains(line, "invalid index")) {

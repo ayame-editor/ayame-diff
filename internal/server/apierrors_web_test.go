@@ -42,7 +42,7 @@ func TestAPIErrorAssetsAreWired(t *testing.T) {
 func TestFailureMessagesExistInBothLanguagesWithARemedy(t *testing.T) {
 	t.Parallel()
 
-	app := readWebAsset(t, "app.js")
+	app := readWebCatalog(t, "app.js")
 	module := readWebAsset(t, "apierrors.js")
 
 	for _, code := range []string{
