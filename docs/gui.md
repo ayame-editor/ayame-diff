@@ -141,6 +141,17 @@ Press `Enter` or leave an edited field to compare that replacement immediately;
 the `⇄` control swaps LEFT and RIGHT. Re-comparison restores the logical line that
 was in view rather than returning to the first difference.
 
+### Progress and messages
+
+A running comparison writes to its own progress line, and the outcome of an
+operation — saved merge, exported patch, failed compare — joins a separate
+message lane below it. Messages stack instead of replacing each other, so the
+result of the previous attempt is still readable after the next one starts. A
+success withdraws itself after a few seconds; a warning or a failure stays until
+it is dismissed with its close button or with `Escape` while it holds focus. A
+message that repeats is counted on its existing line rather than stacking a
+duplicate, and each line carries the time it arrived.
+
 ### External changes
 
 **Auto-reload external changes** is enabled by default in the View menu for
