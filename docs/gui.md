@@ -69,7 +69,9 @@ ayame-diff serve [--addr host:port] [--allow-remote]
 
 Starts the web UI and keeps running until you use **Stop server** in the top bar
 or stop it with `Ctrl+C`, `SIGINT`, or `SIGTERM`. Shutdown drains active HTTP
-requests before the listener closes.
+requests before the listener closes; requests that are only waiting — an
+external-change watch, for example — are ended at once rather than held for
+their full poll window, so a stop returns immediately.
 
 ```bash
 ayame-diff serve                       # http://127.0.0.1:8080

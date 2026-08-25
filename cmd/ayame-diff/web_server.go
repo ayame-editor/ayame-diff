@@ -15,10 +15,13 @@ import (
 )
 
 const (
-	gracefulShutdownTimeout = 5 * time.Second
-	guiBrowserLeaseTimeout  = 90 * time.Second
-	guiBrowserCloseGrace    = 5 * time.Second
+	guiBrowserLeaseTimeout = 90 * time.Second
+	guiBrowserCloseGrace   = 5 * time.Second
 )
+
+// A variable so a focused test can exercise the close escalation without
+// waiting out the real drain budget.
+var gracefulShutdownTimeout = 5 * time.Second
 
 func newShutdownRequest() (<-chan struct{}, func()) {
 	requests := make(chan struct{}, 1)
@@ -71,6 +74,14 @@ func serveUntilShutdown(listener net.Listener, handler http.Handler, shutdownReq
 
 func serveUntilContext(ctx context.Context, listener net.Listener, handler http.Handler, shutdownRequests <-chan struct{}) error {
 	httpServer := server.NewHTTPServer("", handler)
+	// Requests hang off one cancellable context so a stop can end the waiting
+	// ones itself. The GUI keeps an external-change watch open for up to twenty
+	// seconds (#251); without this the graceful drain would always outlive its
+	// deadline and report a stop as a failure (#323).
+	requests, endRequests := context.WithCancel(context.Background())
+	defer endRequests()
+	httpServer.BaseContext = func(net.Listener) context.Context { return requests }
+
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- httpServer.Serve(listener)
@@ -85,14 +96,17 @@ func serveUntilContext(ctx context.Context, listener net.Listener, handler http.
 
 	shutdownContext, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
 	defer cancel()
-	shutdownErr := httpServer.Shutdown(shutdownContext)
-	if shutdownErr != nil {
+	endRequests()
+	if err := httpServer.Shutdown(shutdownContext); err != nil {
+		// The deadline is the designed escalation to an immediate close, not
+		// something to report: the process is stopping either way.
 		_ = httpServer.Close()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			<-serveErrors
+			return err
+		}
 	}
 	serveErr := <-serveErrors
-	if shutdownErr != nil {
-		return shutdownErr
-	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		return serveErr
 	}
