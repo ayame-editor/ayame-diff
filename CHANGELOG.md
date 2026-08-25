@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.8.13 - 2026-08-26
+
+- Either pane can now be edited and saved, which was the one condition for
+  replacing WinMerge that ayame-diff could not meet. A diff response carries
+  hunk slices rather than whole files, so editing loads both files in full,
+  compares the buffers instead of the paths, and writes back only when asked.
+  The line editor is a text field mounted on the line being changed rather
+  than a contenteditable region, an IME composition is left alone until it
+  ends, and the comparison catches up when a line is committed — Japanese
+  input is not interrupted mid-word, and the caret is never torn out of a line
+  by a re-render. Saving preserves the file's encoding, BOM, line terminator
+  and final-newline state, requires an explicit overwrite, and refuses a file
+  that changed under the editor until the user chooses, so another writer's
+  work is never discarded silently. Editing is offered only where a line
+  addresses a file line: two real files in text mode. (#255)
+- Unsaved lines are visible and hard to lose: the pane header marks them, each
+  edited line carries a gutter mark, and anything that would replace what is
+  being edited — a different path, a mode switch, pasted text — asks first and
+  stays put if declined. Leaving the page warns, `Ctrl+S` saves the pane being
+  edited, and external-change auto-reload no longer runs over unsaved work.
+  (#256)
+
 ## v0.8.12 - 2026-08-26
 
 - Retuned the diff palette for the warm Ayame ground. Word-level highlights
