@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.15 - 2026-08-27
+
+- Turning a page in a CSV result no longer rebuilds the result. A page turn
+  changes a hundred rows, but it discarded the pane headers, the summary, the
+  column headers and the pager to do it, then hunted the clicked button back
+  out of the document it had just rebuilt; the "changed columns only" toggle
+  went through the same path. The frame is now built once and kept, so paging
+  replaces the rows and moves the pager, and toggling the columns rebuilds the
+  columns and the rows under them. On a 60-column comparison with 1,600
+  differences a page turn goes from 149 ms to 26 ms, and the button that was
+  clicked keeps its focus because it is the same button. (#154)
+
 ## v0.8.14 - 2026-08-26
 
 - A folder comparison can now be read in one scroll. **Continuous** stacks
