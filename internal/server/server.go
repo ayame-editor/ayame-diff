@@ -152,6 +152,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 	// concurrency gate (#170); cheap metadata handlers (health, files,
 	// path-info, drop, project, csv/inspect) do not.
 	s.mux.HandleFunc("/api/diff", s.limited(s.handleDiff))
+	s.mux.HandleFunc("/api/diff/context", s.limited(s.handleDiffContext))
 	s.mux.HandleFunc("/api/patch", s.limited(s.handlePatch))
 	s.mux.HandleFunc("/api/merge/text", s.limited(s.handleTextMerge))
 	s.mux.HandleFunc("/api/three-way/text", s.limited(s.handleThreeWayText))

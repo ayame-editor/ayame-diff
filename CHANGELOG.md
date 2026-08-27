@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.8.16 - 2026-08-27
+
+- Text diffs now show unchanged context around each hunk instead of forcing a
+  choice between context-free hunks and the whole file. **Context** toggles the
+  rows without recomparing, **Settings → Result display** controls the initial
+  line count, and each collapsed boundary expands upward, downward, from both
+  edges, or in the direction it is dragged. Context rows keep syntax,
+  whitespace, search, scroll anchoring, manual alignment, and side-by-side
+  editing behavior. The browser fetches bounded ranges (at most 200 lines each)
+  through the new `/api/diff/context` endpoint, batches large hunk sets, and
+  never mislabels the unreturned tail of a truncated result as unchanged, so a
+  small expansion does not materialize a large input. (#267)
+
 ## v0.8.15 - 2026-08-27
 
 - Turning a page in a CSV result no longer rebuilds the result. A page turn

@@ -412,6 +412,7 @@ button:active:not(:disabled) {
 .hunk-merge { float: right; display: none; gap: 0.25rem; margin-left: 0.35rem; }
 .merge-mode .hunk-merge { display: inline-flex; }
 .merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.context-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: var(--fs-caption); }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }
@@ -660,6 +661,29 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   content-visibility: auto;
   contain-intrinsic-size: auto 6rem;
 }
+.context-region {
+  overflow: hidden; border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px); background: var(--bg);
+  content-visibility: auto; contain-intrinsic-size: auto 3rem;
+}
+.context-gap {
+  display: grid; grid-template-columns: minmax(2.4rem, 1fr) auto minmax(2.4rem, 1fr);
+  align-items: center; gap: 0.35rem; min-height: 1.9rem;
+  padding: 0.15rem 0.45rem; border-block: 1px dashed var(--border);
+  background: var(--panel); color: var(--muted); font-size: var(--fs-caption);
+}
+.context-gap:first-child { border-top: 0; }
+.context-gap:last-child { border-bottom: 0; }
+.context-gap-label {
+  grid-column: 2; margin: 0; padding: 0.12rem 0.55rem;
+  border: 0; background: transparent; color: var(--muted); font: inherit;
+}
+.context-gap-label:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.context-expand { margin: 0; padding: 0.08rem 0.55rem; font-size: var(--fs-caption); }
+.context-expand.up { grid-column: 1; justify-self: end; }
+.context-expand.down { grid-column: 3; justify-self: start; }
+.context-region .cell.same { background: color-mix(in srgb, var(--panel) 42%, transparent); }
+.result.unified .context-region .cell.context-duplicate { display: none; }
 .hunk.current { outline: var(--selection-ring-width) solid var(--accent); outline-offset: 2px; }
 .hunk.read .hunk-head::after { content: " ✓"; color: var(--accent); }
 .hunk.moved { border-color: var(--move-fg); }

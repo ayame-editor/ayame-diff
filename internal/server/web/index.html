@@ -200,6 +200,7 @@
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
+        <button id="contextToggle" type="button" class="context-toggle" data-i18n="contextToggle" data-i18n-title="contextToggleTitle" aria-pressed="true" hidden>Context</button>
         <label class="opt inline" id="dirStatusWrap" hidden><span class="sr-only" data-i18n="statusFilter">statuses</span><select id="dirStatus" data-i18n-title="statusFilter" data-i18n-aria-label="statusFilter"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
         <label class="opt inline" id="dirSearchWrap" hidden><span class="sr-only" data-i18n="folderSearch">path search</span><input id="dirSearch" type="search" data-i18n-placeholder="folderSearchPlaceholder" data-i18n-title="folderSearch" data-i18n-aria-label="folderSearch" placeholder="Search folder results" autocomplete="off" spellcheck="false" /></label>
         <button id="dirContinuous" type="button" class="continuous-toggle" data-i18n="continuousView" aria-pressed="false" hidden>Continuous</button>
@@ -339,6 +340,13 @@
             <label class="opt check"><input id="detectMoves" type="checkbox" /><span data-i18n="detectMoves">detect moves</span></label>
           </div>
         </details>
+<details class="csv-advanced" id="resultDisplay">
+          <summary><span data-i18n="resultDisplay">Result display</span><span class="details-badge" id="resultDisplayBadge" hidden></span></summary>
+          <p class="details-hint" data-i18n="resultDisplayHint">Controls what is shown around differences without recomputing them.</p>
+          <div class="opts">
+            <label class="opt"><span data-i18n="contextLines">unchanged context lines</span><input id="contextLines" type="number" value="3" min="0" max="50" /></label>
+          </div>
+        </details>
 <details class="csv-advanced" id="engineTuning">
           <summary><span data-i18n="engineTuning">Engine tuning</span><span class="details-badge" id="engineTuningBadge" hidden></span></summary>
           <p class="details-hint" data-i18n="engineTuningHint">Affects how much of a difference is computed and shown, not what counts as one. Raise these only when a result is truncated.</p>
@@ -387,6 +395,7 @@
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
+    <script src="unchanged.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>

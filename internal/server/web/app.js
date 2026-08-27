@@ -24,6 +24,12 @@ const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const {
+  buildUnchangedRegions,
+  initialContextRanges,
+  missingContextSpans,
+  batchContextRanges,
+} = globalThis.AyameUnchanged;
+const {
   continuousEntries,
   windowAround,
   unloadTargets,
@@ -144,6 +150,7 @@ function applyLang(next) {
   for (const el of document.querySelectorAll("[data-i18n-aria-label]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria-label")));
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
+	refreshContextTranslations();
 	renderRecentComparisons();
 }
 
@@ -514,6 +521,7 @@ async function renderContinuous(data, body) {
   const entries = continuousEntries(filtered);
 
   csvData = null; lastData = null; lastComparedRequest = null;
+  clearUnchangedContext();
   $("syncPanel").hidden = true; $("mergePanel").hidden = true;
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
@@ -936,6 +944,9 @@ function beginRequest() { return ++requestGeneration; }
 function isCurrentRequest(generation) { return generation === requestGeneration; }
 let lastData = null; // last diff response, retained for navigation and merge actions
 let lastComparedRequest = null;
+let unchangedRegions = [];
+let contextLoadToken = 0;
+let contextRequestID = 0;
 let currentHunk = -1;
 let readHunks = new Set();
 let navObserver = null;
@@ -1417,6 +1428,313 @@ function row(left, right) {
   return r;
 }
 
+// ---- Unchanged context (#267) ----
+// The diff response deliberately contains hunk lines only. Context is fetched
+// by bounded range after the hunk geometry is known, so a ten-million-line
+// input stays a small initial response and expanding one boundary never loads
+// the rest of the file by accident.
+const CONTEXT_EXPAND_CHUNK = 20;
+const CONTEXT_MAX_LINES = 50;
+const CONTEXT_BATCH_RANGES = 400;
+const CONTEXT_BATCH_LINES = 10_000;
+
+function contextIsVisible() {
+  return $("contextToggle")?.getAttribute("aria-pressed") === "true";
+}
+
+function contextLineCount() {
+  const value = Number($("contextLines")?.value);
+  return Number.isFinite(value) ? Math.max(0, Math.min(CONTEXT_MAX_LINES, Math.trunc(value))) : 3;
+}
+
+function clearUnchangedContext() {
+  contextLoadToken++;
+  unchangedRegions = [];
+  syncContextVisibility();
+}
+
+function prepareUnchangedContext(data) {
+  contextLoadToken++;
+  // When maxHunks truncated the result, anything after the last returned hunk
+  // is unclassified rather than unchanged. Do not label or fetch that tail.
+  unchangedRegions = buildUnchangedRegions(data?.hunks, data?.old_lines, data?.new_lines, !data?.omitted_hunks)
+    .map((region) => {
+      const node = document.createElement("section");
+      node.className = "context-region";
+      node.dataset.contextRegion = String(region.index);
+      node.setAttribute("aria-label", t("contextRegion"));
+      return { ...region, node, segments: [], pending: false };
+    });
+  renderAllContextRegions();
+}
+
+function appendContextRows(target, region, segment, skip = 0) {
+  const oldPath = syntaxPath("old"), newPath = syntaxPath("new");
+  const count = Math.min(segment.count, segment.old.length, segment.new.length);
+  for (let index = skip; index < count; index++) {
+    const oldLine = region.oldStart + segment.offset + index;
+    const newLine = region.newStart + segment.offset + index;
+    const left = cell("same", oldLine + 1, plainSpan(segment.old[index], oldPath), "old");
+    const right = cell("same", newLine + 1, plainSpan(segment.new[index], newPath), "new");
+    left.classList.add("old");
+    right.classList.add("new");
+    if (segment.old[index] === segment.new[index]) right.classList.add("context-duplicate");
+    target.append(row(left, right));
+  }
+}
+
+function contextGapControl(region, gap) {
+  const control = document.createElement("div");
+  control.className = "context-gap";
+  control.dataset.contextCount = String(gap.count);
+  const chunk = Math.min(CONTEXT_EXPAND_CHUNK, gap.count);
+  const canExpandUp = region.index < unchangedRegions.length - 1;
+  const canExpandDown = region.index > 0;
+  const addDirection = (direction, label, title) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `context-expand ${direction}`;
+    button.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.disabled = region.pending;
+    button.addEventListener("click", () => void expandContextSpan(region, gap, direction));
+    control.append(button);
+  };
+  if (canExpandUp) addDirection("up", "↑", t("contextExpandUp", { count: chunk.toLocaleString() }));
+  const label = document.createElement("button");
+  label.type = "button";
+  label.className = "context-gap-label";
+  label.textContent = t("contextHidden", { count: gap.count.toLocaleString() });
+  label.title = canExpandUp && canExpandDown
+    ? t("contextExpandBoth", { count: chunk.toLocaleString() })
+    : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: chunk.toLocaleString() });
+  label.disabled = region.pending;
+  const defaultDirection = canExpandUp && canExpandDown ? "both" : (canExpandUp ? "up" : "down");
+  let dragStart = null;
+  let dragged = false;
+  label.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    dragStart = event.clientY;
+    dragged = false;
+    label.setPointerCapture?.(event.pointerId);
+  });
+  label.addEventListener("pointerup", (event) => {
+    if (dragStart == null) return;
+    const distance = event.clientY - dragStart;
+    dragStart = null;
+    if (Math.abs(distance) < 12) return;
+    dragged = true;
+    const direction = distance < 0
+      ? (canExpandUp ? "up" : defaultDirection)
+      : (canExpandDown ? "down" : defaultDirection);
+    void expandContextSpan(region, gap, direction);
+    setTimeout(() => { dragged = false; }, 0);
+  });
+  label.addEventListener("pointercancel", () => { dragStart = null; });
+  label.addEventListener("click", () => {
+    if (dragged) { dragged = false; return; }
+    void expandContextSpan(region, gap, defaultDirection);
+  });
+  control.append(label);
+  if (canExpandDown) addDirection("down", "↓", t("contextExpandDown", { count: chunk.toLocaleString() }));
+  return control;
+}
+
+function renderContextRegion(region) {
+  const node = region?.node;
+  if (!node) return;
+  node.textContent = "";
+  node.hidden = !contextIsVisible() || region.count === 0;
+  if (node.hidden) return;
+
+  const segments = region.segments.slice().sort((left, right) => left.offset - right.offset);
+  const gaps = new Map(missingContextSpans(region.count, segments).map((gap) => [gap.offset, gap]));
+  let cursor = 0;
+  for (const segment of segments) {
+    const start = Math.max(0, segment.offset);
+    const end = Math.min(region.count, start + segment.count);
+    if (end <= cursor) continue;
+    if (start > cursor) node.append(contextGapControl(region, gaps.get(cursor) || { offset: cursor, count: start - cursor }));
+    const rows = document.createElement("div");
+    rows.className = "context-rows";
+    appendContextRows(rows, region, segment, Math.max(0, cursor - start));
+    node.append(rows);
+    cursor = end;
+  }
+  if (cursor < region.count) node.append(contextGapControl(region, gaps.get(cursor) || { offset: cursor, count: region.count - cursor }));
+}
+
+function renderAllContextRegions() {
+  for (const region of unchangedRegions) renderContextRegion(region);
+}
+
+function refreshContextTranslations() {
+  for (const region of unchangedRegions) {
+    region.node.setAttribute("aria-label", t("contextRegion"));
+    for (const gap of region.node.querySelectorAll(".context-gap")) {
+      const count = Number(gap.dataset.contextCount) || 0;
+      const chunk = Math.min(CONTEXT_EXPAND_CHUNK, count).toLocaleString();
+      const label = gap.querySelector(".context-gap-label");
+      if (label) {
+        label.textContent = t("contextHidden", { count: count.toLocaleString() });
+        const hasUp = Boolean(gap.querySelector(".context-expand.up"));
+        const hasDown = Boolean(gap.querySelector(".context-expand.down"));
+        label.title = hasUp && hasDown
+          ? t("contextExpandBoth", { count: chunk })
+          : t(hasUp ? "contextExpandUp" : "contextExpandDown", { count: chunk });
+      }
+      const up = gap.querySelector(".context-expand.up");
+      if (up) {
+        up.title = t("contextExpandUp", { count: chunk });
+        up.setAttribute("aria-label", up.title);
+      }
+      const down = gap.querySelector(".context-expand.down");
+      if (down) {
+        down.title = t("contextExpandDown", { count: chunk });
+        down.setAttribute("aria-label", down.title);
+      }
+    }
+  }
+}
+
+function setContextPending(region, pending) {
+  region.pending = pending;
+  for (const button of region.node.querySelectorAll(".context-gap button")) button.disabled = pending;
+}
+
+async function renderContextRegionsSliced(regions, token) {
+  let started = performance.now();
+  for (const region of regions) {
+    renderContextRegion(region);
+    if (performance.now() - started < RENDER_BUDGET_MS) continue;
+    await yieldToBrowser();
+    if (token !== contextLoadToken) return false;
+    started = performance.now();
+  }
+  return true;
+}
+
+async function loadContextRanges(ranges, options = {}) {
+  if (!ranges.length || !lastComparedRequest) return false;
+  const token = options.token ?? contextLoadToken;
+  let source;
+  try { source = JSON.parse(lastComparedRequest); } catch (_) { return false; }
+  const byID = new Map();
+  const prepared = ranges.map((range) => {
+    const region = unchangedRegions[range.region];
+    if (!region || range.count <= 0) return null;
+    const id = ++contextRequestID;
+    byID.set(id, { region, offset: range.offset, count: range.count });
+    return {
+      id,
+      old_start: region.oldStart + range.offset,
+      new_start: region.newStart + range.offset,
+      count: range.count,
+    };
+  }).filter(Boolean);
+  if (!prepared.length) return false;
+
+  const affected = new Set([...byID.values()].map((item) => item.region));
+  for (const region of affected) setContextPending(region, true);
+  const anchor = options.preserveAnchor ? captureResultScrollAnchor() : null;
+  try {
+    if (options.announce) setStatus(t("contextLoading"), "busy");
+    for (const batch of batchContextRanges(prepared, CONTEXT_BATCH_RANGES, CONTEXT_BATCH_LINES)) {
+      const response = await apiFetch("/api/diff/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...source, ranges: batch }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw apiError(data, response);
+      if (token !== contextLoadToken) return false;
+      for (const returned of data.ranges || []) {
+        const requested = byID.get(returned.id);
+        if (!requested || !Array.isArray(returned.old) || !Array.isArray(returned.new)) continue;
+        const count = Math.min(requested.count, returned.old.length, returned.new.length);
+        if (!count) continue;
+        requested.region.segments.push({
+          offset: requested.offset,
+          count,
+          old: returned.old.slice(0, count),
+          new: returned.new.slice(0, count),
+        });
+      }
+      if (!(await renderContextRegionsSliced(affected, token))) return false;
+      if (token !== contextLoadToken) return false;
+    }
+    if (searchOpen()) runSearch();
+    updateMinimapViewport();
+    return true;
+  } catch (error) {
+    if (token === contextLoadToken) setStatus(String(error.message || error), "error");
+    return false;
+  } finally {
+    if (token === contextLoadToken) {
+      for (const region of affected) setContextPending(region, false);
+      if (anchor) restoreResultScrollAnchor(anchor);
+    }
+  }
+}
+
+async function loadInitialContext(options = {}) {
+  if (!contextIsVisible() || !unchangedRegions.length) return true;
+  const ranges = initialContextRanges(unchangedRegions, contextLineCount());
+  if (!ranges.length) return true;
+  return loadContextRanges(ranges, { ...options, token: contextLoadToken });
+}
+
+async function expandContextSpan(region, gap, direction) {
+  if (region.pending || gap.count <= 0) return;
+  const count = Math.min(CONTEXT_EXPAND_CHUNK, gap.count);
+  let ranges;
+  if (direction === "up") {
+    ranges = [{ region: region.index, offset: gap.offset + gap.count - count, count }];
+  } else if (direction === "down") {
+    ranges = [{ region: region.index, offset: gap.offset, count }];
+  } else if (gap.count <= count * 2) {
+    ranges = [{ region: region.index, offset: gap.offset, count: gap.count }];
+  } else {
+    ranges = [
+      { region: region.index, offset: gap.offset, count },
+      { region: region.index, offset: gap.offset + gap.count - count, count },
+    ];
+  }
+  await loadContextRanges(ranges, { preserveAnchor: true });
+}
+
+function setContextVisibility(on, persist = true) {
+  const button = $("contextToggle");
+  button.setAttribute("aria-pressed", on ? "true" : "false");
+  button.classList.toggle("active", on);
+  if (persist) localStorage.setItem("ayame-context-visible", on ? "1" : "0");
+  const anchor = captureResultScrollAnchor();
+  renderAllContextRegions();
+  restoreResultScrollAnchor(anchor);
+  if (on && unchangedRegions.every((region) => region.segments.length === 0)) {
+    void loadInitialContext({ preserveAnchor: true });
+  }
+  updateMinimapViewport();
+}
+
+function resetContextRanges() {
+  contextLoadToken++;
+  for (const region of unchangedRegions) {
+    region.segments = [];
+    region.pending = false;
+  }
+  renderAllContextRegions();
+  if (contextIsVisible()) void loadInitialContext({ preserveAnchor: true });
+}
+
+function syncContextVisibility() {
+  const button = $("contextToggle");
+  if (!button) return;
+  const mode = $("mode").value;
+  button.hidden = !(Boolean(lastData?.hunks?.length) && (mode === "text" || mode === "sorted") && !continuousActive());
+}
+
 function renderHunk(h, index) {
   const box = document.createElement("div");
   box.className = "hunk";
@@ -1816,13 +2134,22 @@ async function renderResult(data) {
   syncExportPatchVisibility();
   result.append(paneHeads(data));
   if (!data.hunks.length) {
+    clearUnchangedContext();
     const scope = t("textMatchScope", { old: data.old_lines.toLocaleString(), new: data.new_lines.toLocaleString() });
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
-  const complete = await renderInSlices(result, data.hunks, (hunk, index) => renderHunk(hunk, index));
+  prepareUnchangedContext(data);
+  const complete = await renderInSlices(result, data.hunks, (hunk, index) => {
+    const fragment = document.createDocumentFragment();
+    fragment.append(unchangedRegions[index].node, renderHunk(hunk, index));
+    if (index === data.hunks.length - 1) fragment.append(unchangedRegions[index + 1].node);
+    return fragment;
+  });
   if (!complete) return;
-  setStatus("");
+  syncContextVisibility();
+  const contextComplete = await loadInitialContext({ announce: true });
+  if (contextComplete) setStatus("");
   // Re-apply an open search to the diff that just replaced the old one (#118).
   if (searchOpen()) runSearch();
   updateMergeUI();
@@ -1933,6 +2260,7 @@ function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) =
 async function renderThreeWay(data, csvMode) {
   threeWayData = { ...data, csvMode }; csvData = null;
   lastComparedRequest = null;
+  clearUnchangedContext();
   const summary = $("summary"); summary.innerHTML = "";
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = value; item.append(b, ` ${label}`); summary.append(item); };
   add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); if (data.merged) add(t("autoMerged"), data.merged, "add"); summary.hidden = false;
@@ -2516,6 +2844,7 @@ function renderCSV(data) {
   csvData = data;
   lastData = null;
   lastComparedRequest = null;
+  clearUnchangedContext();
   csvView = null;
   syncExportPatchVisibility();
   minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
@@ -2862,6 +3191,7 @@ async function renderDirectory(data, body, state = {}) {
   teardownContinuousView();
   syncContinuousControls();
   csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("minimap").hidden = true; $("syncPanel").hidden = true;
+  clearUnchangedContext();
   // The toolbar used to be hidden outright for a folder result, which took the
   // theme and colour choices with it and left the status filter stranded in the
   // setup form, reachable only by scrolling back up (#104). Keep the bar and
@@ -3084,6 +3414,7 @@ async function runCompare() {
   $("cancel").hidden = false;
   lastData = null;
   lastComparedRequest = null;
+  clearUnchangedContext();
   syncExportPatchVisibility();
   $("summary").hidden = true;
   showResultSkeleton();
@@ -3229,7 +3560,13 @@ function searchableCells() {
   const selector = $("searchChangedOnly").checked
     ? "#result .cell.add .tx, #result .cell.del .tx, #result .cell.chg .tx, #result .three-line, #result td"
     : "#result .cell .tx, #result .three-line, #result td";
-  return document.querySelectorAll(selector);
+  const cells = [...document.querySelectorAll(selector)];
+  // Unified context displays one unchanged line rather than duplicate left and
+  // right copies. Do not count or jump to the hidden right-hand copy.
+  if ($("result").classList.contains("unified")) {
+    return cells.filter((node) => !node.closest(".context-region .cell.context-duplicate"));
+  }
+  return cells;
 }
 
 function runSearch() {
@@ -3376,7 +3713,7 @@ function changedControlCount(root) {
 
 // updateDetailsBadges keeps each collapsed group honest about what it hides.
 function updateDetailsBadges() {
-  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"], ["compareConditions", "conditionsBadge"]]) {
+  for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"], ["compareConditions", "conditionsBadge"], ["resultDisplay", "resultDisplayBadge"]]) {
     const group = $(groupID), badge = $(badgeID);
     if (!group || !badge) continue;
     const changed = changedControlCount(group);
@@ -3665,6 +4002,7 @@ function syncModeOpts() {
 	const threeway = $("mode").value === "threeway" || $("mode").value === "threeway-csv";
 	const directory = $("mode").value === "dir";
 	const structured = csv || directory;
+  $("resultDisplay").hidden = structured || threeway;
   $("numericWrap").hidden = !sorted;
   $("reverseWrap").hidden = !sorted;
 	$("csvOptions").hidden = !csv;
@@ -3731,6 +4069,7 @@ function syncExportPatchVisibility() {
   $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
   syncPatchSettingsVisibility();
   syncViewModeVisibility();
+  syncContextVisibility();
   syncEditControls();
 }
 
@@ -4435,6 +4774,22 @@ for (const id of ["searchCase", "searchRegex", "searchChangedOnly"]) $(id).addEv
 $("searchNext").addEventListener("click", () => stepSearch(1));
 $("searchPrev").addEventListener("click", () => stepSearch(-1));
 $("searchClose").addEventListener("click", closeSearch);
+const savedContextValue = localStorage.getItem("ayame-context-lines");
+const savedContextLines = savedContextValue === null ? NaN : Number(savedContextValue);
+$("contextLines").value = String(Number.isFinite(savedContextLines)
+  ? Math.max(0, Math.min(CONTEXT_MAX_LINES, Math.trunc(savedContextLines)))
+  : 3);
+setContextVisibility(localStorage.getItem("ayame-context-visible") !== "0", false);
+$("contextToggle").addEventListener("click", () => setContextVisibility(!contextIsVisible()));
+captureControlDefaults($("resultDisplay"));
+$("contextLines").addEventListener("input", updateDetailsBadges);
+$("contextLines").addEventListener("change", () => {
+  const count = contextLineCount();
+  $("contextLines").value = String(count);
+  localStorage.setItem("ayame-context-lines", String(count));
+  updateDetailsBadges();
+  resetContextRanges();
+});
 captureControlDefaults($("compareConditions"));
 for (const control of $("compareConditions").querySelectorAll("input, select, textarea")) {
   control.addEventListener("change", updateDetailsBadges);

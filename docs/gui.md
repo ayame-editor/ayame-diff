@@ -245,6 +245,16 @@ dedicated purple color and an `↔` button jumps to the paired location. Detecti
 is off by default; **move min lines** and the engine candidate cap prevent the
 optional post-processing pass from dominating huge comparisons.
 
+**Context** shows unchanged lines at each hunk boundary. The initial number of
+lines is set under **Settings → Result display** (default 3); setting it to 0
+keeps only the expandable boundaries. Use the up/down buttons to reveal 20 more
+lines from one edge, click the collapsed-line label to reveal both edges, or
+drag that label toward the edge to expand. Turning **Context** off returns to a
+hunk-only view without re-running the comparison. Context ranges are fetched on
+demand, so opening one boundary does not send the whole unchanged file to the
+browser. In the side-by-side view, context lines remain editable on both sides
+when **Edit** is active.
+
 ### Manual alignment and ignored differences
 
 When automatic resynchronization picks the wrong lines, click one line on each
@@ -409,6 +419,28 @@ curl -s http://127.0.0.1:8080/api/diff \
   -H 'Content-Type: application/json' \
   -d '{"old":"old.txt","new":"new.txt","mode":"text","ignoreCase":true,"whitespace":"change"}'
 ```
+
+### `POST /api/diff/context`
+
+Loads bounded source ranges for unchanged-line expansion. The request accepts
+the same path/inline text, mode, encoding, and sort fields as `/api/diff`, plus
+`ranges`:
+
+```json
+{
+  "old": "old.txt",
+  "new": "new.txt",
+  "mode": "text",
+  "encoding": "auto",
+  "ranges": [
+    { "id": 1, "old_start": 7, "new_start": 7, "count": 3 }
+  ]
+}
+```
+
+The response echoes each `id` and start position with `old` and `new` line
+arrays. A range contains 1–200 lines; one request contains at most 512 ranges
+and 20,000 lines in total. Coordinates outside either input are rejected.
 
 ### `POST /api/patch`
 

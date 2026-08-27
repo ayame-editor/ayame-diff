@@ -52,6 +52,40 @@ type diffRequest struct {
 	NewAbsent bool `json:"newAbsent,omitempty"`
 }
 
+// diffContextRequest loads only the unchanged line ranges the browser has
+// opened around a hunk. Reusing diffRequest keeps path, inline-edit, encoding,
+// and sorted-mode semantics identical to the comparison that produced the
+// coordinates.
+type diffContextRequest struct {
+	diffRequest
+	Ranges []diffContextRangeRequest `json:"ranges"`
+}
+
+type diffContextRangeRequest struct {
+	ID       int    `json:"id"`
+	OldStart uint64 `json:"old_start"`
+	NewStart uint64 `json:"new_start"`
+	Count    uint64 `json:"count"`
+}
+
+type diffContextRangeOut struct {
+	ID       int      `json:"id"`
+	OldStart uint64   `json:"old_start"`
+	NewStart uint64   `json:"new_start"`
+	Old      []string `json:"old"`
+	New      []string `json:"new"`
+}
+
+type diffContextResponse struct {
+	Ranges []diffContextRangeOut `json:"ranges"`
+}
+
+const (
+	maxDiffContextRanges  = 512
+	maxDiffContextLines   = 200
+	maxDiffContextRequest = 20_000
+)
+
 var positiveDiffNumberFields = []struct {
 	name string
 	max  uint64
@@ -205,6 +239,64 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	linediff.IgnoreHunks(&res, req.IgnoredHunks)
 	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
+}
+
+// handleDiffContext answers expansion controls without recomputing the diff or
+// sending a whole large file to the browser. Every requested slice is bounded,
+// as is their aggregate, so a forged request cannot turn this convenience API
+// into an unbounded response.
+func (s *Server) handleDiffContext(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req diffContextRequest
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := validateDiffSources(req.diffRequest); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Ranges) == 0 || len(req.Ranges) > maxDiffContextRanges {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("ranges must contain between 1 and %d entries", maxDiffContextRanges))
+		return
+	}
+	var requested uint64
+	for _, item := range req.Ranges {
+		if item.Count == 0 || item.Count > maxDiffContextLines {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("context range count must be between 1 and %d", maxDiffContextLines))
+			return
+		}
+		if requested > maxDiffContextRequest-item.Count {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("context request exceeds %d lines", maxDiffContextRequest))
+			return
+		}
+		requested += item.Count
+	}
+
+	oldLines, newLines, closeLines, err := openRequestLines(req.diffRequest)
+	if err != nil {
+		writeClassifiedError(w, err, http.StatusBadRequest)
+		return
+	}
+	defer closeLines()
+	response := diffContextResponse{Ranges: make([]diffContextRangeOut, 0, len(req.Ranges))}
+	for _, item := range req.Ranges {
+		if item.OldStart > oldLines.Count() || item.Count > oldLines.Count()-item.OldStart ||
+			item.NewStart > newLines.Count() || item.Count > newLines.Count()-item.NewStart {
+			writeError(w, http.StatusBadRequest, "context range is outside the compared inputs")
+			return
+		}
+		response.Ranges = append(response.Ranges, diffContextRangeOut{
+			ID:       item.ID,
+			OldStart: item.OldStart,
+			NewStart: item.NewStart,
+			Old:      sliceLines(oldLines, item.OldStart, item.Count, item.Count),
+			New:      sliceLines(newLines, item.NewStart, item.Count, item.Count),
+		})
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
