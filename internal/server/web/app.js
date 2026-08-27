@@ -22,6 +22,7 @@ const {
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const {
   continuousEntries,
   windowAround,
@@ -2505,10 +2506,17 @@ function renderCSVSummary(data) {
   el.hidden = false;
 }
 
+// csvView holds the parts of the table that survive a page turn. Paging used to
+// rebuild the entire result — pane headers, summary, column headers, pager and
+// all — to change a hundred rows; now it replaces the rows and moves the pager
+// (#154).
+let csvView = null;
+
 function renderCSV(data) {
   csvData = data;
   lastData = null;
   lastComparedRequest = null;
+  csvView = null;
   syncExportPatchVisibility();
   minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
   // The rows this index pointed at are about to be replaced. Updating the merge
@@ -2526,34 +2534,82 @@ function renderCSV(data) {
     }
     return;
   }
-  const changedSet = new Set((data.summary.column_changes || []).map((column) => column.index));
-  const columns = data.header.map((_, index) => index).filter((index) => !$("changedColumnsOnly").checked || changedSet.has(index));
-  const pageCount = Math.max(1, Math.ceil(data.differences.length / CSV_PAGE_SIZE));
-  csvPage = Math.max(0, Math.min(csvPage, pageCount - 1));
+
+  const pageCount = csvPageCount(data.differences.length, CSV_PAGE_SIZE);
+  csvPage = clampPage(csvPage, pageCount);
+
   const controls = document.createElement("div"); controls.className = "csv-pages";
-  const rerenderAndFocus = (selector) => { renderCSV(data); document.querySelector(selector)?.focus(); };
-  const prev = document.createElement("button"); prev.type = "button"; prev.className = "csv-page-prev"; prev.textContent = "←"; prev.setAttribute("aria-label", t("previousPage")); prev.title = t("previousPage"); prev.disabled = csvPage === 0; prev.onclick = () => { csvPage--; rerenderAndFocus(".csv-page-prev"); };
-  const pageInput = document.createElement("input"); pageInput.type = "number"; pageInput.className = "csv-page-input"; pageInput.min = "1"; pageInput.max = String(pageCount); pageInput.step = "1"; pageInput.value = String(csvPage + 1); pageInput.setAttribute("aria-label", t("pageInput", { total: pageCount }));
-  const jumpToPage = (refocus) => {
-    const requested = Number(pageInput.value);
-    if (!Number.isInteger(requested) || requested < 1 || requested > pageCount) { pageInput.value = String(csvPage + 1); return; }
-    if (requested - 1 === csvPage) return;
-    csvPage = requested - 1;
-    renderCSV(data);
-    if (refocus) { const input = document.querySelector(".csv-page-input"); input?.focus(); input?.select(); }
-  };
-  pageInput.onchange = () => jumpToPage(false);
-  pageInput.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); jumpToPage(true); } };
+  const prev = document.createElement("button"); prev.type = "button"; prev.className = "csv-page-prev"; prev.textContent = "←"; prev.setAttribute("aria-label", t("previousPage")); prev.title = t("previousPage");
+  const pageInput = document.createElement("input"); pageInput.type = "number"; pageInput.className = "csv-page-input"; pageInput.min = "1"; pageInput.max = String(pageCount); pageInput.step = "1"; pageInput.setAttribute("aria-label", t("pageInput", { total: pageCount }));
   const total = document.createElement("span"); total.textContent = t("pageTotal", { total: pageCount });
-  const next = document.createElement("button"); next.type = "button"; next.className = "csv-page-next"; next.textContent = "→"; next.setAttribute("aria-label", t("nextPage")); next.title = t("nextPage"); next.disabled = csvPage + 1 >= pageCount; next.onclick = () => { csvPage++; rerenderAndFocus(".csv-page-next"); };
+  const next = document.createElement("button"); next.type = "button"; next.className = "csv-page-next"; next.textContent = "→"; next.setAttribute("aria-label", t("nextPage")); next.title = t("nextPage");
+  // The controls stay put across a page turn, so the button that was clicked
+  // keeps its focus without having to be found again afterwards.
+  prev.onclick = () => showCSVPage(csvPage - 1);
+  next.onclick = () => showCSVPage(csvPage + 1);
+  const jumpToPage = () => {
+    const requested = Number(pageInput.value);
+    if (!Number.isInteger(requested) || requested < 1 || requested > csvView.pageCount) {
+      pageInput.value = String(csvPage + 1);
+      return;
+    }
+    showCSVPage(requested - 1);
+  };
+  pageInput.onchange = jumpToPage;
+  pageInput.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); jumpToPage(); } };
   controls.append(prev, pageInput, total, next); result.append(controls);
+
   const wrap = document.createElement("div"); wrap.className = "csv-table-wrap";
   const table = document.createElement("table"); table.className = "csv-table";
-  const head = document.createElement("thead"), headerRow = document.createElement("tr"), sideHead = document.createElement("th"); sideHead.textContent = "_side"; headerRow.append(sideHead);
-  const counts = new Map((data.summary.column_changes || []).map((column) => [column.index, column.count]));
-  for (const index of columns) { const th = document.createElement("th"); th.textContent = data.header[index]; if (counts.has(index)) { const badge = document.createElement("b"); badge.textContent = counts.get(index); th.append(badge); } headerRow.append(th); }
-  head.append(headerRow); table.append(head);
+  const head = document.createElement("thead");
   const tbody = document.createElement("tbody");
+  table.append(head, tbody); wrap.append(table); result.append(wrap);
+
+  csvView = { data, table, head, tbody, controls: { prev, next, pageInput }, pageCount, columns: [] };
+  renderCSVColumns();
+}
+
+// renderCSVColumns rebuilds the column headers and the rows under them. The
+// column set only changes when "changed columns only" is toggled, so paging
+// does not come through here.
+function renderCSVColumns() {
+  if (!csvView) return;
+  const { data, head } = csvView;
+  const changedSet = (data.summary.column_changes || []).map((column) => column.index);
+  csvView.columns = visibleColumns(data.header.length, changedSet, $("changedColumnsOnly").checked);
+
+  head.textContent = "";
+  const headerRow = document.createElement("tr");
+  const sideHead = document.createElement("th"); sideHead.textContent = "_side"; headerRow.append(sideHead);
+  const counts = new Map((data.summary.column_changes || []).map((column) => [column.index, column.count]));
+  for (const index of csvView.columns) {
+    const th = document.createElement("th");
+    th.textContent = data.header[index];
+    if (counts.has(index)) { const badge = document.createElement("b"); badge.textContent = counts.get(index); th.append(badge); }
+    headerRow.append(th);
+  }
+  head.append(headerRow);
+  renderCSVRows();
+}
+
+// showCSVPage moves to a page by replacing the rows, which is the only part of
+// the table a page turn changes.
+function showCSVPage(page) {
+  if (!csvView) return;
+  const next = clampPage(page, csvView.pageCount);
+  if (next === csvPage && csvView.tbody.childElementCount) return;
+  csvPage = next;
+  renderCSVRows();
+}
+
+function renderCSVRows() {
+  if (!csvView) return;
+  const { data, table, tbody, columns } = csvView;
+  // The rows carrying these ids are being replaced, so the index has to go
+  // with them rather than point at detached nodes (#154).
+  resetMergeRowIndex();
+  tbody.textContent = "";
+
   const appendRow = (values, side, kind, changed) => {
     if (!values?.length) return;
     const tr = document.createElement("tr"); tr.className = `csv-${kind.toLowerCase()} csv-${side}`;
@@ -2572,11 +2628,13 @@ function renderCSV(data) {
     }
     tbody.append(tr);
   };
-  for (const [pageIndex, diff] of data.differences.slice(csvPage * CSV_PAGE_SIZE, (csvPage + 1) * CSV_PAGE_SIZE).entries()) {
+
+  const { start, rows } = pageSlice(data.differences, csvPage, CSV_PAGE_SIZE);
+  for (const [pageIndex, diff] of rows.entries()) {
     const action = document.createElement("tr"); action.className = "csv-merge-choice"; action.dataset.mergeId = diff.id;
     action.dataset.scrollAnchor = "csv";
     action.dataset.scrollKey = String(diff.id);
-    action.dataset.scrollOrder = String(csvPage * CSV_PAGE_SIZE + pageIndex);
+    action.dataset.scrollOrder = String(start + pageIndex);
     indexMergeRow(diff.id, action);
     const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
     const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
@@ -2589,8 +2647,19 @@ function renderCSV(data) {
     const changed = new Set((diff.changed_columns || []).map((column) => column.index));
     appendRow(diff.old, "left", diff.kind, changed); appendRow(diff.new, "right", diff.kind, changed);
   }
+
   table.classList.toggle("wrap-cells", $("wrap").checked);
-  table.append(tbody); wrap.append(table); result.append(wrap); updateCSVMergeUI();
+  syncCSVPager();
+  updateCSVMergeUI();
+}
+
+function syncCSVPager() {
+  if (!csvView) return;
+  const { prev, next, pageInput } = csvView.controls;
+  const state = pagerState(csvPage, csvView.pageCount);
+  prev.disabled = state.atFirst;
+  next.disabled = state.atLast;
+  if (document.activeElement !== pageInput) pageInput.value = state.value;
 }
 
 async function compareCSV() {
@@ -4140,10 +4209,12 @@ $("columnSearch").addEventListener("input", filterColumns);
 $("selectAllColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = true; }); updateCSVReview(); });
 $("invertColumns").addEventListener("click", () => { document.querySelectorAll("#columnList .column-choice:not([hidden]) input").forEach((input) => { input.checked = !input.checked; }); updateCSVReview(); });
 $("changedColumnsOnly").addEventListener("change", () => {
-  if (!csvData) return;
+  if (!csvData || !csvView) return;
   const scrollAnchor = captureResultScrollAnchor();
   csvPage = 0;
-  renderCSV(csvData);
+  // Only the columns change: the summary, the pane headers and the pager are
+  // the same result they were describing a moment ago (#154).
+  renderCSVColumns();
   restoreResultScrollAnchor(scrollAnchor, true);
 });
 document.querySelectorAll(".browse").forEach((button) => button.addEventListener("click", () => openBrowser(button.dataset.target)));
