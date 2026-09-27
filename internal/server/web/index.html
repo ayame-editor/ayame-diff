@@ -382,6 +382,31 @@
       <form method="dialog">
         <h2 id="shortcutsTitle" data-i18n="keyboardShortcuts">Keyboard shortcuts</h2>
         <dl id="shortcutsList" class="shortcuts"></dl>
+        <menu>
+          <button id="shortcutCustomize" value="customize" type="button" data-i18n="shortcutCustomize">Customize shortcuts</button>
+          <button value="close" type="submit" class="primary" data-i18n="close">Close</button>
+        </menu>
+      </form>
+    </dialog>
+    <!-- Remapping (#285). The actions and their chords come from keymap.js; this
+         dialog only edits the preset and the per-action overrides and shows the
+         conflicts those choices create. -->
+    <dialog id="keymapDialog" class="app-dialog keymap-dialog" aria-labelledby="keymapTitle">
+      <form method="dialog">
+        <h2 id="keymapTitle" data-i18n="shortcutEditorTitle">Customize keyboard shortcuts</h2>
+        <p class="dialog-hint" data-i18n="shortcutEditorHint">Choose an action, then press the keys to bind it. Escape cancels.</p>
+        <div class="keymap-toolbar">
+          <label class="keymap-preset"><span data-i18n="shortcutPreset">Preset</span>
+            <select id="keymapPreset">
+              <option value="default" data-i18n="shortcutPresetDefault">Default</option>
+              <option value="minimal" data-i18n="shortcutPresetMinimal">Minimal</option>
+            </select>
+          </label>
+          <button type="button" id="keymapReset" data-i18n="shortcutResetPreset">Reset to preset</button>
+          <button type="button" id="keymapExport" data-i18n="shortcutExportJSON">Export JSON</button>
+        </div>
+        <p id="keymapStatus" class="keymap-status" role="status" aria-live="polite"></p>
+        <div id="keymapList" class="keymap-list"></div>
         <menu><button value="close" type="submit" class="primary" data-i18n="close">Close</button></menu>
       </form>
     </dialog>
@@ -396,6 +421,7 @@
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
     <script src="unchanged.js"></script>
+    <script src="keymap.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>

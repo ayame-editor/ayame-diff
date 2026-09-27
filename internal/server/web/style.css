@@ -623,6 +623,20 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .shortcuts dt { font-family: var(--mono); color: var(--accent-bright); white-space: nowrap; }
 .shortcuts dd { margin: 0; }
 
+/* Shortcut remapping (#285). The dialog is wider than the help list because
+   each row pairs a label with the chord button and its clear button. */
+.keymap-dialog { max-width: min(44rem, 92vw); }
+.keymap-dialog .dialog-hint { color: var(--muted); font-size: var(--fs-label); margin: 0 0 0.7rem; }
+.keymap-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
+.keymap-preset { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: var(--fs-label); }
+.keymap-list { display: grid; gap: 0.25rem; max-height: min(55vh, 28rem); overflow: auto; margin: 0 0 0.8rem; }
+.keymap-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 0.2rem 0; }
+.keymap-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keymap-chord { font-family: var(--mono); min-width: 9rem; text-align: center; border-color: var(--border); }
+.keymap-row.capturing .keymap-chord { border-color: var(--accent); color: var(--accent-bright); }
+.keymap-status { font-size: var(--fs-label); color: var(--muted); min-height: 1.2em; margin: 0 0 0.4rem; }
+.keymap-status.warning { color: var(--del-fg); }
+
 
 .csv-advanced > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 .details-badge {
