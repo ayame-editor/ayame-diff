@@ -36,6 +36,7 @@ const {
   stepSection,
   sectionAt,
 } = globalThis.AyameContinuous;
+const { hunkActions } = globalThis.AyameHunkActions;
 const { createMessageLog } = globalThis.AyameMessages;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
@@ -1735,6 +1736,17 @@ function syncContextVisibility() {
   button.hidden = !(Boolean(lastData?.hunks?.length) && (mode === "text" || mode === "sorted") && !continuousActive());
 }
 
+// A toolbar opened from its handle stays open until the pointer goes outside
+// the hunk or Escape is pressed. Hover and focus reveal it on their own, so the
+// pinned state only matters for touch and for a deliberate click on the handle.
+function setHunkToolbarOpen(box, open) {
+  box.classList.toggle("toolbar-open", open);
+  // Closing while focus is still inside would leave :focus-within holding the
+  // toolbar open, so move focus out as part of closing.
+  if (!open && box.contains(document.activeElement)) document.activeElement.blur();
+  box.querySelector(".hunk-toolbar-toggle")?.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
 function renderHunk(h, index) {
   const box = document.createElement("div");
   box.className = "hunk";
@@ -1751,41 +1763,60 @@ function renderHunk(h, index) {
   head.textContent = h.move_id
     ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
     : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
-  if (h.move_id) {
-    const jump = document.createElement("button");
-    jump.type = "button";
-    jump.className = "move-jump";
-    jump.textContent = "↔";
-    jump.title = t("moved");
-    jump.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const peer = [...document.querySelectorAll(`.hunk[data-move-id="${h.move_id}"]`)]
-        .find((node) => Number(node.dataset.hunk) !== index);
-      if (peer) jumpToHunk(Number(peer.dataset.hunk));
-    });
-    head.append(jump);
-  }
-  const ignore = document.createElement("button");
-  ignore.type = "button";
-  ignore.className = "hunk-ignore";
-  ignore.textContent = t("ignoreHunk");
-  ignore.addEventListener("click", (event) => {
+
+  // The hunk's actions sit in a toolbar anchored to the hunk, where the change
+  // is, instead of always-visible in the head (#293). A small handle stays
+  // visible so they are discoverable; pointer hover, keyboard focus inside the
+  // hunk, and a touch tap all reveal the same toolbar. The action set itself is
+  // pure and tested in hunkactions.js.
+  const toolbarId = `hunk-actions-${index}`;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "hunk-toolbar-toggle";
+  toggle.textContent = "⋯";
+  toggle.title = t("hunkActions");
+  toggle.setAttribute("aria-label", t("hunkActions"));
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-controls", toolbarId);
+  toggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    toggleIgnoredHunk(index);
+    setHunkToolbarOpen(box, !box.classList.contains("toolbar-open"));
   });
-  if (ignoredHunks.has(index)) {
-    box.classList.add("ignored");
-    ignore.textContent = t("restoreHunk");
+  const toolbar = document.createElement("div");
+  toolbar.className = "hunk-toolbar";
+  toolbar.id = toolbarId;
+  toolbar.setAttribute("role", "group");
+  toolbar.setAttribute("aria-label", t("hunkActions"));
+  for (const action of hunkActions({
+    moved: Boolean(h.move_id),
+    ignored: ignoredHunks.has(index),
+    mergeable: $("mode").value === "text",
+  })) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = action.className;
+    button.textContent = action.glyph || t(action.labelKey);
+    button.title = t(action.labelKey);
+    button.setAttribute("aria-label", t(action.labelKey));
+    if (action.id === "move-jump") {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const peer = [...document.querySelectorAll(`.hunk[data-move-id="${h.move_id}"]`)]
+          .find((node) => Number(node.dataset.hunk) !== index);
+        if (peer) jumpToHunk(Number(peer.dataset.hunk));
+      });
+    } else if (action.id === "ignore") {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleIgnoredHunk(index);
+      });
+    } else if (action.side) {
+      button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, action.side); });
+    }
+    toolbar.append(button);
   }
-  head.append(ignore);
-  const mergeActions = document.createElement("span");
-  mergeActions.className = "hunk-merge";
-  for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
-    const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
-    button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
-    mergeActions.append(button);
-  }
-  head.append(mergeActions);
+  if (ignoredHunks.has(index)) box.classList.add("ignored");
+  head.append(toggle, toolbar);
   box.append(head);
 
   const rows = document.createElement("div");
@@ -2432,7 +2463,13 @@ function toggleIgnoredHunk(index) {
     if (restore) ignoredHunks.delete(i); else ignoredHunks.add(i);
     const box = $(`hunk-${i}`);
     box.classList.toggle("ignored", !restore);
-    box.querySelector(".hunk-ignore").textContent = t(restore ? "ignoreHunk" : "restoreHunk");
+    const ignore = box.querySelector(".hunk-ignore");
+    if (ignore) {
+      const label = t(restore ? "ignoreHunk" : "restoreHunk");
+      ignore.textContent = label;
+      ignore.title = label;
+      ignore.setAttribute("aria-label", label);
+    }
   }
   buildMinimap(lastData);
   updateMinimapViewport();
@@ -4515,6 +4552,17 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   for (const menu of document.querySelectorAll(".menubar .menu[open]")) menu.open = false;
+});
+// A hunk toolbar pinned open from its handle closes the same way a menu does:
+// a click elsewhere, or Escape.
+document.addEventListener("click", (event) => {
+  for (const box of document.querySelectorAll(".hunk.toolbar-open")) {
+    if (!box.contains(event.target)) setHunkToolbarOpen(box, false);
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const box of document.querySelectorAll(".hunk.toolbar-open")) setHunkToolbarOpen(box, false);
 });
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);

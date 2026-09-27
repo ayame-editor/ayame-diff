@@ -241,7 +241,8 @@ and horizontally synchronized because each hunk is rendered as one shared grid
 and scroll row rather than two independent panes.
 
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
-dedicated purple color and an `↔` button jumps to the paired location. Detection
+dedicated purple color and an `↔` button in the hunk's action toolbar jumps to
+the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the
 optional post-processing pass from dominating huge comparisons.
 
@@ -269,6 +270,16 @@ collapsed dashed headers, are excluded from next/previous navigation and unread
 counts, and can be restored. Patch export omits them and records the count in
 the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
 auditable; use declarative line filters (#28) for a permanent rule.
+
+Each hunk carries a small action toolbar anchored to that hunk. Hover the hunk,
+move keyboard focus into it, or press its `⋯` handle to open the toolbar; the
+handle stays visible, so the actions are discoverable rather than hidden behind
+hover. On a device without hover the toolbar is shown outright. Ignore/restore,
+the `↔` jump for moved hunks, and the adopt buttons (while merge mode is on)
+live there, so each action sits on the change it applies to. The session-wide
+controls stay where they were: **Add sync** and difference navigation remain in
+the navigation bar, and **All left / All right / All base**, Undo, and Redo
+remain in the merge panel.
 
 ### CSV / TSV setup and table result
 
