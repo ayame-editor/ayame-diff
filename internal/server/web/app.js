@@ -37,6 +37,15 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+// Colour-independent diff signalling (#298): one mapping from a class or hunk
+// kind to the gutter glyph and the accessible kind name.
+const {
+  cellMarker,
+  cellKindKey,
+  hunkMarker,
+  hunkKindKey,
+  CONFLICT_MARK,
+} = globalThis.AyameDiffMark;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -1384,14 +1393,25 @@ function plainSpan(text, path) {
 function cell(cls, lineNo, node, side) {
   const c = document.createElement("div");
   c.className = "cell " + cls;
-  // The unified view prints this as the leading -/+ (#115). A changed pair is
-  // two cells that share the "chg" class, so the side is what tells the
-  // removal from the addition.
-  if (cls === "add" || (cls === "chg" && side === "new")) c.dataset.marker = "+";
-  else if (cls === "del" || (cls === "chg" && side === "old")) c.dataset.marker = "-";
+  // The kind is carried by data, not only by the background wash, so it
+  // survives a colour-blind theme or a monochrome display (#298). The glyph is
+  // printed in the gutter by CSS in both views; the sr-only word names the kind
+  // for a screen reader, since a bare "-" is not a word. A changed pair is two
+  // cells that share "chg", so the side is what tells removal from addition.
+  const marker = cellMarker(cls, side);
+  const kindKey = cellKindKey(cls);
+  if (marker) c.dataset.marker = marker;
+  if (kindKey) c.dataset.kind = kindKey;
   const ln = document.createElement("span");
   ln.className = "ln";
   ln.textContent = lineNo == null ? "" : String(lineNo);
+  if (marker) ln.dataset.marker = marker;
+  if (kindKey) {
+    const kind = document.createElement("span");
+    kind.className = "sr-only diff-kind";
+    kind.textContent = t(kindKey);
+    c.append(kind);
+  }
   c.append(ln, node);
   if (lineNo != null && side) {
     c.classList.add("selectable-line");
@@ -1748,9 +1768,16 @@ function renderHunk(h, index) {
   const head = document.createElement("div");
   head.className = "hunk-head";
   const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
+  // The kind word already named an insert/delete/replace; the glyph in front
+  // adds the same non-colour signal the rows carry (#298), and marks a replace
+  // as "~" so it is not mistaken for a stray delete plus insert.
+  const mark = hunkMarker(h.kind);
   head.textContent = h.move_id
     ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
-    : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
+    : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${mark} ${kind} @@`;
+  box.dataset.kind = h.move_id ? "moved" : h.kind;
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", head.textContent);
   if (h.move_id) {
     const jump = document.createElement("button");
     jump.type = "button";
@@ -2164,6 +2191,9 @@ function mutateMerge(mutator) {
   mergeRedo = [];
   mutator();
   updateMergeUI();
+  // The remaining count is the merge flow's position indicator, so it is the
+  // one thing worth announcing after a choice (#298).
+  announce($("mergeUnresolved").textContent);
 }
 function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
 function updateMergeUI() {
@@ -2208,11 +2238,13 @@ function undoMerge() {
   if (!mergeUndo.length) return;
   mergeRedo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
   const state = mergeUndo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  announce($("mergeUnresolved").textContent);
 }
 function redoMerge() {
   if (!mergeRedo.length) return;
   mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
   const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  announce($("mergeUnresolved").textContent);
 }
 async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
@@ -2294,7 +2326,14 @@ async function renderThreeWay(data, csvMode) {
     box.dataset.scrollKey = String(event.id);
     box.dataset.scrollOrder = String(event.base_start ?? index);
     indexMergeRow(event.id, box);
-    const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `${t("sideBase")} ${event.base_start + 1},${event.base_len}`}`));
+    const head = document.createElement("header"); head.className = "hunk-head";
+    // A conflict is colour-coded purple by default; the ≠ glyph makes it
+    // readable without that colour, and `data-kind` gives tests and CSS a hook
+    // to the same fact (#298).
+    const kindLabel = event.kind === "conflict" ? `${CONFLICT_MARK} ${event.kind}` : event.kind;
+    head.append(document.createTextNode(`${kindLabel} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `${t("sideBase")} ${event.base_start + 1},${event.base_len}`}`));
+    box.dataset.kind = event.kind;
+    box.setAttribute("role", "group");
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
       for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
@@ -2419,6 +2458,7 @@ function jumpToHunk(index) {
   hunk.scrollIntoView({ block: "center" });
   document.querySelectorAll(`.minimap-marker[data-hunk="${index}"]`).forEach((marker) => marker.classList.add("current", "read"));
   updateCounter();
+  announce($("diffCounter").textContent);
 }
 
 function toggleIgnoredHunk(index) {
@@ -2629,6 +2669,20 @@ function setProgress(msg) {
   el.className = "status busy";
   el.textContent = msg;
   el.hidden = false;
+}
+
+// announce writes the one polite live region (#298). Without a central channel
+// every counter was its own live region, so one keypress could queue several
+// announcements. Failures still reach assistive technology through the message
+// lane's assertive alert; this is for non-urgent feedback such as the position
+// after a navigation step. Clearing first makes a repeated message (pressing
+// Home twice) a fresh mutation, so it is spoken again rather than swallowed as
+// "no change".
+function announce(message) {
+  const el = $("a11yAnnouncer");
+  if (!el || !message) return;
+  el.textContent = "";
+  queueMicrotask(() => { el.textContent = message; });
 }
 
 // A failed API call becomes a sentence the user can act on (#94): the server's
@@ -3674,6 +3728,7 @@ function stepSearch(delta) {
   if (!searchHits.length) return;
   searchIndex = (searchIndex + delta + searchHits.length) % searchHits.length;
   focusSearchHit();
+  announce($("searchCounter").textContent);
 }
 
 // Typing re-runs the whole scan, so it is debounced like the column filter.
@@ -4185,7 +4240,6 @@ function updateSetupSummary() {
 // Reaching a particular difference among thirty meant stepping through them or
 // scrolling. This lists them by kind and line and jumps on click, and marks the
 // current one so the list doubles as a position indicator.
-const HUNK_KIND_MARK = { insert: "+", delete: "−", replace: "~" };
 function buildSidebar(data) {
   const list = $("sidebarList");
   list.innerHTML = "";
@@ -4199,12 +4253,12 @@ function buildSidebar(data) {
     button.className = `sidebar-item ${hunk.kind}`;
     button.dataset.hunk = String(index);
     const mark = document.createElement("span");
-    mark.className = "sidebar-mark"; mark.textContent = HUNK_KIND_MARK[hunk.kind] || "~";
+    mark.className = "sidebar-mark"; mark.textContent = hunkMarker(hunk.kind) || "~";
     mark.setAttribute("aria-hidden", "true");
     const line = document.createElement("span");
     line.className = "sidebar-line"; line.textContent = String(hunk.new_start + 1);
     button.append(mark, line);
-    button.setAttribute("aria-label", `${t(hunk.kind === "insert" ? "added" : hunk.kind === "delete" ? "deleted" : "modified")} ${hunk.new_start + 1}`);
+    button.setAttribute("aria-label", `${t(hunkKindKey(hunk.kind))} ${hunk.new_start + 1}`);
     button.addEventListener("click", () => jumpToHunk(index));
     item.append(button);
     list.append(item);

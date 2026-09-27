@@ -230,7 +230,11 @@ button {
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
-:where(button, input, select, textarea, summary, a[href], [tabindex]):focus-visible {
+/* Every focusable control shows the ring, including role-based widgets that are
+   not native elements (#298). [tabindex] already covers most of them; naming the
+   roles keeps the coverage if a widget is later made focusable by script alone. */
+:where(button, input, select, textarea, summary, a[href], [tabindex],
+  [role="button"], [role="treeitem"], [role="menuitem"], [role="scrollbar"]):focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
@@ -553,6 +557,29 @@ button:active:not(:disabled) {
    same way a patch would rather than as one ambiguous "changed" block. */
 .result.unified .cell.chg[data-marker="-"] { background: var(--del-bg); }
 .result.unified .cell.chg[data-marker="+"] { background: var(--add-bg); }
+
+/* The non-colour signal (#298). Unified already printed the glyph in its own
+   column above; side-by-side prints the same glyph inside the line-number
+   gutter, so the cell's two-column grid is untouched and no extra DOM node is
+   added. It survives a colour-blind theme, a monochrome display and forced
+   colours, where the wash does not. The pseudo-element is on the line number,
+   not the cell, because the cell's ::before would become a stray grid item. */
+.result:not(.unified) .cell > .ln[data-marker]::after {
+  content: attr(data-marker);
+  margin-left: 0.45ch;
+  font-weight: 700;
+  color: var(--fg);
+}
+.result:not(.unified) .cell.add > .ln[data-marker]::after { color: var(--add-fg); }
+.result:not(.unified) .cell.del > .ln[data-marker]::after { color: var(--del-fg); }
+.result:not(.unified) .cell.chg[data-marker="-"] > .ln::after { color: var(--del-fg); }
+.result:not(.unified) .cell.chg[data-marker="+"] > .ln::after { color: var(--add-fg); }
+/* Forced colours replace every wash with system colours, leaving the glyph as
+   the only difference between an add, a delete and a change. Keep it solid
+   rather than inheriting a colour the OS may map away. */
+@media (forced-colors: active) {
+  .cell[data-marker] > .ln[data-marker]::after { color: CanvasText; }
+}
 
 /* Menus. Settings that are not touched while reading a diff live here instead of
    as labelled controls in the bar — eighteen of those wrapped to two ragged rows

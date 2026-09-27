@@ -182,7 +182,17 @@
         </div>
       </section>
 
-      <section class="status" id="status" role="status" aria-live="polite" aria-atomic="true" hidden></section>
+      <!-- Progress is visual only (#298). It is rewritten every 100ms while an
+           operation runs, so announcing it turned the status line into a
+           machine gun of live-region updates. Outcomes still reach assistive
+           technology through the message lane below (assertive for failures,
+           polite for the rest); this element just shows the spinner and text. -->
+      <section class="status" id="status" hidden></section>
+      <!-- One polite live region for the whole app (#298). Instead of every
+           counter announcing itself, keyboard navigation writes its position
+           here once, so a screen reader hears "difference 3 of 12" without
+           four regions talking over each other. -->
+      <div class="sr-only" id="a11yAnnouncer" role="status" aria-live="polite" aria-atomic="true"></div>
       <!-- Results stack in their own lane (#97) so progress above cannot
            erase them, and a failure survives the next attempt. -->
       <div class="messages" id="messages" role="region" data-i18n-aria-label="messageLane" aria-label="メッセージ" hidden></div>
@@ -194,11 +204,14 @@
 
 
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
-        <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
-        <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff"><span aria-hidden="true">↑</span></button>
-        <span id="diffCounter" aria-live="polite"></span>
-        <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
-        <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
+        <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff" aria-describedby="diffCounter"><span aria-hidden="true">⇤</span></button>
+        <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff" aria-describedby="diffCounter"><span aria-hidden="true">↑</span></button>
+        <!-- Not a live region: navigation is announced once through
+             #a11yAnnouncer, and these controls describe themselves with the
+             current position when they are reached (#298). -->
+        <span id="diffCounter"></span>
+        <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff" aria-describedby="diffCounter"><span aria-hidden="true">↓</span></button>
+        <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff" aria-describedby="diffCounter"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
         <button id="contextToggle" type="button" class="context-toggle" data-i18n="contextToggle" data-i18n-title="contextToggleTitle" aria-pressed="true" hidden>Context</button>
         <label class="opt inline" id="dirStatusWrap" hidden><span class="sr-only" data-i18n="statusFilter">statuses</span><select id="dirStatus" data-i18n-title="statusFilter" data-i18n-aria-label="statusFilter"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
@@ -262,13 +275,13 @@
         <button id="navHelp" type="button" class="nav-help icon-btn" data-i18n-title="keyboardShortcuts" data-i18n-aria-label="keyboardShortcuts" title="キーボードショートカット" aria-label="キーボードショートカット"><span aria-hidden="true">?</span></button>
       </nav>
       <section class="result-search" id="resultSearch" hidden role="search" data-i18n-aria-label="searchResults" aria-label="結果内を検索">
-        <input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="結果内を検索" autocomplete="off" spellcheck="false" />
+        <input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="結果内を検索" autocomplete="off" spellcheck="false" aria-describedby="searchCounter" />
         <label class="opt check"><input id="searchCase" type="checkbox" /><span data-i18n="searchCase">大小区別</span></label>
         <label class="opt check"><input id="searchRegex" type="checkbox" /><span data-i18n="searchRegex">正規表現</span></label>
         <label class="opt check"><input id="searchChangedOnly" type="checkbox" /><span data-i18n="searchChangedOnly">変更行のみ</span></label>
-        <span id="searchCounter" aria-live="polite"></span>
-        <button id="searchPrev" type="button" data-i18n-title="searchPrevious" data-i18n-aria-label="searchPrevious"><span aria-hidden="true">↑</span></button>
-        <button id="searchNext" type="button" data-i18n-title="searchNext" data-i18n-aria-label="searchNext"><span aria-hidden="true">↓</span></button>
+        <span id="searchCounter"></span>
+        <button id="searchPrev" type="button" data-i18n-title="searchPrevious" data-i18n-aria-label="searchPrevious" aria-describedby="searchCounter"><span aria-hidden="true">↑</span></button>
+        <button id="searchNext" type="button" data-i18n-title="searchNext" data-i18n-aria-label="searchNext" aria-describedby="searchCounter"><span aria-hidden="true">↓</span></button>
         <button id="searchClose" type="button" data-i18n-title="searchClose" data-i18n-aria-label="searchClose"><span aria-hidden="true">×</span></button>
       </section>
       <section class="sync-panel" id="syncPanel" hidden>
@@ -282,10 +295,10 @@
         <button id="allBase" type="button" data-i18n="allBase">All base</button>
         <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
         <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
-        <span id="mergeUnresolved" aria-live="polite"></span>
-        <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
+        <span id="mergeUnresolved"></span>
+        <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" aria-describedby="mergeUnresolved" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
-        <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
+        <button id="saveMerge" type="button" data-i18n="saveMerge" aria-describedby="mergeUnresolved">Save merge</button>
       </section>
       <div class="diff-layout">
         <!-- Index of the differences. With thirty hunks the only way to reach a
@@ -361,8 +374,8 @@
       <form method="dialog" class="settings-actions"><button value="ok" data-i18n="close">Close</button></form>
     </dialog>
 
-	<dialog id="fileBrowser" class="file-browser">
-	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
+	<dialog id="fileBrowser" class="file-browser" aria-labelledby="browserTitle">
+	  <form method="dialog"><header><strong id="browserTitle" data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
 	  <div class="browser-path"><button id="browserUp" type="button" data-i18n-title="parentFolder" data-i18n-aria-label="parentFolder" title="親フォルダ" aria-label="親フォルダ"><span aria-hidden="true">↑</span></button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
 	  <button id="chooseFolder" type="button" data-i18n="chooseFolder">Choose this folder</button>
 	  <div id="browserEntries" class="browser-entries"></div>
@@ -387,6 +400,7 @@
     </dialog>
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
+    <script src="diffmark.js"></script>
     <script src="modes.js"></script>
     <script src="minimap.js"></script>
     <script src="scrollanchor.js"></script>
