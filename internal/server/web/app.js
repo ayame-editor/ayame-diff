@@ -12,9 +12,22 @@ const {
 const {
   HASH_KEY: COMPARISON_HASH_KEY,
   readComparisonState,
+  readTabState,
   buildComparisonURL,
+  buildTabStateURL,
   buildShareURL,
 } = globalThis.AyameURLState;
+const {
+  emptyDoc: emptyTabDoc,
+  activeTab: activeTabOf,
+  addTab: addTabToDoc,
+  removeTab: removeTabFromDoc,
+  activateTab: activateTabInDoc,
+  updateTab: updateTabInDoc,
+  labelFromState: tabLabelFromState,
+  serializeDoc: serializeTabDoc,
+  parseDoc: parseTabDoc,
+} = globalThis.AyameTabs;
 const {
   calculateMinimapSegments,
   calculateMinimapViewport,
@@ -152,6 +165,7 @@ function applyLang(next) {
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	refreshContextTranslations();
 	renderRecentComparisons();
+	renderTabs();
 }
 
 // ---- editable panes (#255) ----
@@ -1128,6 +1142,164 @@ let restoringComparisonURL = false;
 let comparisonURLReplaceTimer = 0;
 let comparisonURLRestoreGeneration = 0;
 
+// ---- Multiple comparisons (#281) ----
+// Several comparisons stay open as tabs. The active tab is mirrored into the
+// setup form and the result; before switching away, its comparison state and
+// scroll anchor are stashed, and the target recomputes from its own state. That
+// trades recomputation for bounded memory, which the issue explicitly allows as
+// long as scroll position and edits survive.
+let tabDoc = emptyTabDoc();
+let tabSwitching = false;
+
+function renderTabs() {
+  const nav = $("comparisonTabs");
+  const list = $("tabList");
+  if (!nav || !list) return;
+  nav.hidden = tabDoc.tabs.length === 0;
+  list.innerHTML = "";
+  const active = activeTabOf(tabDoc);
+  for (const tab of tabDoc.tabs) {
+    const selected = tab.id === active?.id;
+    const item = document.createElement("div");
+    item.className = "tab";
+    item.classList.toggle("active", selected);
+    item.dataset.tab = tab.id;
+
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "tab-label";
+    label.setAttribute("role", "tab");
+    label.setAttribute("aria-selected", String(selected));
+    label.tabIndex = selected ? 0 : -1;
+    label.textContent = tab.label;
+    label.title = tab.label;
+    label.addEventListener("click", () => { void switchTab(tab.id); });
+    item.append(label);
+
+    if (tabDoc.tabs.length > 1) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "tab-close";
+      close.setAttribute("aria-label", t("closeTab", { label: tab.label }));
+      close.textContent = "×";
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void closeTab(tab.id);
+      });
+      item.append(close);
+    }
+    list.append(item);
+  }
+  list.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// rememberActiveTab keeps the active tab's stored state and label in step with
+// the form after a successful compare or a condition edit.
+function rememberActiveTab(state) {
+  const active = activeTabOf(tabDoc);
+  const label = tabLabelFromState(state);
+  if (!active) {
+    tabDoc = addTabToDoc(tabDoc, { state, label }, { activate: true });
+  } else {
+    tabDoc = updateTabInDoc(tabDoc, active.id, { state, label });
+  }
+  renderTabs();
+}
+
+// stashActiveTab records what the outgoing tab was showing, including where it
+// was scrolled to, so switching back returns to the same line.
+function stashActiveTab() {
+  const active = activeTabOf(tabDoc);
+  if (!active) return;
+  const patch = { scroll: captureResultScrollAnchor() };
+  const state = captureComparisonState();
+  if (state) {
+    patch.state = state;
+    patch.label = tabLabelFromState(state);
+  }
+  tabDoc = updateTabInDoc(tabDoc, active.id, patch);
+}
+
+async function loadActiveTab() {
+  const active = activeTabOf(tabDoc);
+  if (!active) return;
+  if (!active.state || !validComparisonPaths(active.state)) {
+    updateComparisonURL("replace");
+    renderTabs();
+    return;
+  }
+  restoringComparisonURL = true;
+  try {
+    if (!(await applyComparisonState(active.state))) {
+      setStatus(t("urlStateInvalid"), "warning");
+      return;
+    }
+    await compare({ urlHistory: "none", scrollAnchor: active.scroll || null });
+  } finally {
+    restoringComparisonURL = false;
+  }
+  updateComparisonURL("replace");
+  renderTabs();
+}
+
+async function switchTab(id) {
+  if (tabSwitching) return;
+  const active = activeTabOf(tabDoc);
+  if (!active || active.id === id || !tabDoc.tabs.some((tab) => tab.id === id)) {
+    renderTabs();
+    return;
+  }
+  if (editingEnabled() && !(await guardUnsavedEdits())) return;
+  tabSwitching = true;
+  try {
+    stashActiveTab();
+    tabDoc = activateTabInDoc(tabDoc, id);
+    renderTabs();
+    await loadActiveTab();
+  } finally {
+    tabSwitching = false;
+  }
+}
+
+// openTab duplicates the current comparison: the usual next step is to change
+// one side, so starting from the open state is cheaper than retyping it.
+async function openTab() {
+  if (tabSwitching) return;
+  if (editingEnabled() && !(await guardUnsavedEdits())) return;
+  stashActiveTab();
+  const state = captureComparisonState();
+  const label = state ? tabLabelFromState(state) : t("newTab");
+  tabDoc = addTabToDoc(tabDoc, {
+    state,
+    label,
+    scroll: state ? captureResultScrollAnchor() : null,
+  }, { activate: true });
+  renderTabs();
+  updateComparisonURL("replace");
+}
+
+async function closeTab(id) {
+  if (tabSwitching) return;
+  const active = activeTabOf(tabDoc);
+  if (!active || tabDoc.tabs.length <= 1) return;
+  const closing = tabDoc.tabs.find((tab) => tab.id === id);
+  if (!closing) return;
+  if (id === active.id && editingEnabled() && !(await guardUnsavedEdits())) return;
+  const wasActive = id === active.id;
+  tabDoc = removeTabFromDoc(tabDoc, id);
+  renderTabs();
+  if (!wasActive) {
+    updateComparisonURL("replace");
+    return;
+  }
+  tabSwitching = true;
+  try {
+    await loadActiveTab();
+  } finally {
+    tabSwitching = false;
+  }
+}
+
 function hasComparisonResult() {
   return Boolean(lastData || csvData || threeWayData || directoryData);
 }
@@ -1232,8 +1404,18 @@ function updateComparisonURL(action = "replace") {
   if (restoringComparisonURL || action === "none") return false;
   const state = captureComparisonState();
   if (!state) return false;
+  rememberActiveTab(state);
   try {
-    const next = buildComparisonURL(location.href, state, true);
+    const comparisonURL = buildComparisonURL(location.href, state, true);
+    let next = comparisonURL;
+    try {
+      next = buildTabStateURL(comparisonURL, serializeTabDoc(tabDoc), true);
+    } catch (error) {
+      // The active comparison still fits, but the whole tab set does not: keep
+      // the single-comparison URL rather than lose the comparison too (#281).
+      if (error?.code !== "STATE_TOO_LARGE") throw error;
+      next = buildTabStateURL(comparisonURL, null, true);
+    }
     if (next === location.href) return true;
     const metadata = { ayameComparison: true };
     if (action === "push") history.pushState(metadata, "", next);
@@ -1272,7 +1454,11 @@ async function restoreComparisonFromURL(state) {
       return false;
     }
     if (generation !== comparisonURLRestoreGeneration) return false;
-    return await compare({ urlHistory: "none" });
+    const restored = await compare({ urlHistory: "none" });
+    // A legacy or shared URL carries one comparison and no tab set; give it a
+    // tab so the bar reflects what is on screen (#281).
+    if (restored) rememberActiveTab(state);
+    return restored;
   } finally {
     if (generation === comparisonURLRestoreGeneration) restoringComparisonURL = false;
   }
@@ -3466,7 +3652,10 @@ async function runCompare() {
 async function compare(options = {}) {
   if (busyOperation) return false;
   const preparedWatch = options.watch || await prepareFileWatch();
-  const scrollAnchor = captureResultScrollAnchor();
+  // A tab switch supplies its own anchor; otherwise keep the current position.
+  const scrollAnchor = Object.prototype.hasOwnProperty.call(options, "scrollAnchor")
+    ? options.scrollAnchor
+    : captureResultScrollAnchor();
   const result = await runExclusive("compare", runCompare);
   if (result) restoreResultScrollAnchor(scrollAnchor, true);
   // Only fold once something is actually on screen. A failed or cancelled run
@@ -4453,6 +4642,7 @@ document.addEventListener("drop", async (event) => {
 });
 
 $("compare").addEventListener("click", compare);
+$("newTab").addEventListener("click", openTab);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
 $("backToFolder").addEventListener("click", returnToFolder);
@@ -4862,6 +5052,8 @@ applyLang(lang);
 startBrowserSession();
 
 const launch = new URLSearchParams(location.search);
+const launchTabs = parseTabDoc(readTabState(location.href));
+if (launchTabs) { tabDoc = launchTabs; renderTabs(); }
 const launchState = readComparisonState(location.href);
 if (comparisonURLHasState()) {
   if (launchState) {
@@ -4891,6 +5083,10 @@ if (comparisonURLHasState()) {
 window.addEventListener("popstate", () => {
   clearTimeout(comparisonURLReplaceTimer);
   comparisonURLReplaceTimer = 0;
+  // Each history entry carries its own tab set, so Back returns to the tabs
+  // that belonged with that comparison (#281).
+  const entryTabs = parseTabDoc(readTabState(location.href));
+  if (entryTabs) { tabDoc = entryTabs; renderTabs(); }
   const state = readComparisonState(location.href);
   if (!state) {
     comparisonURLRestoreGeneration++;

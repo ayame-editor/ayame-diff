@@ -222,6 +222,23 @@ ayame-diff normally first so the browser session has its own token.
 Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
 use an `.ayamediff` project for very large CSV column selections.
 
+### Multiple comparisons (tabs)
+
+Several comparisons can stay open at once. After the first successful
+comparison a tab bar appears above the paths; **＋** opens a new tab from the
+current comparison (change one side and Re-compare), and the **×** on a tab
+closes it. The active tab is highlighted, and closing the active tab activates
+its neighbour.
+
+Each tab keeps its own inputs, mode, comparison conditions, and scroll
+position. Switching tabs re-applies that state and recomputes the result rather
+than holding every diff in memory, so scroll position survives but a large
+comparison is paid for again when it is opened. The tab set is stored in the
+same URL fragment as the active comparison, so a reload restores the open tabs;
+each history entry carries its own set, so Back returns to the tabs that
+belonged with that comparison. **Copy link** still copies one comparison and
+never the reader's other tabs.
+
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.
 
