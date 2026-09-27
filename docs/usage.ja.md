@@ -16,6 +16,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # 両方のソート�
 ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ比較
 ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
+ayame-diff difftool [flags] LEFT RIGHT                # VCS の2ファイル difftool として動作
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # VCS の3-way mergetool として動作
 ayame-diff serve  [--addr host:port] [--allow-remote]  # ローカルWeb GUI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # GUIを開き、必要なら入力を事前設定
 ayame-diff update [--check]                            # 最新リリースの確認・導入
@@ -369,6 +371,50 @@ ayame-diff bin --max-regions 20 --max-bytes 64 old.dat new.dat
 
 ---
 
+## `difftool` / `mergetool` — VCS から呼ばれる側になる { #difftool-mergetool }
+
+`ayame-diff`はリポジトリを読みませんが、VCS や IDE が外部の差分・マージツールとして
+呼び出すことはできます（ADR 0004）。この2つのコマンドはその向きのためのもので、
+呼ばれる側に必要なもの——Git の引数順、論理ラベル、GUI を閉じるまでの待機、マージが
+実際に解決したかを示す終了コード——を追加します。Git、SVN、IDE への登録手順は
+[ファイルマネージャーとクイック起動](shell-integration.ja.md)を参照してください。
+
+```bash
+# 2ファイル difftool（Git の $LOCAL / $REMOTE）
+ayame-diff difftool "$LOCAL" "$REMOTE"
+ayame-diff difftool --label "HEAD~1:foo.txt" --label "HEAD:foo.txt" "$LOCAL" "$REMOTE"
+
+# 3-way mergetool: BASE LOCAL REMOTE、出力は $MERGED
+ayame-diff mergetool --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+ayame-diff mergetool --order local-base-remote --output "$MERGED" "$LOCAL" "$BASE" "$REMOTE"
+
+# ブラウザ GUI: タブが閉じるまで待機するので呼び出し元が正しく待つ
+ayame-diff difftool --wait "$LOCAL" "$REMOTE"
+ayame-diff mergetool --gui --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+```
+
+`--label`は繰り返し指定でき、位置引数の順に対応します。`difftool`では2つで LEFT と
+RIGHT、`mergetool`では3つで BASE、LOCAL、REMOTE を指定します。Git が渡す一時パスを、
+読み手が理解できる名前に置き換えます。ラベルはパッチのヘッダー、`difftool`の1行
+バナー、GUI のペイン見出しに表示されます。
+
+`--gui`はブラウザで比較を開きます。`--wait`は同じ動作で、明示的なブロッキング指定です
+（`--gui`を含意します）。ブラウザのタブが閉じるか、サーバー停止か、Ctrl+C まで
+プロセスは待機するため、`git difftool`は比較の完了を待ちます。
+
+`mergetool`の終了コードは、`--output`が未解決の競合なしで書けたときだけ0です。保存された
+出力に競合マーカーが残る場合は1、GUI セッションが何も保存せず終了した場合（中断）は130
+なので、呼び出し元が「保存された」を「解決済み」と取り違えることはありません。端末モードは
+マージエンジンの未解決数をそのまま使い、GUI モードは保存時の未解決数をサーバーから受け取り
+ます。
+
+呼び出しごとに短命のサーバーを起動・停止します。`git difftool`は1ファイルずつ実行する
+ためセッションは直列で、呼び出しをまたぐサーバー再利用はありません。ファイルごとの
+確認を省くには`git config --global difftool.prompt false`を設定し、テキスト出力だけで
+よい場合は端末の`difftool`を選んでください。
+
+---
+
 ## `update` — スタンドアロン版の更新 { #update }
 
 `update`はGitHubの最新リリースを確認し、現在のOS・アーキテクチャ用アーカイブを
@@ -439,6 +485,16 @@ ayame-diff shell-select PATH
 - `0` — 未解決 conflict のない出力を書き込み済み
 - `1` — 標準の未解決 conflict marker を含む出力を書き込み済み
 - `2` / `3` — 上記の使用方法エラー、または実行時・書き込みエラー
+
+`mergetool`の場合：
+
+- `0` — `--output` を未解決 conflict なしで書き込み済み
+- `1` — 保存済みの `--output` に未解決の conflict marker が残っている
+- `130` — GUI セッションが保存せず終了（中断）
+- `2` / `3` — 上記の使用方法エラー、または実行時・書き込みエラー
+
+`difftool`は比較が完了すれば `0` を返します（マージ結果は存在しないため、
+マージ成否を主張しません）。
 
 使用方法エラーと実行時エラーは意図的に区別しています。「呼び出し方が誤っている」のか
 「処理を完了できなかった」のかをスクリプトが判別できるようにするためです。内部クラッシュは

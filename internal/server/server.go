@@ -81,6 +81,7 @@ type Server struct {
 	shutdown     func()
 	shutdownOnce sync.Once
 	lifecycle    *browserLifecycle
+	mergeOutcome func(output string, unresolved int)
 }
 
 // LifecycleOptions connects authenticated browser lifecycle events to the
@@ -96,6 +97,12 @@ type LifecycleOptions struct {
 	// BrowserCloseGrace allows a reloaded page to acquire a new lease after the
 	// old document releases its lease.
 	BrowserCloseGrace time.Duration
+	// MergeOutcome, when non-nil, is called after a three-way text merge writes
+	// its output, with the output path and the number of unresolved conflicts
+	// in it. It lets a blocking mergetool return whether the merge actually
+	// resolved — and whether anything was saved at all — instead of assuming a
+	// saved file is a resolved one.
+	MergeOutcome func(output string, unresolved int)
 }
 
 // Options configures a Server.
@@ -142,9 +149,10 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s := &Server{
 		version: opts.Version, token: token, allowedHosts: allowed,
 		mux: http.NewServeMux(), drops: make(map[string]*dropSession),
-		compareSem: make(chan struct{}, maxConcurrentComparisons),
-		watchSem:   make(chan struct{}, maxConcurrentWatchRequests),
-		shutdown:   opts.Lifecycle.Shutdown,
+		compareSem:   make(chan struct{}, maxConcurrentComparisons),
+		watchSem:     make(chan struct{}, maxConcurrentWatchRequests),
+		shutdown:     opts.Lifecycle.Shutdown,
+		mergeOutcome: opts.Lifecycle.MergeOutcome,
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)

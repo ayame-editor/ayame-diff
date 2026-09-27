@@ -58,6 +58,8 @@ Subcommands:
   dir             compare directories or archives
   bin             byte-level binary/hex diff
   3way            compare BASE, LEFT, and RIGHT (text or CSV)
+  difftool        be the two-file tool a VCS difftool calls
+  mergetool       be the three-way tool a VCS mergetool calls
   serve           run the local web UI
   gui             run the web UI and open it in a browser
   update          self-update to the latest release
@@ -107,6 +109,8 @@ var subcommandRunners = map[string]subcommandRunner{
 	"dir":             runDir,
 	"bin":             runBin,
 	"3way":            runThreeWay,
+	"difftool":        runDifftool,
+	"mergetool":       runMergetool,
 	"serve":           runServe,
 	"gui":             runGUI,
 	"update":          runUpdate,

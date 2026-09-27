@@ -37,55 +37,104 @@ ayame-diff shell-uninstall
 以下は ayame-diff を Git から呼ばれるツールにする設定であり、ayame-diff に
 repository の検査・管理を追加するものではありません。この境界は
 [ADR 0004](adr/0004-git-repository-boundary.ja.md)を参照してください。
+`difftool`は Git の2ファイル形式、`mergetool`は後述の3-way形式を受け取ります。
 
-端末の diff を Git のカスタムツールとして登録します。
+端末の diff を登録します。
 
 ```bash
 git config --global diff.tool ayame-diff
 git config --global difftool.ayame-diff.cmd \
-  'ayame-diff text "$LOCAL" "$REMOTE"'
+  'ayame-diff difftool "$LOCAL" "$REMOTE"'
 git config --global difftool.prompt false
-```
 
-次のように実行します。
-
-```bash
 git difftool --tool=ayame-diff HEAD~1 HEAD -- path/to/file
 ```
 
-Git は一時ファイルを `$LOCAL` と `$REMOTE` で渡します。この端末ワークフローは
-比較完了まで待機し、通常の CLI と同じ text engine を使います。ブラウザ GUI には、
-`git difftool` から安全に繰り返し使うための blocking lifetime と論理ラベルがまだ
-ないため、[#295](https://github.com/ayame-editor/ayame-diff/issues/295)で追跡します。
+ブラウザで比較する場合は`--wait`を付けます。タブが閉じるまでプロセスが待機するため、
+`git difftool`は1ファイルずつ実行し、それぞれの完了を待ちます。
+
+```bash
+git config --global difftool.ayame-diff.cmd \
+  'ayame-diff difftool --wait "$LOCAL" "$REMOTE"'
+```
+
+Git は一時ファイルを`$LOCAL`と`$REMOTE`で渡します。ペインにはその一時パスが表示されて
+しまうため、`--label`で論理名に置き換えられます。
+
+```bash
+git config --global difftool.ayame-diff.cmd \
+  'ayame-diff difftool --label "$LOCAL" --label "$REMOTE" "$LOCAL" "$REMOTE"'
+```
+
+Git は custom tool に revision 式を渡さないため、`HEAD~1:foo.txt`のような名前を
+表示するには固定ラベルか、`$LOCAL`/`$REMOTE`を名前に割り当てる小さなラッパーを使います。
+ラベルは位置引数の順に対応し、1つ目が LEFT、2つ目が RIGHT です。
 
 ## Git mergetool
 
-現在の非対話連携では、競合のない自動マージだけを Git が受け入れます。
-ayame-diff で conflict が残る場合は失敗を返し、Git はそのパスを未解決のまま
-保ちます。
+3-way マージを登録し、終了コードを信頼させます。
 
 ```bash
 git config --global merge.tool ayame-diff
 git config --global mergetool.ayame-diff.cmd \
-  'ayame-diff 3way text --allow-conflicts --merge-exit-code --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"'
+  'ayame-diff mergetool --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"'
 git config --global mergetool.ayame-diff.trustExitCode true
-```
 
-競合した `git merge` の後に実行します。
-
-```bash
 git mergetool --tool=ayame-diff -- path/to/file
 ```
 
-Git はカスタム merge tool 向けに `$BASE`、`$LOCAL`、`$REMOTE`、`$MERGED` を
-定義します。`--merge-exit-code` は `--output` を必須とし、未解決の
-ayame-diff conflict がない出力を書けた場合だけ 0、標準 conflict marker を
-書いた場合は 1、不正な呼び出しは 2、実行時または書き込み失敗は 3 を返します。
-`trustExitCode=true` により、Git は marker 付き出力を「保存済み」と「解決済み」で
-混同せず、未解決のまま保ちます。非ゼロ終了後に Git がツール実行前の worktree
-内容を復元する場合があります。未解決パスを手動または別の対話ツールで解決し、
-その後 `git add` してください。
+Git はカスタム merge tool 向けに`$BASE`、`$LOCAL`、`$REMOTE`、`$MERGED`を定義します。
+位置引数の順は`BASE LOCAL REMOTE`（P4Merge/Git）で、Meld の`LOCAL BASE REMOTE`順は
+`--order local-base-remote`で選べます。`--label`を3回指定すると BASE、LOCAL、REMOTE を
+名付けられ、`--gui`でブラウザ解決（タブが閉じるまで待機）になります。
 
-これは意図的に端末・自動処理の基準経路だけを提供します。GUI での対話的な競合解消、
-ブラウザ終了までの待機、一時ファイルの論理ラベル、反復セッション再利用は今後の
-external-tool 対応として #295 に残します。
+```bash
+git config --global mergetool.ayame-diff.cmd \
+  'ayame-diff mergetool --gui --order base-local-remote --label BASE --label LOCAL --label REMOTE --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"'
+```
+
+`mergetool`は`$MERGED`が未解決の競合なしで書けたときだけ0を返します。保存済みの出力に
+標準の conflict marker が残る場合は1、GUI セッションが何も保存せず終了した場合（中断）は
+130を返すため、Git は「保存済み」と「解決済み」を混同しません。端末経路は
+`ayame-diff 3way text --merge-exit-code --output "$MERGED"`と同じエンジンを使い、GUI
+経路は保存時の未解決数をサーバーから受け取ります。`trustExitCode=true`により、Git は
+marker 付き出力を未解決のまま保ちます。非ゼロ終了後に Git がツール実行前の worktree 内容を
+復元する場合があります。未解決パスを手動または別の対話ツールで解決し、その後`git add`
+してください。
+
+## SVN
+
+SVN と TortoiseSVN も同じコマンドを外部 diff/merge ツールに指定できます。
+TortoiseSVN は2ファイル diff に`%mine` / `%yours`、マージに
+`%base` / `%mine` / `%theirs` / `%merged`を使います。
+
+```text
+Diff:  ayame-diff difftool "%mine" "%yours"
+Merge: ayame-diff mergetool --output "%merged" "%base" "%mine" "%theirs"
+```
+
+コマンドラインの`--diff-cmd`は独自の`-u -L …`引数を渡し、`difftool`はそれを受け取り
+ません。`svn diff --diff-cmd`で使う場合は2つのパスだけを転送するラッパーを挟んでください。
+
+## IDE の外部ツール
+
+外部 diff/merge プログラムを設定できる IDE では、プレースホルダーの記法（JetBrains の
+`$1`、Visual Studio の`%1`など）が違っても契約は同じです。プログラムを`ayame-diff`にし、
+引数を次のようにします。
+
+```text
+Diff:  difftool <left> <right>
+Merge: mergetool --output <merged> <base> <local> <remote>
+```
+
+IDE の left/right、または base/local/remote/output のプレースホルダーをこの位置に
+対応付け、ブラウザ表示にしたい場合は`--gui`を追加します。終了コードが解決状態を運ぶため、
+「ツールの終了コードを信頼する」オプションを有効にすると、中断または競合が残るマージを
+未解決のまま保てます。
+
+## 繰り返し呼び出し
+
+`git difftool`は1ファイルにつき1回ツールを起動し、各実行を待ちます。呼び出しごとに
+短命のローカルサーバーを起動・停止し、セッションは直列で、呼び出しをまたぐサーバー再利用は
+ありません。ファイルごとの確認を省くには`difftool.prompt false`を設定します。テキスト
+出力だけでよい場合は端末形式を使ってください。

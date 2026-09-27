@@ -977,6 +977,10 @@ function setMergeMode(on) {
   $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
 }
 let threeWayData = null;
+// Logical pane names supplied by a difftool/mergetool launch (#295). A VCS
+// passes temporary files, so the path is not something a reader recognizes;
+// these override the pane heading without changing the comparison path.
+let launchLabels = { base: "", old: "", new: "" };
 
 // ---- External file changes (#251) ----
 // The server long-polls with os.Stat while the browser keeps the authenticated
@@ -2029,6 +2033,14 @@ function paneHeads(data = {}) {
     label.className = "pane-head-label";
     label.textContent = labelText;
     if (side === "old") label.dataset.oppositeLabel = t("sideRight");
+    const alias = launchLabels[side];
+    let aliasNode = null;
+    if (alias) {
+      aliasNode = document.createElement("span");
+      aliasNode.className = "pane-head-alias";
+      aliasNode.textContent = alias;
+      aliasNode.title = `${alias}\n${path}`;
+    }
     const name = document.createElement(scratch ? "span" : "input");
     name.className = "pane-head-path";
     if (scratch) {
@@ -2052,7 +2064,9 @@ function paneHeads(data = {}) {
     if (lines != null) details.push(t("lineCount", { count: Number(lines).toLocaleString() }));
     if (encoding) details.push(`${t("encoding")}: ${encoding}`);
     name.title = details.filter(Boolean).join("\n");
-    head.append(label, name);
+    head.append(label);
+    if (aliasNode) head.append(aliasNode);
+    head.append(name);
     if (encoding || lines != null) {
       const meta = document.createElement("span");
       meta.className = "pane-head-meta";
@@ -4878,6 +4892,12 @@ if (comparisonURLHasState()) {
   if (launch.has("base")) $("base").value = launch.get("base");
   if (launch.has("old")) $("old").value = launch.get("old");
   if (launch.has("new")) $("new").value = launch.get("new");
+  if (launch.has("output")) $("mergeOutput").value = launch.get("output");
+  launchLabels = {
+    base: launch.get("baseLabel") || "",
+    old: launch.get("oldLabel") || "",
+    new: launch.get("newLabel") || "",
+  };
   if (URL_STATE_MODES.has(launch.get("mode"))) $("mode").value = launch.get("mode");
   if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
   syncCompareReady();

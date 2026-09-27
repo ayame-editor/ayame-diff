@@ -303,17 +303,33 @@ func runText(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var d diffFlags
 	d.register(fs)
+	labels := stringFlags()
+	fs.Var(&labels, "label", "pane display name in LEFT RIGHT order; repeatable")
+	fs.Var(&labels, "L", "alias for --label")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff text [flags] LEFT RIGHT
 
 Line-level diff of two text files (plain or .gz), comparing by row order.
 Uses a bounded resync window, so it stays linear and memory-bounded on huge
-inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard.`)
+inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard.
+Use --label to show a logical name such as HEAD~1:foo.txt in place of a
+temporary path.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
 	if err := parseDiffArgs(fs, args); err != nil {
 		return reportFlagError(err, stderr)
+	}
+	if len(labels.values) > 2 {
+		fmt.Fprintln(stderr, "error: text accepts at most two --label values")
+		return exitUsage
+	}
+	oldLabel, newLabel := fs.Arg(0), fs.Arg(1)
+	if len(labels.values) > 0 && labels.values[0] != "" {
+		oldLabel = labels.values[0]
+	}
+	if len(labels.values) > 1 && labels.values[1] != "" {
+		newLabel = labels.values[1]
 	}
 	if _, _, _, err := d.outputFormat(); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -337,7 +353,7 @@ inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard
 		return exitError
 	}
 	defer closeNew()
-	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
+	if err := emitDiff(oldSrc, newSrc, d, oldLabel, newLabel, stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
 		return exitError
 	}

@@ -507,6 +507,63 @@ func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
 	}
 }
 
+func TestThreeWayTextMergeReportsOutcome(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.txt")
+	left := filepath.Join(dir, "left.txt")
+	right := filepath.Join(dir, "right.txt")
+	output := filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "base\n", left: "left\n", right: "right\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type outcome struct {
+		output     string
+		unresolved int
+	}
+	var got []outcome
+	s, err := NewWithOptions(Options{Version: "test", Lifecycle: LifecycleOptions{
+		MergeOutcome: func(out string, unresolved int) {
+			got = append(got, outcome{out, unresolved})
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := authorizedHandler(s)
+	merge := func(choices map[string]string, allowUnresolved bool) {
+		req := threeWayTextRequest{
+			diffRequest: diffRequest{Old: left, New: right, Window: 16},
+			Base:        base, Output: output, Choices: choices, AllowUnresolved: allowUnresolved,
+		}
+		body, _ := json.Marshal(req)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	merge(nil, true)
+	if len(got) != 1 || got[0].output != output || got[0].unresolved != 1 {
+		t.Fatalf("outcome after unresolved merge = %+v", got)
+	}
+	// The written file carries markers; the callback's count is what lets a
+	// blocking mergetool tell "saved" from "resolved".
+	data, _ := os.ReadFile(output)
+	if !strings.Contains(string(data), "<<<<<<< LEFT") {
+		t.Fatalf("unresolved merge did not write markers: %q", data)
+	}
+
+	merge(map[string]string{"0": "right"}, false)
+	if len(got) != 2 || got[1].output != output || got[1].unresolved != 0 {
+		t.Fatalf("outcome after resolved merge = %+v", got)
+	}
+}
+
 func TestThreeWayCSVCompareAndMergeAPI(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
