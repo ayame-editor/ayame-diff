@@ -186,6 +186,18 @@ it is dismissed with its close button or with `Escape` while it holds focus. A
 message that repeats is counted on its existing line rather than stacking a
 duplicate, and each line carries the time it arrived.
 
+A text comparison's progress line reports which phase it is in — reading the
+inputs, comparing, detecting moved blocks, sending the result, rendering — with
+the time that phase has taken, not just how long the run has lasted. A phase
+with a real count shows it (the streamed result pages, the rendered hunks); the
+phases that have none stay indeterminate instead of inventing a percentage. The
+result is streamed in bounded pages, so the first hunks can be read while the
+rest is still arriving, and the unchanged-context regions are filled in once the
+hunk geometry is known. When `maxHunks` cuts hunks away or `maxLines` cuts a long
+hunk short, the GUI warns in the message lane before the truncated result is
+read, so the limit can be raised then instead of being discovered while reading.
+Cancel aborts the in-flight request immediately.
+
 ### External changes
 
 **Auto-reload external changes** is enabled by default in the View menu for
