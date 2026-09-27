@@ -37,6 +37,19 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+// Visual filter builder model/compiler (#129). Kept pure in rowfilter.js so the
+// node:test suite can exercise the condition semantics without a DOM.
+const {
+  OPERATORS: ROW_FILTER_OPERATORS,
+  operatorInfo: rowFilterOperatorInfo,
+  newCondition: newRowFilterCondition,
+  newGroup: newRowFilterGroup,
+  newFilter: newRowFilter,
+  normalizeFilter: normalizeRowFilter,
+  validateFilter: validateRowFilter,
+  compileFilter: compileRowFilter,
+  countConditions: rowFilterCount,
+} = globalThis.AyameRowFilter;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -152,6 +165,7 @@ function applyLang(next) {
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	refreshContextTranslations();
 	renderRecentComparisons();
+	renderFilterBuilders();
 }
 
 // ---- editable panes (#255) ----
@@ -955,6 +969,9 @@ let syncPoints = [];
 let ignoredHunks = new Set();
 let csvInspection = null;
 let csvData = null;
+// Two independent builders share one condition model: row conditions filter
+// rows by value, column conditions drop columns by name (#129).
+let filterState = { rows: newRowFilter(), columns: newRowFilter() };
 let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
@@ -2730,6 +2747,284 @@ function selectedCSVColumns() {
   return [...document.querySelectorAll("#columnList input:checked")].map((input) => ({ name: input.dataset.name, index: Number(input.dataset.index) }));
 }
 
+// ---- Visual filter builder (#129) ----
+// The DOM is rendered from filterState and read back on every edit, so there is
+// one source of truth and no two-way binding to drift. The model itself lives
+// in rowfilter.js; these functions only build and read controls.
+const FILTER_OP_KEYS = {
+  eq: "filterOpEq", ne: "filterOpNe", contains: "filterOpContains",
+  starts: "filterOpStarts", ends: "filterOpEnds", gt: "filterOpGt",
+  ge: "filterOpGe", lt: "filterOpLt", le: "filterOpLe",
+  between: "filterOpBetween", empty: "filterOpEmpty",
+  not_empty: "filterOpNotEmpty", regex: "filterOpRegex",
+};
+
+function filterHasHeader() { return $("hasHeader").checked; }
+function filterColumnNames() {
+  return csvInspection && Array.isArray(csvInspection.header) ? csvInspection.header : [];
+}
+
+function renderFilterBuilders() {
+  for (const builder of document.querySelectorAll(".filter-builder[data-filter-target]")) {
+    const target = builder.dataset.filterTarget;
+    renderFilterGroup(builder, filterState[target], target === "columns", target, "");
+  }
+  updateFilterBadge();
+}
+
+function renderFilterGroup(container, group, nameMode, target, path) {
+  container.innerHTML = "";
+  container.dataset.filterPath = path;
+  const head = document.createElement("div");
+  head.className = "filter-head";
+  const label = document.createElement("strong");
+  label.textContent = t(nameMode ? "filterColumns" : "filterRows");
+  head.append(label);
+  head.append(filterSelect(t("filterMatch"), [["all", t("filterMatchAll")], ["any", t("filterMatchAny")]], group.match, "filterMatch"));
+  head.append(filterCheck(t("filterIgnoreCase"), group.ignoreCase, "filterIgnorecase"));
+  head.append(filterCheck(t("filterNot"), group.not, "filterNot"));
+  if (path !== "") {
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.className = "filter-remove"; remove.dataset.filterRemove = "1";
+    remove.textContent = "×"; remove.title = t("filterRemove"); remove.setAttribute("aria-label", t("filterRemove"));
+    head.append(remove);
+  }
+  container.append(head);
+
+  const tree = document.createElement("div");
+  tree.className = "filter-tree";
+  tree.dataset.filterTree = "1";
+  group.conditions.forEach((condition) => tree.append(renderFilterCondition(condition, nameMode)));
+  group.groups.forEach((child, index) => {
+    const childEl = document.createElement("div");
+    childEl.className = "filter-group";
+    renderFilterGroup(childEl, child, nameMode, target, path === "" ? String(index) : `${path}.${index}`);
+    tree.append(childEl);
+  });
+  container.append(tree);
+
+  const actions = document.createElement("div");
+  actions.className = "csv-actions filter-actions";
+  const addCondition = document.createElement("button");
+  addCondition.type = "button"; addCondition.dataset.filterAddCondition = "1"; addCondition.textContent = t("filterAddCondition");
+  const addGroup = document.createElement("button");
+  addGroup.type = "button"; addGroup.dataset.filterAddGroup = "1"; addGroup.textContent = t("filterAddGroup");
+  actions.append(addCondition, addGroup);
+  container.append(actions);
+}
+
+function filterSelect(labelText, options, value, dataName) {
+  const label = document.createElement("label");
+  label.className = "opt";
+  const text = document.createElement("span");
+  text.textContent = labelText;
+  const select = document.createElement("select");
+  select.dataset[dataName] = "1";
+  for (const [optionValue, optionText] of options) {
+    const option = document.createElement("option");
+    option.value = optionValue; option.textContent = optionText;
+    if (value === optionValue) option.selected = true;
+    select.append(option);
+  }
+  label.append(text, select);
+  return label;
+}
+
+function filterCheck(labelText, checked, dataName) {
+  const label = document.createElement("label");
+  label.className = "opt check";
+  const input = document.createElement("input");
+  input.type = "checkbox"; input.dataset[dataName] = "1"; input.checked = Boolean(checked);
+  const text = document.createElement("span");
+  text.textContent = labelText;
+  label.append(input, text);
+  return label;
+}
+
+function renderFilterCondition(condition, nameMode) {
+  const row = document.createElement("div");
+  row.className = "filter-condition";
+  if (!nameMode) {
+    const columns = filterColumnNames();
+    if (filterHasHeader() && columns.length) {
+      const select = document.createElement("select");
+      select.className = "filter-column";
+      const empty = document.createElement("option");
+      empty.value = ""; empty.textContent = "—";
+      select.append(empty);
+      for (const name of columns) {
+        const option = document.createElement("option");
+        option.value = name; option.textContent = name;
+        if (condition.column === name) option.selected = true;
+        select.append(option);
+      }
+      row.append(select);
+    } else if (!filterHasHeader()) {
+      const input = document.createElement("input");
+      input.className = "filter-index"; input.type = "number"; input.min = "0";
+      input.value = String(condition.index);
+      row.append(input);
+    } else {
+      const input = document.createElement("input");
+      input.className = "filter-column"; input.value = condition.column;
+      input.placeholder = t("filterColumn");
+      row.append(input);
+    }
+  }
+  const op = document.createElement("select");
+  op.className = "filter-op";
+  for (const entry of ROW_FILTER_OPERATORS) {
+    const option = document.createElement("option");
+    option.value = entry.op; option.textContent = t(FILTER_OP_KEYS[entry.op] || "filterOpEq");
+    if (condition.op === entry.op) option.selected = true;
+    op.append(option);
+  }
+  row.append(op);
+  const info = rowFilterOperatorInfo(condition.op);
+  const value = document.createElement("input");
+  value.className = "filter-value"; value.value = condition.value;
+  value.placeholder = t("filterValue"); value.hidden = info.values === 0;
+  const value2 = document.createElement("input");
+  value2.className = "filter-value2"; value2.value = condition.value2;
+  value2.placeholder = t("filterValue2"); value2.hidden = info.values < 2;
+  row.append(value, value2);
+  row.append(filterCheck(t("filterNot"), condition.not, "filterNot"));
+  const remove = document.createElement("button");
+  remove.type = "button"; remove.className = "filter-remove"; remove.dataset.filterRemove = "1";
+  remove.textContent = "×"; remove.title = t("filterRemove"); remove.setAttribute("aria-label", t("filterRemove"));
+  row.append(remove);
+  return row;
+}
+
+function readFilterGroup(container) {
+  const group = newRowFilterGroup();
+  const match = container.querySelector("[data-filter-match]");
+  group.match = match && match.value === "any" ? "any" : "all";
+  group.ignoreCase = Boolean(container.querySelector("[data-filter-ignorecase]")?.checked);
+  group.not = Boolean(container.querySelector("[data-filter-not]")?.checked);
+  const tree = container.querySelector("[data-filter-tree]");
+  if (tree) {
+    for (const child of tree.children) {
+      if (child.classList.contains("filter-condition")) group.conditions.push(readFilterCondition(child));
+      else if (child.classList.contains("filter-group")) group.groups.push(readFilterGroup(child));
+    }
+  }
+  return group;
+}
+
+function readFilterCondition(element) {
+  const condition = newRowFilterCondition();
+  const indexInput = element.querySelector(".filter-index");
+  const columnInput = element.querySelector(".filter-column");
+  if (indexInput) {
+    condition.byIndex = true;
+    condition.index = Math.max(0, Number(indexInput.value) || 0);
+  } else if (columnInput) {
+    condition.column = columnInput.value;
+  }
+  condition.op = element.querySelector(".filter-op")?.value || "eq";
+  condition.value = element.querySelector(".filter-value")?.value ?? "";
+  condition.value2 = element.querySelector(".filter-value2")?.value ?? "";
+  condition.not = Boolean(element.querySelector("[data-filter-not]")?.checked);
+  return condition;
+}
+
+function filterModelAt(root, path) {
+  let group = root;
+  for (const part of String(path).split(".").filter((item) => item !== "")) {
+    group = group?.groups?.[Number(part)];
+    if (!group) return null;
+  }
+  return group;
+}
+
+function syncFilterState(event) {
+  const builder = event.target.closest?.(".filter-builder[data-filter-target]");
+  if (!builder) return;
+  const target = builder.dataset.filterTarget;
+  filterState[target] = readFilterGroup(builder);
+  const op = event.target.closest(".filter-op");
+  if (op) {
+    const info = rowFilterOperatorInfo(op.value);
+    const row = op.closest(".filter-condition");
+    row.querySelector(".filter-value").hidden = info.values === 0;
+    row.querySelector(".filter-value2").hidden = info.values < 2;
+  }
+  $("filterPreviewResult").textContent = "";
+  updateFilterBadge();
+}
+
+function onFilterBuilderClick(event) {
+  const builder = event.target.closest(".filter-builder[data-filter-target]");
+  if (!builder) return;
+  const target = builder.dataset.filterTarget;
+  const addCondition = event.target.closest("[data-filter-add-condition]");
+  const addGroup = event.target.closest("[data-filter-add-group]");
+  const remove = event.target.closest("[data-filter-remove]");
+  if (!addCondition && !addGroup && !remove) return;
+  filterState[target] = readFilterGroup(builder);
+  const model = filterState[target];
+  if (addCondition || addGroup) {
+    const groupEl = (addCondition || addGroup).closest(".filter-builder, .filter-group");
+    const group = filterModelAt(model, groupEl.dataset.filterPath || "");
+    if (!group) return;
+    if (addCondition) group.conditions.push(newRowFilterCondition());
+    else group.groups.push(newRowFilterGroup());
+  } else {
+    const item = remove.closest(".filter-condition, .filter-group");
+    const tree = item.parentElement;
+    const groupEl = tree.closest(".filter-builder, .filter-group");
+    const group = filterModelAt(model, groupEl.dataset.filterPath || "");
+    if (!group) return;
+    const index = [...tree.children].indexOf(item);
+    if (item.classList.contains("filter-condition")) group.conditions.splice(index, 1);
+    else group.groups.splice(index, 1);
+  }
+  renderFilterBuilders();
+}
+
+function updateFilterBadge() {
+  const badge = $("filterBuilderBadge");
+  if (!badge) return;
+  const count = rowFilterCount(filterState.rows) + rowFilterCount(filterState.columns);
+  badge.textContent = count ? t("changedSettings", { count }) : "";
+  badge.hidden = count === 0;
+}
+
+function compileFilterState() {
+  const options = { hasHeader: filterHasHeader(), columns: filterColumnNames() };
+  return {
+    rowFilter: compileRowFilter(filterState.rows, options),
+    columnFilter: compileRowFilter(filterState.columns, { ...options, nameMode: true }),
+  };
+}
+
+function filterStateErrors() {
+  const options = { hasHeader: filterHasHeader(), columns: filterColumnNames() };
+  const errors = [
+    ...validateRowFilter(filterState.rows, options),
+    ...validateRowFilter(filterState.columns, { ...options, nameMode: true }),
+  ];
+  return errors.filter((error) => error.code === "unknown_column" || error.code === "invalid_regex" || error.code === "too_deep");
+}
+
+async function runFilterPreview() {
+  const body = csvRequestBody();
+  if (!validateInputs(body, false)) return;
+  $("filterPreview").disabled = true;
+  try {
+    const resp = await apiFetch("/api/csv/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await resp.json();
+    if (!resp.ok) throw apiError(data, resp);
+    $("filterPreviewResult").textContent = t("csvFilterPreviewResult", data);
+  } catch (err) {
+    $("filterPreviewResult").textContent = "";
+    setStatus(String(err.message || err), "error");
+  } finally {
+    $("filterPreview").disabled = false;
+  }
+}
+
 function csvRequestBody() {
   const hasHeader = $("hasHeader").checked;
   const selected = selectedCSVColumns();
@@ -2767,6 +3062,10 @@ function csvRequestBody() {
 	if (!Number.isFinite(value) || value < 0 || (!hasHeader && (!Number.isInteger(Number(selector)) || Number(selector) < 0))) { body._validationError = `${t("columnTolerances")}: ${spec}`; continue; }
     body.columnTolerances.push(hasHeader ? { name: selector, value } : { index: Number(selector), by_index: true, value });
   }
+  const filters = compileFilterState();
+  if (filters.rowFilter) body.rowFilter = filters.rowFilter;
+  if (filters.columnFilter) body.columnFilter = filters.columnFilter;
+  if (filterStateErrors().length) body._validationError = t("filterInvalid");
   return body;
 }
 
@@ -2802,6 +3101,7 @@ function renderColumnSelection(inspection) {
   buildColumnFilterIndex();
   applyColumnFilter();
   syncKeyMode();
+  renderFilterBuilders();
 }
 
 async function inspectCSV() {
@@ -3050,6 +3350,9 @@ async function applyCSVProject(body) {
   }
   for (const id of ["partitions", "parseWorkers", "workers", "mergeFanIn", "maxRows"]) { const target = id === "maxRows" ? "csvMaxRows" : id; if (body[id]) $(target).value = body[id]; }
   $("lineFilters").value = (body.lineFilters || []).join("\n");
+  filterState.rows = normalizeRowFilter(body.rowFilter);
+  filterState.columns = normalizeRowFilter(body.columnFilter);
+  renderFilterBuilders();
   $("ignoreColumns").value = (body.ignoreColumnNames?.length ? body.ignoreColumnNames : body.ignoreColumnIndexes || []).join(", ");
   $("tolerance").value = body.tolerance == null ? "" : body.tolerance;
   $("columnTolerances").value = (body.columnTolerances || []).map((item) => `${item.name ?? item.index}=${item.value}`).join(", ");
@@ -4518,6 +4821,10 @@ document.addEventListener("keydown", (event) => {
 });
 $("exportPatch").addEventListener("click", exportPatch);
 $("inspectCSV").addEventListener("click", inspectCSV);
+$("csvFilterBuilder").addEventListener("click", onFilterBuilderClick);
+$("csvFilterBuilder").addEventListener("input", syncFilterState);
+$("csvFilterBuilder").addEventListener("change", syncFilterState);
+$("filterPreview").addEventListener("click", () => void runFilterPreview());
 $("exportCSV").addEventListener("click", exportCSV);
 $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);

@@ -631,6 +631,26 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 }
 .details-hint { margin: 0.4rem 0 0.6rem; color: var(--muted); font-size: var(--fs-label); }
 
+/* Filter builder (#129): a group is a full-width card, a condition is one row
+   of controls. Nested groups indent rather than draw a second border so a deep
+   tree stays readable. */
+.filter-builder, .filter-group {
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: 0.5rem; margin: 0.5rem 0; background: var(--bg);
+}
+.filter-group { margin-inline-start: 1rem; background: var(--panel); }
+.filter-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.filter-head strong { font-size: var(--fs-label); }
+.filter-condition { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.4rem; }
+.filter-condition input, .filter-condition select { min-width: 6rem; }
+.filter-condition .filter-value, .filter-condition .filter-value2 { flex: 1 1 8rem; min-width: 6rem; }
+.filter-tree { margin-top: 0.2rem; }
+.filter-actions { margin-top: 0.4rem; }
+.filter-remove {
+  margin: 0; line-height: 1; padding: 0.2rem 0.5rem; font-size: var(--fs-label);
+}
+#filterPreviewResult { color: var(--muted); font-size: var(--fs-label); }
+
 .result-search {
   position: sticky; top: 3.3rem; z-index: 4;
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
