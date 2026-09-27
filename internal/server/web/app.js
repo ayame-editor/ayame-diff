@@ -22,6 +22,7 @@ const {
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+const { localChangeRegions, localChangeIndex, regionAt } = globalThis.AyameQuickDiff;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const {
   buildUnchangedRegions,
@@ -189,6 +190,9 @@ function syncEditControls() {
   button.hidden = !available;
   button.setAttribute("aria-pressed", editingEnabled() ? "true" : "false");
   button.classList.toggle("active", editingEnabled());
+  // The gutter's comparison stripe belongs to editing mode (#292); reading a
+  // diff must not suddenly grow a stripe it never had.
+  document.body.classList.toggle("editing", editingEnabled());
 }
 
 async function toggleEditMode() {
@@ -411,15 +415,100 @@ function scheduleEditRecompare() {
   }, EDIT_RECOMPARE_DELAY);
 }
 
+// ---- Gutter change bars (#292) ----
+//
+// A pane being edited carries two different signals. The comparison's own
+// difference is the hunk rendering: the cell shading, and the -/+ marker in the
+// unified view. On top of that, a line whose current text differs from the file
+// the buffer loaded carries a distinct gutter handle, so "this was already a
+// difference" and "I typed this" never blur together while confirming data.
+//
+// The per-side regions are cached here and refreshed whenever an edit lands, so
+// a render that asks once per cell does not recompute them once per line.
+let localChangeMaps = { old: new Map(), new: new Map() };
+
+function refreshLocalChangeMaps() {
+  for (const side of ["old", "new"]) {
+    const buffer = editBufferFor(side);
+    localChangeMaps[side] = buffer
+      ? localChangeIndex(buffer.original(), buffer.lines())
+      : new Map();
+  }
+}
+
+// A glyph, not only a colour: the mark has to survive a monochrome screen and
+// colour blindness, and it names what happened to the line.
+const GUTTER_MARKS = { added: "+", removed: "\u2212", modified: "~" };
+
+// applyLocalChangeMark gives one cell its gutter handle. It is a real element
+// so it can be an accessible marker (role, label, tooltip) and a click target,
+// and so it reads apart from the comparison's shading. kind is null when the
+// line matches the baseline, which removes a handle the line used to carry.
+function applyLocalChangeMark(cellElement, kind) {
+  const existing = cellElement.querySelector(".gutter-change");
+  if (!kind) {
+    if (existing) existing.remove();
+    cellElement.classList.remove("local-change");
+    delete cellElement.dataset.localChange;
+    return;
+  }
+  const line = Number(cellElement.dataset.line);
+  const label = t("gutterLocalChange", { line: line + 1 });
+  cellElement.classList.add("local-change");
+  cellElement.dataset.localChange = kind;
+  let mark = existing;
+  if (!mark) {
+    const gutter = cellElement.querySelector(".ln");
+    if (!gutter) return;
+    mark = document.createElement("span");
+    mark.className = "gutter-change";
+    mark.setAttribute("role", "img");
+    // The handle and the click that opens the line editor share the cell, so
+    // this must not bubble or it would start editing instead of reverting.
+    mark.addEventListener("click", (event) => {
+      event.stopPropagation();
+      revertLocalChange(cellElement.dataset.side, Number(cellElement.dataset.line));
+    });
+    gutter.append(mark);
+  }
+  mark.dataset.kind = kind;
+  mark.textContent = GUTTER_MARKS[kind] || GUTTER_MARKS.modified;
+  // The label describes the mark for a screen reader; the tooltip names the
+  // action a pointer can take on the same element.
+  mark.title = t("gutterRevert");
+  mark.setAttribute("aria-label", label);
+}
+
+// Clicking a bar puts back the whole run it spans, not only the line under the
+// pointer. The comparison catches up on the same debounce a keystroke uses, so
+// a revert costs one comparison even when several bars are cleared in a row.
+function revertLocalChange(side, line) {
+  const buffer = editBufferFor(side);
+  if (!buffer || buffer.readOnly() || !Number.isInteger(line)) return false;
+  const region = regionAt(localChangeRegions(buffer.original(), buffer.lines()), line);
+  if (!region) return false;
+  closeLineEditor({ commit: true });
+  const original = buffer.original();
+  let moved = false;
+  for (let index = region.start; index <= region.end && index < buffer.count(); index++) {
+    if (buffer.setLine(index, original[index])) moved = true;
+  }
+  if (!moved) return false;
+  markEditedPanes();
+  scheduleEditRecompare();
+  setStatus(t("editReverted", { side: sideLabel(side) }), "success");
+  return true;
+}
+
 function markEditedPanes() {
   // The file watcher refuses to auto-reload over unsaved work by reading this
   // flag; owning it here is what connects the editor to that guard.
   document.body.dataset.unsavedChanges = editedSides().length ? "true" : "false";
+  refreshLocalChangeMaps();
   for (const side of ["old", "new"]) {
     const buffer = editBufferFor(side);
-    const changed = new Set(buffer ? buffer.changedLines() : []);
     for (const marked of document.querySelectorAll(`#result .cell.selectable-line[data-side="${side}"]`)) {
-      marked.classList.toggle("edited", changed.has(Number(marked.dataset.line)));
+      applyLocalChangeMark(marked, localChangeMaps[side].get(Number(marked.dataset.line)) || null);
     }
     const head = document.querySelector(`.pane-head.${side}`);
     if (!head) continue;
@@ -1395,14 +1484,15 @@ function cell(cls, lineNo, node, side) {
   c.append(ln, node);
   if (lineNo != null && side) {
     c.classList.add("selectable-line");
-    // A line the user typed into is marked in the gutter, so which lines are
-    // unsaved is readable without comparing against memory (#256).
-    if (editBufferFor(side)?.changedLines().includes(lineNo - 1)) c.classList.add("edited");
     c.dataset.side = side;
     c.dataset.line = String(lineNo - 1);
     c.dataset.scrollAnchor = side;
     c.dataset.scrollKey = String(lineNo - 1);
     c.dataset.scrollOrder = String(lineNo - 1);
+    // A line that differs from the file the buffer loaded carries the local
+    // change handle (#292), which is a different mark from the comparison's
+    // own shading on the cell.
+    applyLocalChangeMark(c, localChangeMaps[side]?.get(lineNo - 1) || null);
     c.tabIndex = 0;
     c.setAttribute("role", "button");
     c.setAttribute("aria-pressed", "false");
@@ -1414,6 +1504,13 @@ function cell(cls, lineNo, node, side) {
     };
     c.addEventListener("click", activate);
     c.addEventListener("keydown", (event) => {
+      // Delete puts a locally changed line back, so the gutter handle has a
+      // keyboard path (#292). It only acts on a line that carries a mark.
+      if (event.key === "Delete" && c.dataset.localChange) {
+        event.preventDefault();
+        if (revertLocalChange(side, Number(c.dataset.line))) c.focus();
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       activate();
@@ -2128,6 +2225,9 @@ function paneHeads(data = {}) {
 async function renderResult(data) {
   applyDisplayPreferences();
   renderSummary(data);
+  // The cells about to be built ask for their local change mark, so the cached
+  // regions have to describe the buffers as they are now (#292).
+  if (editingEnabled()) refreshLocalChangeMaps();
   const result = $("result");
   result.innerHTML = "";
   setupNavigation(data);
@@ -3812,6 +3912,7 @@ const SHORTCUTS = [
   ["Enter / Shift+Enter", "shortcutSearchStep"],
   ["Esc", "shortcutClose"],
   ["Ctrl+Enter", "shortcutCompare"],
+  ["Delete", "shortcutRevertLine"],
 ];
 
 function showShortcuts() {

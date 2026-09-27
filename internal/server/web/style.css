@@ -33,6 +33,9 @@
   /* Disclosure marks and similar glyphs, sized against the label beside them
      rather than the root — hence em, not rem. */
   --fs-glyph: 0.8em;
+  /* The glyph inside a gutter change handle (#292): smaller than the caption,
+     because it has to sit inside the handle bar without widening it. */
+  --fs-gutter: 0.62rem;
 }
 
 /* Visible to assistive technology only: a control whose visible label would
@@ -350,13 +353,35 @@ button:active:not(:disabled) {
   border-radius: 50%; animation: status-spin 0.75s linear infinite;
 }
 .file-diff-error { margin: 0.5rem 0.7rem; color: var(--del-fg); }
-/* An edited line carries its own gutter mark, so unsaved work is visible in
-   the result and not only in the pane header (#256). */
-.cell.edited > .ln { position: relative; color: var(--chg-fg); font-weight: 600; }
-.cell.edited > .ln::after {
-  content: "*"; position: absolute; right: -0.35em; top: 0;
-  color: var(--chg-fg);
+/* Gutter change bars (#292). While a pane is being edited two signals share
+   the gutter, and neither relies on colour alone. The comparison's own
+   difference keeps its cell shading plus the -/+ marker in the unified view;
+   a line that differs from the file the buffer loaded gets a distinct accent
+   handle carrying a glyph, which is also the control that reverts that run.
+   The handle is a child of .ln, so .ln has to be the positioning context. */
+.cell.selectable-line > .ln { position: relative; }
+/* A thin stripe repeats the comparison's own palette in the gutter: it is the
+   same difference the cell shading shows, not the session's edit. It appears
+   only while editing, so reading a diff is unchanged. */
+body.editing .cell.add > .ln::before,
+body.editing .cell.del > .ln::before,
+body.editing .cell.chg > .ln::before {
+  content: ""; position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 3px;
+  border-radius: 0 2px 2px 0; opacity: 0.5;
 }
+body.editing .cell.add > .ln::before { background: var(--add-fg); }
+body.editing .cell.del > .ln::before { background: var(--del-fg); }
+body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
+.cell.local-change > .ln { color: var(--fg); font-weight: 600; }
+.gutter-change {
+  position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 0.85rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent); color: var(--on-accent);
+  font-family: var(--ui); font-size: var(--fs-gutter); font-weight: 700; line-height: 1;
+  cursor: pointer; user-select: none;
+}
+.gutter-change:hover { filter: brightness(1.15); }
 
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;
