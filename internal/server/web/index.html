@@ -364,8 +364,14 @@
 	<dialog id="fileBrowser" class="file-browser">
 	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
 	  <div class="browser-path"><button id="browserUp" type="button" data-i18n-title="parentFolder" data-i18n-aria-label="parentFolder" title="親フォルダ" aria-label="親フォルダ"><span aria-hidden="true">↑</span></button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
+	  <div class="browser-tools">
+	    <button id="browserHome" type="button" data-i18n="browserHome" data-i18n-title="browserHomeTitle">Home</button>
+	    <button id="browserRoot" type="button" data-i18n="browserRoot" data-i18n-title="browserRootTitle">Root</button>
+	    <label class="browser-recent"><select id="browserRecent" data-i18n-title="browserRecent" data-i18n-aria-label="browserRecent"><option value=""></option></select></label>
+	    <input id="browserFilter" type="search" data-i18n-placeholder="browserFilterPlaceholder" data-i18n-title="browserFilter" data-i18n-aria-label="browserFilter" placeholder="Filter" autocomplete="off" spellcheck="false" />
+	  </div>
 	  <button id="chooseFolder" type="button" data-i18n="chooseFolder">Choose this folder</button>
-	  <div id="browserEntries" class="browser-entries"></div>
+	  <div id="browserEntries" class="browser-entries" role="listbox" data-i18n-aria-label="browserEntriesLabel" tabindex="-1"></div>
 	</dialog>
 
     <dialog id="confirmDialog" class="app-dialog" aria-labelledby="confirmTitle">

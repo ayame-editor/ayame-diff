@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ayame-editor/ayame-diff/internal/dircompare"
@@ -121,6 +122,10 @@ type fileEntry struct {
 	Path      string `json:"path"`
 	Directory bool   `json:"directory"`
 	Size      int64  `json:"size,omitempty"`
+	// Modified is nanoseconds since the epoch as a string, the same shape the
+	// watch and file APIs use: it exceeds JavaScript's exact integer range and
+	// is only ever displayed or handed back untouched (#103).
+	Modified string `json:"modified,omitempty"`
 }
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +164,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		result.Entries = append(result.Entries, fileEntry{Name: entry.Name(), Path: filepath.Join(abs, entry.Name()), Directory: entry.IsDir(), Size: info.Size()})
+		result.Entries = append(result.Entries, fileEntry{Name: entry.Name(), Path: filepath.Join(abs, entry.Name()), Directory: entry.IsDir(), Size: info.Size(), Modified: strconv.FormatInt(info.ModTime().UnixNano(), 10)})
 	}
 	writeJSON(w, http.StatusOK, result)
 }

@@ -872,6 +872,9 @@ const {
   dirEntryStamp,
   directoryEntryRequest,
   filterDirectoryEntries,
+  formatBytes,
+  formatEpochNanos,
+  rememberPlace,
 } = globalThis.AyameDirectory;
 
 // In-flight request controller, so the Cancel button can abort a long compare.
@@ -4112,19 +4115,111 @@ function applyColumnFilter() {
 async function loadBrowser(path) {
   const resp = await apiFetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
   if (!resp.ok) throw apiError(data, resp);
-  $("browserPath").value = data.Path || data.path; $("browserUp").dataset.path = data.Parent || data.parent;
+  const current = data.Path || data.path;
+  $("browserPath").value = current; $("browserUp").dataset.path = data.Parent || data.parent;
+  browserEntries = (data.Entries || data.entries || []).slice();
+  $("browserFilter").value = "";
+  const places = rememberPlace(readBrowserPlaces(), current);
+  writeBrowserPlaces(places);
+  renderBrowserRecent(places);
+  renderBrowserEntries();
+}
+
+// ---- File browser: keyboard traversal, filtering, recent places (#103) ----
+//
+// The browser is the main route for someone who does not type paths, so it has
+// to be usable without a mouse and without clicking "up" repeatedly. Entries are
+// a roving-tabindex list: one tab stop, arrows to move, Enter to open, Backspace
+// to go to the parent. Home, the filesystem root and recently opened places are
+// one click away.
+let browserEntries = [];
+let browserFocus = -1;
+
+const BROWSER_PLACES_KEY = "ayame-browser-places";
+
+function readBrowserPlaces() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BROWSER_PLACES_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeBrowserPlaces(places) {
+  try { localStorage.setItem(BROWSER_PLACES_KEY, JSON.stringify(places)); } catch (err) { /* storage may be unavailable */ }
+}
+
+function renderBrowserRecent(places) {
+  const select = $("browserRecent");
+  if (!select) return;
+  select.textContent = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = places.length ? t("browserRecent") : t("browserRecentEmpty");
+  select.append(first);
+  for (const path of places) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    select.append(option);
+  }
+}
+
+function browserVisibleEntries() {
+  const needle = $("browserFilter").value.trim().toLocaleLowerCase();
+  if (!needle) return browserEntries;
+  return browserEntries.filter((item) => String(item.Name || item.name || "").toLocaleLowerCase().includes(needle));
+}
+
+function renderBrowserEntries() {
   const entries = $("browserEntries"); entries.innerHTML = "";
-  for (const item of (data.Entries || data.entries || [])) {
+  const items = browserVisibleEntries();
+  for (const item of items) {
     const button = document.createElement("button"); button.type = "button"; button.className = item.directory ? "directory" : "file";
-    button.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
+    button.setAttribute("role", "option");
     const itemPath = item.Path || item.path;
+    const label = document.createElement("span"); label.className = "browser-entry-name";
+    label.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
+    button.append(label);
+    if (!item.directory) {
+      const meta = document.createElement("span"); meta.className = "browser-entry-meta";
+      const size = formatBytes(Number(item.Size ?? item.size));
+      const stamp = formatEpochNanos(item.Modified || item.modified);
+      meta.textContent = [size, stamp].filter(Boolean).join(" · ");
+      button.append(meta);
+    }
+    button.dataset.browserPath = itemPath;
     button.addEventListener("click", async () => {
       if (item.directory) await loadBrowser(itemPath);
       else await selectBrowserPath(itemPath);
     });
     entries.append(button);
   }
+  browserFocus = items.length ? 0 : -1;
+  syncBrowserFocus(false);
 }
+
+// A roving tabindex keeps one tab stop in the list while the arrows move a
+// visible focus, so Tab leaves the browser instead of walking every entry.
+function syncBrowserFocus(move = true) {
+  const rows = [...$("browserEntries").children];
+  rows.forEach((row, index) => { row.tabIndex = index === browserFocus ? 0 : -1; });
+  if (move && rows[browserFocus]) rows[browserFocus].focus();
+}
+
+function stepBrowserFocus(delta) {
+  const rows = [...$("browserEntries").children];
+  if (!rows.length) return;
+  browserFocus = Math.max(0, Math.min(rows.length - 1, browserFocus + delta));
+  syncBrowserFocus();
+}
+
+async function browserGoParent() {
+  const parent = $("browserUp").dataset.path;
+  if (parent) await loadBrowser(parent);
+}
+
 
 async function selectBrowserPath(path) {
   if (!browserTarget) return;
@@ -4587,6 +4682,30 @@ $("dirPreview").addEventListener("click", previewDirectoryFilter);
 $("saveDirProject").addEventListener("click", saveDirectoryProject);
 $("loadDirProject").addEventListener("click", loadDirectoryProject);
 $("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
+
+// The browser's keyboard model (#103). Entries are reached with the arrows,
+// opened with Enter, and the parent with Backspace, so a path is reachable
+// without a pointer. The filter narrows the list as it is typed.
+$("browserFilter").addEventListener("input", () => renderBrowserEntries());
+$("browserEntries").addEventListener("keydown", (event) => {
+  const rows = [...$("browserEntries").children];
+  if (event.key === "ArrowDown") { stepBrowserFocus(1); event.preventDefault(); }
+  else if (event.key === "ArrowUp") { stepBrowserFocus(-1); event.preventDefault(); }
+  else if (event.key === "Home") { browserFocus = rows.length ? 0 : -1; syncBrowserFocus(); event.preventDefault(); }
+  else if (event.key === "End") { browserFocus = rows.length - 1; syncBrowserFocus(); event.preventDefault(); }
+  else if (event.key === "Backspace") {
+    // Backspace on a focused entry means "up", the same as the parent button.
+    browserGoParent().catch((err) => setStatus(String(err.message || err), "error"));
+    event.preventDefault();
+  }
+});
+$("browserHome").addEventListener("click", async () => { try { await loadBrowser("~"); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserRoot").addEventListener("click", async () => { try { await loadBrowser("/"); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserRecent").addEventListener("change", async () => {
+  const path = $("browserRecent").value;
+  if (!path) return;
+  try { await loadBrowser(path); } catch (err) { setStatus(String(err.message || err), "error"); }
+});
 function compareFromKeyboard(event) {
   if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
   if (event.currentTarget.tagName === "TEXTAREA" && !event.ctrlKey && !event.metaKey) return;
