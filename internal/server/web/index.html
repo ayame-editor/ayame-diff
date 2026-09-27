@@ -287,6 +287,14 @@
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
+      <!-- Per-line provenance (#257): the merged result with a KDiff3-style
+           summary column. Fetched on demand, so it costs nothing until opened. -->
+      <details class="merge-provenance" id="mergeProvenance" hidden>
+        <summary data-i18n="mergeProvenanceTitle">Merge result by line</summary>
+        <p class="merge-provenance-hint" data-i18n="mergeProvenanceHint">Each line shows where it came from: B base, L left, R right, m manual.</p>
+        <p class="merge-provenance-counts" id="mergeProvenanceCounts" aria-live="polite"></p>
+        <div class="merge-preview" id="mergePreviewLines" role="list"></div>
+      </details>
       <div class="diff-layout">
         <!-- Index of the differences. With thirty hunks the only way to reach a
              particular one was to step through them or scroll; this lists them
@@ -399,6 +407,7 @@
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
+    <script src="mergeprovenance.js"></script>
     <script src="apierrors.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
