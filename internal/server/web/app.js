@@ -37,6 +37,26 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+const {
+  CUSTOM_SCHEME: THEME_CUSTOM_SCHEME,
+  TOKEN_GROUPS,
+  TOKEN_KEYS,
+  effectiveTokens,
+  resolveColor,
+  formatColor,
+  checkContrast,
+  createTheme,
+  normalizeTheme,
+  serializeTheme,
+  parseTheme,
+  presetList,
+  presetById,
+  loadThemeList,
+  saveNamedTheme,
+  deleteNamedTheme,
+  loadActiveTheme,
+  saveActiveTheme,
+} = globalThis.AyameTheme;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -4323,7 +4343,270 @@ function applyScheme(v) {
   document.documentElement.setAttribute("data-scheme", v === "default" ? "" : v);
   localStorage.setItem("ayame-scheme", v);
   $("scheme").value = v;
+  // A custom theme is one more choice beside default and colorblind: switching
+  // to it paints the saved overrides, switching away clears them again (#286).
+  applyActiveTheme(v === THEME_CUSTOM_SCHEME);
 }
+
+// ---- Theme customization (#286) ----
+// The token catalogue, the merge rules and the contrast maths live in theme.js
+// and are tested under node --test; this is only the wiring that turns them
+// into a dialog and applies the result to :root.
+const THEME_GROUP_KEYS = { ground: "themeGroupGround", accent: "themeGroupAccent", diff: "themeGroupDiff", type: "themeGroupType" };
+let activeTheme = loadActiveTheme(localStorage);
+let themeDraft = null;
+
+// A "system" base is resolved from the OS before the contrast check, so the
+// preview and the warning agree about which ground is actually behind a wash.
+function resolvedThemeBase(theme) {
+  if (theme.base === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return theme.base;
+}
+
+function draftEffectiveTokens(theme) {
+  return effectiveTokens({ base: resolvedThemeBase(theme), tokens: theme.tokens });
+}
+
+function clearAppliedThemeTokens() {
+  for (const key of TOKEN_KEYS) document.documentElement.style.removeProperty(key);
+}
+
+function applyThemeTokens(theme) {
+  clearAppliedThemeTokens();
+  for (const key of Object.keys(theme.tokens)) document.documentElement.style.setProperty(key, theme.tokens[key]);
+}
+
+function currentThemeBase() {
+  const value = $("theme").value;
+  return value === "dark" ? "dark" : value === "system" ? "system" : "light";
+}
+
+function applyActiveTheme(on) {
+  if (!on) { clearAppliedThemeTokens(); return; }
+  if (!activeTheme) {
+    activeTheme = createTheme("Custom", currentThemeBase(), {});
+    saveActiveTheme(localStorage, activeTheme);
+  }
+  applyTheme(activeTheme.base);
+  applyThemeTokens(activeTheme);
+}
+
+function commitThemeDraft() {
+  activeTheme = normalizeTheme(themeDraft);
+  saveActiveTheme(localStorage, activeTheme);
+  applyTheme(activeTheme.base);
+  applyThemeTokens(activeTheme);
+  renderThemeContrast();
+}
+
+function renderThemePresetOptions() {
+  const select = $("themePreset");
+  select.textContent = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "\u2014";
+  select.append(none);
+  for (const preset of presetList()) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    select.append(option);
+  }
+}
+
+function renderThemeTokens() {
+  const host = $("themeTokens");
+  host.textContent = "";
+  const effective = draftEffectiveTokens(themeDraft);
+  for (const group of TOKEN_GROUPS) {
+    const section = document.createElement("details");
+    section.className = "theme-group";
+    section.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = t(THEME_GROUP_KEYS[group.id] || group.id);
+    section.append(summary);
+    const grid = document.createElement("div");
+    grid.className = "theme-token-grid";
+    for (const token of group.tokens) {
+      const row = document.createElement("label");
+      row.className = "theme-token";
+      const name = document.createElement("span");
+      name.className = "theme-token-name";
+      name.textContent = token.key;
+      name.setAttribute("title", token.key);
+      const text = document.createElement("input");
+      text.type = "text";
+      text.spellcheck = false;
+      text.maxLength = 200;
+      text.setAttribute("aria-label", token.key);
+      text.value = themeDraft.tokens[token.key] || "";
+      text.placeholder = effective[token.key] || "";
+      row.append(name, text);
+      let swatch = null;
+      if (token.kind === "color") {
+        swatch = document.createElement("input");
+        swatch.type = "color";
+        swatch.className = "theme-swatch";
+        swatch.setAttribute("aria-label", token.key);
+        swatch.value = formatColor(resolveColor(effective[token.key], effective)) || "#000000";
+        swatch.addEventListener("input", () => {
+          text.value = swatch.value;
+          themeDraft.tokens[token.key] = swatch.value;
+          commitThemeDraft();
+        });
+        row.append(swatch);
+      }
+      text.addEventListener("input", () => {
+        const value = text.value.trim();
+        if (value) themeDraft.tokens[token.key] = value;
+        else delete themeDraft.tokens[token.key];
+        if (swatch) {
+          const current = draftEffectiveTokens(themeDraft);
+          swatch.value = formatColor(resolveColor(current[token.key], current)) || swatch.value;
+        }
+        commitThemeDraft();
+      });
+      grid.append(row);
+    }
+    section.append(grid);
+    host.append(section);
+  }
+}
+
+function renderThemeContrast() {
+  const host = $("themeContrast");
+  host.textContent = "";
+  const rows = checkContrast(draftEffectiveTokens(themeDraft));
+  for (const row of rows) {
+    // A pair the resolver cannot follow (an advanced color-mix the editor
+    // allows through) is reported as unknown, not as a pass.
+    const state = row.ratio === null ? "unknown" : row.aa ? "pass" : "fail";
+    const line = document.createElement("div");
+    line.className = `theme-contrast-row ${state}`;
+    const pair = document.createElement("span");
+    pair.className = "theme-contrast-pair";
+    pair.textContent = `${row.fg} / ${row.bg}`;
+    const value = document.createElement("span");
+    value.className = "theme-contrast-value";
+    value.textContent = row.ratio === null ? "\u2014" : `${row.ratio}:1`;
+    const status = document.createElement("span");
+    status.className = "theme-contrast-status";
+    status.textContent = row.ratio === null ? t("themeContrastUnknown") : row.aa ? t("themeContrastPass") : t("themeContrastFail");
+    line.append(pair, value, status);
+    host.append(line);
+  }
+}
+
+function renderSavedThemes() {
+  const host = $("themeSavedList");
+  host.textContent = "";
+  const list = loadThemeList(localStorage);
+  const names = Object.keys(list).sort();
+  if (!names.length) {
+    const empty = document.createElement("p");
+    empty.className = "theme-saved-empty";
+    empty.textContent = t("themeNoneSaved");
+    host.append(empty);
+    return;
+  }
+  for (const name of names) {
+    const row = document.createElement("div");
+    row.className = "theme-saved-row";
+    const label = document.createElement("span");
+    label.className = "theme-saved-name";
+    label.textContent = name;
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = t("themeApply");
+    apply.addEventListener("click", () => loadThemeIntoDraft(list[name]));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = t("themeDelete");
+    remove.addEventListener("click", () => {
+      deleteNamedTheme(localStorage, name);
+      renderSavedThemes();
+      setStatus(t("themeDeleted"), "success");
+    });
+    row.append(label, apply, remove);
+    host.append(row);
+  }
+}
+
+function loadThemeIntoDraft(theme) {
+  themeDraft = normalizeTheme(theme);
+  $("themeName").value = themeDraft.name;
+  $("themeBase").value = themeDraft.base;
+  $("themePreset").value = "";
+  renderThemeTokens();
+  commitThemeDraft();
+}
+
+function loadThemePreset(id) {
+  const preset = id ? presetById(id) : null;
+  if (!preset) return;
+  themeDraft = preset;
+  $("themeName").value = themeDraft.name;
+  $("themeBase").value = themeDraft.base;
+  renderThemeTokens();
+  commitThemeDraft();
+}
+
+function openThemeEditor() {
+  themeDraft = activeTheme ? normalizeTheme(activeTheme) : createTheme("Custom", currentThemeBase(), {});
+  activeTheme = themeDraft;
+  saveActiveTheme(localStorage, activeTheme);
+  // Live preview means the open diff is the sample, so selecting the custom
+  // scheme is part of opening the editor rather than a separate step.
+  applyScheme(THEME_CUSTOM_SCHEME);
+  $("themeName").value = themeDraft.name;
+  $("themeBase").value = themeDraft.base;
+  renderThemePresetOptions();
+  $("themePreset").value = "";
+  $("themeJSON").value = "";
+  renderThemeTokens();
+  renderThemeContrast();
+  renderSavedThemes();
+  const dialog = $("themeDialog");
+  if (dialog.open) dialog.close();
+  dialog.showModal();
+}
+
+function saveDraftTheme() {
+  const name = $("themeName").value.trim();
+  if (!name) { setStatus(t("themeNameRequired"), "error"); return; }
+  themeDraft.name = name;
+  activeTheme = saveNamedTheme(localStorage, themeDraft);
+  saveActiveTheme(localStorage, activeTheme);
+  renderSavedThemes();
+  setStatus(t("themeSaved"), "success");
+}
+
+function resetThemeToPreset() {
+  const id = $("themePreset").value || (resolvedThemeBase(themeDraft) === "dark" ? "ayame-dark" : "ayame-light");
+  $("themePreset").value = id;
+  loadThemePreset(id);
+}
+
+async function exportThemeDraft() {
+  const text = serializeTheme(themeDraft);
+  $("themeJSON").value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus(t("themeExported"), "success");
+  } catch {
+    setStatus(t("themeExportFailed"), "warning");
+  }
+}
+
+function importThemeDraft() {
+  const result = parseTheme($("themeJSON").value);
+  if (!result.ok) { setStatus(t("themeImportFailed"), "error"); return; }
+  loadThemeIntoDraft(result.theme);
+  setStatus(t("themeImported"), "success");
+}
+
 function applyWrap(on) {
   const scrollAnchor = captureResultScrollAnchor();
   $("result").classList.toggle("nowrap", !on);
@@ -4806,8 +5089,28 @@ for (const control of $("csvOptions").querySelectorAll("input, select")) {
   control.addEventListener("input", updateDetailsBadges);
 }
 updateDetailsBadges();
-$("theme").addEventListener("change", () => applyTheme($("theme").value));
+$("theme").addEventListener("change", () => {
+  applyTheme($("theme").value);
+  // When a custom theme is active, the theme menu is its base, so keep the
+  // stored theme in step with the choice (#286).
+  if ($("scheme").value === THEME_CUSTOM_SCHEME && activeTheme) {
+    activeTheme.base = currentThemeBase();
+    saveActiveTheme(localStorage, activeTheme);
+  }
+});
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
+$("themeCustomize").addEventListener("click", openThemeEditor);
+$("themePreset").addEventListener("change", () => loadThemePreset($("themePreset").value));
+$("themeBase").addEventListener("change", () => {
+  themeDraft.base = $("themeBase").value;
+  renderThemeTokens();
+  commitThemeDraft();
+});
+$("themeName").addEventListener("input", () => { themeDraft.name = $("themeName").value; });
+$("themeSave").addEventListener("click", saveDraftTheme);
+$("themeReset").addEventListener("click", resetThemeToPreset);
+$("themeExport").addEventListener("click", exportThemeDraft);
+$("themeImport").addEventListener("click", importThemeDraft);
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("viewMode").addEventListener("change", () => applyViewMode($("viewMode").value));
 $("showWs").addEventListener("change", () => {
