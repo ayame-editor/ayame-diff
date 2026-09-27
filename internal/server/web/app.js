@@ -133,6 +133,8 @@ function releaseBrowserSession() {
 
 // The message catalog lives in i18n.js; this file keeps the current choice.
 const { CATALOG: I18N, translate, pickLanguage } = globalThis.AyameI18N;
+// The condition-toolbar derivation lives in conditions.js (#264).
+const { readPolicy: readConditionPolicy, writePolicy: writeConditionPolicy, describeConditions } = globalThis.AyameConditions;
 let lang = pickLanguage(localStorage.getItem("ayame-lang"), navigator.language);
 
 function t(key, arg) {
@@ -151,6 +153,7 @@ function applyLang(next) {
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	refreshContextTranslations();
+	syncConditionToolbar();
 	renderRecentComparisons();
 }
 
@@ -3720,6 +3723,7 @@ function updateDetailsBadges() {
     badge.textContent = changed ? t("changedSettings", { count: changed }) : "";
     badge.hidden = changed === 0;
   }
+  syncConditionToolbar();
 }
 
 // swapSides exchanges the two inputs (#90). Every comparison tool has this and
@@ -3951,6 +3955,76 @@ function activeFilters() {
 	return filters;
 }
 
+// ---- Condition toolbar (#264) ----
+// JetBrains keeps the settings that change how a diff is *read* in the viewer's
+// toolbar, so the applied policy stays visible while the result is on screen.
+// These controls mirror the settings dialog rather than owning a second copy of
+// the state: each row derives its label from the same controls the request
+// reads, so the bar doubles as a status display. Only the toggles are
+// represented here; move min lines, context lines, and the filter definitions
+// stay in Settings, which keeps the row count fixed.
+function currentConditionPolicy() {
+  return readConditionPolicy({
+    whitespace: $("whitespace")?.value,
+    ignoreCase: $("ignoreCase")?.checked,
+    ignoreEOL: $("ignoreEOL")?.checked,
+    ignoreTrailingEOL: $("ignoreTrailingEOL")?.checked,
+    lineFilters: $("lineFilters")?.value,
+    detectMoves: $("detectMoves")?.checked,
+  });
+}
+
+// A condition is hidden when the active mode ignores it (#124). Rather than
+// repeat that policy, ask the settings control the form already hid, so the
+// toolbar and the dialog can never disagree about what is live.
+const CONDITION_SETTING = {
+  whitespace: "whitespace", case: "ignoreCase", eol: "ignoreEOL",
+  filters: "lineFilters", moves: "detectMoves",
+};
+
+function conditionSettingHidden(id) {
+  const node = $(CONDITION_SETTING[id]);
+  const holder = node?.closest("label") || node;
+  return Boolean(holder?.hidden);
+}
+
+function syncConditionToolbar() {
+  const bar = $("conditionBar");
+  if (!bar) return;
+  let visible = false;
+  for (const row of describeConditions(currentConditionPolicy(), t)) {
+    const control = $(row.element);
+    if (!control) continue;
+    const wrap = control.closest(".condition") || control;
+    const dead = conditionSettingHidden(row.id);
+    wrap.hidden = dead;
+    if (!dead) visible = true;
+    if (control.tagName === "SELECT") control.value = row.value;
+    if (row.id === "filters") $("tbFiltersValue").textContent = row.text;
+    const label = `${row.name}: ${row.text}`;
+    wrap.dataset.active = row.active ? "true" : "false";
+    control.setAttribute("aria-label", label);
+    control.title = label;
+  }
+  bar.hidden = !visible;
+}
+
+// A toolbar change writes the settings control it mirrors and re-runs, replacing
+// the current history entry: the same inputs under a different policy are a
+// different result, not a new comparison (#254).
+function applyConditionToolbar(control, value) {
+  const patch = writeConditionPolicy(control, value);
+  for (const [id, next] of Object.entries(patch)) {
+    const node = $(id);
+    if (!node) continue;
+    if (node.type === "checkbox") node.checked = Boolean(next);
+    else node.value = String(next);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "detectMoves")) syncMoveMinLines();
+  updateDetailsBadges();
+  if (hasComparisonResult()) void compare({ urlHistory: "replace" });
+}
+
 function validateInputs(body, validateKeys = true) {
 	if (body._validationError) { setStatus(body._validationError, "error"); return false; }
 	if (validateKeys && body.keyMode === "include" && !(body.keyNames?.length || body.keyIndexes?.length)) { setStatus(t("selectKey"), "error"); return false; }
@@ -4027,6 +4101,7 @@ function syncModeOpts() {
 	}
 	syncMoveMinLines();
 	syncExportPatchVisibility();
+	syncConditionToolbar();
 	if (csv) updateCSVReview();
 }
 
@@ -4795,6 +4870,22 @@ for (const control of $("compareConditions").querySelectorAll("input, select, te
   control.addEventListener("change", updateDetailsBadges);
   control.addEventListener("input", updateDetailsBadges);
 }
+// #264: the condition toolbar mirrors these controls, so a change here has to
+// re-run or the policy it shows would drift from the policy the result was
+// built under. Only a committed change re-runs, so typing a filter does not
+// start a comparison per keystroke; `input` still only refreshes the badges.
+let conditionRecompareTimer = 0;
+function scheduleConditionRecompare() {
+  if (!hasComparisonResult()) return;
+  clearTimeout(conditionRecompareTimer);
+  conditionRecompareTimer = setTimeout(() => {
+    conditionRecompareTimer = 0;
+    void compare({ urlHistory: "replace" });
+  }, 120);
+}
+for (const id of ["ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters", "detectMoves"]) {
+  $(id).addEventListener("change", scheduleConditionRecompare);
+}
 captureControlDefaults($("engineTuning"));
 for (const control of $("engineTuning").querySelectorAll("input, select")) {
   control.addEventListener("change", updateDetailsBadges);
@@ -4810,6 +4901,18 @@ $("theme").addEventListener("change", () => applyTheme($("theme").value));
 $("scheme").addEventListener("change", () => applyScheme($("scheme").value));
 $("wrap").addEventListener("change", () => applyWrap($("wrap").checked));
 $("viewMode").addEventListener("change", () => applyViewMode($("viewMode").value));
+// The condition toolbar mirrors the settings controls; changing a row writes
+// the control it owns and re-runs (#264). The filter row has no state of its
+// own — the definitions live in the dialog — so it opens settings instead.
+for (const [element, control] of [["tbWhitespace", "whitespace"], ["tbCase", "case"], ["tbEol", "eol"], ["tbMoves", "moves"]]) {
+  $(element).addEventListener("change", () => applyConditionToolbar(control, $(element).value));
+}
+$("tbFilters").addEventListener("click", () => {
+  const dialog = $("settingsDialog");
+  if (!dialog.open) dialog.showModal();
+  $("compareConditions").open = true;
+  $("lineFilters").focus();
+});
 $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   rerenderForDisplayChange();
