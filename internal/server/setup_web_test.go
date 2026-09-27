@@ -24,8 +24,9 @@ func TestSwapSidesExists(t *testing.T) {
 	if !strings.Contains(body, "csvInspection = null") {
 		t.Error("swapSides leaves the CSV inspection describing the old pairing")
 	}
-	// It must not start a comparison that was never requested.
-	if !strings.Contains(body, "if (lastData || csvData || threeWayData || directoryData) compare()") {
+	// It must not start a comparison that was never requested. Swapping is the
+	// same comparison reversed, so it keeps the conditions (#260).
+	if !strings.Contains(body, "if (lastData || csvData || threeWayData || directoryData) compare({ keepConditions: true })") {
 		t.Error("swapSides re-runs unconditionally, or never re-runs")
 	}
 	header := renderFunctionBody(t, app, "function paneHeads(")

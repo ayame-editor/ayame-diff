@@ -324,6 +324,7 @@
 <details class="csv-advanced" id="compareConditions" open>
           <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
           <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
+          <p class="details-hint" data-i18n="conditionsScopeHint">Conditions are remembered per comparison. A different pair starts from the defaults.</p>
           <div class="opts">
             <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
             <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
@@ -392,6 +393,7 @@
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="comparisonscope.js"></script>
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
