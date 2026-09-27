@@ -1747,11 +1747,9 @@ function renderHunk(h, index) {
   }
   const head = document.createElement("div");
   head.className = "hunk-head";
-  const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
-  head.textContent = h.move_id
-    ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
-    : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
-  if (h.move_id) {
+  const { text: headText, moved } = AyameHunkHeader.header(h, t);
+  head.textContent = headText;
+  if (moved) {
     const jump = document.createElement("button");
     jump.type = "button";
     jump.className = "move-jump";
