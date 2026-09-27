@@ -123,7 +123,8 @@ remains available in both `gui` and `serve`.
 Enter the **LEFT** and **RIGHT** file paths (or use the server-side file picker),
 choose the mode (`text`, `sorted`, or `csv / tsv`)
 and options (encoding, resync window, ignore-case, whitespace handling, EOL
-controls, repeatable regex filters entered one per line, and for
+controls, **absorb re-indentation** to keep a re-indented file aligned,
+repeatable regex filters entered one per line, and for
 `sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
 side-by-side grid with per-hunk headers, line numbers and word-level
 highlighting. **Syntax highlight** adds line-local coloring for common source,
@@ -224,6 +225,15 @@ use an `.ayamediff` project for very large CSV column selections.
 
 Applied ignore settings are shown in the result summary. They affect matching
 only: rendered lines and exported patches retain the original text.
+
+**Absorb re-indentation** separates *which lines correspond* from *which
+correspondences count as a difference* (#270). Checking it makes whitespace
+insensitive only for alignment, so a file that was reformatted or re-indented
+keeps every line paired up while the content difference is still reported at
+its original position, instead of the whitespace-only lines vanishing. It does
+not change what the `whitespace` setting counts as a difference, and it is a
+no-op when that setting already ignores whitespace. The server field is
+`alignWhitespace`.
 
 Browser-dropped files are copied to a private local cache. Each file is limited
 to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
@@ -347,7 +357,8 @@ Request body:
   "numeric": false,
   "reverse": false,
   "ignoreCase": false,
-  "whitespace": "none"
+  "whitespace": "none",
+  "alignWhitespace": "none"
 }
 ```
 
@@ -361,7 +372,8 @@ Request body:
 | `maxLines` | number | Max lines per hunk side (default 200 when 0). |
 | `numeric`, `reverse` | bool | Sort controls, used when `mode` is `sorted`. |
 | `ignoreCase` | bool | Ignore case when comparing. |
-| `whitespace` | string | `none`, `change` or `all`. |
+| `whitespace` | string | `none`, `change` or `all`; decides what counts as a difference. |
+| `alignWhitespace` | string | `none`, `change` or `all`; used only to establish line correspondence. `change` absorbs re-indentation while the difference is still reported (#270). |
 | `syncPoints` | array | 0-based `{ "old": N, "new": N }` forced correspondences. |
 | `ignoredHunks` | array | Stored hunk indexes omitted from patch/report output. |
 

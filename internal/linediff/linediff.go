@@ -117,11 +117,22 @@ func ParseWhitespace(value string) Whitespace {
 // Options tunes the diff. MaxHunks and Window are always used; the Ignore*
 // fields normalize the text used for *comparison* only — output still shows the
 // original lines.
+//
+// Whitespace (and the other ignore options) decide both which lines are
+// *matched* and which matched pairs count as a *difference*. AlignWhitespace
+// separates the two: it is an even coarser equivalence used only to establish
+// line correspondence, so a re-indented file keeps every line aligned while the
+// content difference is still reported at its original position instead of the
+// whitespace-only lines vanishing (#270). Detection keeps using Whitespace, so
+// the two policies compose: AlignWhitespace is applied on top of the normal
+// comparison view. The zero value (WSKeep) leaves alignment and detection
+// identical, preserving the pre-#270 behaviour exactly.
 type Options struct {
 	MaxHunks          int
 	Window            uint64
 	IgnoreCase        bool
 	Whitespace        Whitespace
+	AlignWhitespace   Whitespace
 	IgnoreEOL         bool
 	IgnoreTrailingEOL bool
 	LineFilters       []*regexp.Regexp
@@ -168,6 +179,13 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 	if comparison.norm != nil {
 		comparison.oldNorm, comparison.newNorm = newNormRing(window), newNormRing(window)
 	}
+	// A separate alignment view only exists when AlignWhitespace asks for a
+	// coarser match than the comparison itself; when nil, aligned() falls back to
+	// equal() and this is the pre-#270 code path.
+	comparison.align = alignNormalizer(opts)
+	if comparison.align != nil {
+		comparison.oldAlign, comparison.newAlign = newNormRing(window), newNormRing(window)
+	}
 	oldTotal := old.Count()
 	newTotal := new.Count()
 	res := Result{OldLines: oldTotal, NewLines: newTotal}
@@ -186,6 +204,23 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 				j++
 				continue
 			}
+			// The pair corresponds under the alignment view but differs under
+			// the comparison view: a re-indented (or otherwise normalized)
+			// line. Report the content difference here instead of letting the
+			// whitespace-only lines disappear, and keep the positions aligned.
+			if comparison.align != nil && comparison.aligned(i, j) {
+				h := alignedHunk(comparison, i, j, oldTotal, newTotal)
+				applyStats(&res, h)
+				res.HunkCount++
+				if len(res.Hunks) < maxHunks {
+					res.Hunks = append(res.Hunks, h)
+				} else {
+					res.OmittedHunks++
+				}
+				i += h.OldLen
+				j += h.NewLen
+				continue
+			}
 		}
 
 		h := nextDiffHunk(comparison, i, j, window)
@@ -200,6 +235,20 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 		j += h.NewLen
 	}
 	return res, nil
+}
+
+// alignedHunk builds the Replace hunk for a run of corresponding-but-different
+// line pairs. Extending the run as long as the next pair also aligns and still
+// differs mirrors how a normal diff coalesces a contiguous replace region: one
+// re-indented block reads as one hunk instead of one hunk per line.
+func alignedHunk(comparison lineComparator, i, j, oldTotal, newTotal uint64) Hunk {
+	oldLen, newLen := uint64(1), uint64(1)
+	for i+oldLen < oldTotal && j+newLen < newTotal &&
+		comparison.aligned(i+oldLen, j+newLen) && !comparison.equal(i+oldLen, j+newLen) {
+		oldLen++
+		newLen++
+	}
+	return Hunk{Kind: Replace, OldStart: i, OldLen: oldLen, NewStart: j, NewLen: newLen}
 }
 
 func nextDiffHunk(comparison lineComparator, i, j, window uint64) Hunk {
@@ -262,10 +311,16 @@ type lineEndings interface {
 }
 
 type lineComparator struct {
-	old, new         Lines
+	old, new Lines
+	// norm and align are the comparison (detection) and alignment
+	// normalizations. align is nil unless AlignWhitespace makes matching coarser
+	// than comparison; when nil, aligned() is equal() exactly.
 	norm             func(string) string
+	align            func(string) string
 	opts             Options
 	oldNorm, newNorm normRing
+	oldAlign         normRing
+	newAlign         normRing
 }
 
 // normRing memoizes the normalized form of recently compared lines.
@@ -319,7 +374,13 @@ func (r *normRing) store(index uint64, text string) {
 
 // normalized returns the comparison form of a line, from the ring when present.
 func (c *lineComparator) normalized(source Lines, ring *normRing, index uint64) (string, bool) {
-	if c.norm == nil {
+	return normalizedWith(c.norm, source, ring, index)
+}
+
+// normalizedWith is normalized for an arbitrary normalization function. A nil
+// function means the raw line is already the comparison form.
+func normalizedWith(norm func(string) string, source Lines, ring *normRing, index uint64) (string, bool) {
+	if norm == nil {
 		return source.Line(index)
 	}
 	if text, ok := ring.lookup(index); ok {
@@ -329,7 +390,7 @@ func (c *lineComparator) normalized(source Lines, ring *normRing, index uint64) 
 	if !ok {
 		return "", false
 	}
-	text := c.norm(raw)
+	text := norm(raw)
 	ring.store(index, text)
 	return text, true
 }
@@ -337,12 +398,32 @@ func (c *lineComparator) normalized(source Lines, ring *normRing, index uint64) 
 func (c *lineComparator) equal(oldIndex, newIndex uint64) bool {
 	oldText, oldOK := c.normalized(c.old, &c.oldNorm, oldIndex)
 	newText, newOK := c.normalized(c.new, &c.newNorm, newIndex)
-	if !oldOK || !newOK {
+	if !oldOK || !newOK || oldText != newText {
 		return false
 	}
-	if oldText != newText {
+	return c.sameEOL(oldIndex, newIndex)
+}
+
+// aligned reports whether two lines correspond under the alignment view. When
+// no distinct alignment normalization is configured it is exactly equal(), so
+// the diff is unchanged. Line endings still participate: alignment is about
+// which line pairs up, and an EOL-only change must keep counting as a
+// difference rather than being folded into an aligned run.
+func (c *lineComparator) aligned(oldIndex, newIndex uint64) bool {
+	if c.align == nil {
+		return c.equal(oldIndex, newIndex)
+	}
+	oldText, oldOK := normalizedWith(c.align, c.old, &c.oldAlign, oldIndex)
+	newText, newOK := normalizedWith(c.align, c.new, &c.newAlign, newIndex)
+	if !oldOK || !newOK || oldText != newText {
 		return false
 	}
+	return c.sameEOL(oldIndex, newIndex)
+}
+
+// sameEOL applies the end-of-line comparison rules. It assumes the line text
+// already compared equal.
+func (c *lineComparator) sameEOL(oldIndex, newIndex uint64) bool {
 	if c.opts.IgnoreEOL {
 		return true
 	}
@@ -370,7 +451,7 @@ func (c *lineComparator) equal(oldIndex, newIndex uint64) bool {
 
 func (c *lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
 	for index := start; index < end; index++ {
-		if c.equal(oldIndex, index) {
+		if c.aligned(oldIndex, index) {
 			return index, true
 		}
 	}
@@ -379,7 +460,7 @@ func (c *lineComparator) findNew(oldIndex, start, end uint64) (uint64, bool) {
 
 func (c *lineComparator) findOld(newIndex, start, end uint64) (uint64, bool) {
 	for index := start; index < end; index++ {
-		if c.equal(index, newIndex) {
+		if c.aligned(index, newIndex) {
 			return index, true
 		}
 	}
@@ -404,6 +485,38 @@ func normalizer(o Options) func(string) string {
 		}
 		if o.IgnoreCase {
 			s = strings.ToLower(s)
+		}
+		return s
+	}
+}
+
+// alignNormalizer returns the alignment-normalization function for opts, or nil
+// when alignment would not be coarser than comparison (so aligned() is exactly
+// equal() and the diff is unchanged).
+//
+// Alignment composes *on top of* the comparison view: the comparison
+// normalization runs first, then AlignWhitespace collapses or removes
+// whitespace. Composing makes alignment at least as coarse as comparison, which
+// is the invariant the diff walk relies on (every pair equal under comparison
+// must also correspond under alignment). It also means the two policies never
+// disagree about whether a difference is *reported* — only about which lines
+// are matched.
+func alignNormalizer(o Options) func(string) string {
+	// Whitespace is ordered least- to most-ignoring; an alignment policy that is
+	// not strictly coarser cannot change any pairing.
+	if o.AlignWhitespace <= o.Whitespace {
+		return nil
+	}
+	base := normalizer(o)
+	return func(s string) string {
+		if base != nil {
+			s = base(s)
+		}
+		switch o.AlignWhitespace {
+		case WSAll:
+			s = removeSpace(s)
+		case WSChange:
+			s = collapseSpace(s)
 		}
 		return s
 	}

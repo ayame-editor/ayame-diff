@@ -30,7 +30,8 @@ type diffRequest struct {
 	Numeric           bool                 `json:"numeric"`
 	Reverse           bool                 `json:"reverse"`
 	IgnoreCase        bool                 `json:"ignoreCase"`
-	Whitespace        string               `json:"whitespace"` // none | change | all
+	Whitespace        string               `json:"whitespace"`      // none | change | all
+	AlignWhitespace   string               `json:"alignWhitespace"` // none | change | all
 	IgnoreEOL         bool                 `json:"ignoreEOL"`
 	IgnoreTrailingEOL bool                 `json:"ignoreTrailingEOL"`
 	LineFilters       []string             `json:"lineFilters,omitempty"`
@@ -437,13 +438,17 @@ func requestDiffOptions(req diffRequest, maxHunks int, window uint64) (linediff.
 	if req.Whitespace != "" && req.Whitespace != "none" && req.Whitespace != "change" && req.Whitespace != "all" {
 		return linediff.Options{}, fmt.Errorf("whitespace must be none, change, or all")
 	}
+	if req.AlignWhitespace != "" && req.AlignWhitespace != "none" && req.AlignWhitespace != "change" && req.AlignWhitespace != "all" {
+		return linediff.Options{}, fmt.Errorf("alignWhitespace must be none, change, or all")
+	}
 	filters, err := linediff.CompileLineFilters(req.LineFilters)
 	if err != nil {
 		return linediff.Options{}, err
 	}
 	return linediff.Options{
 		MaxHunks: maxHunks, Window: window, IgnoreCase: req.IgnoreCase,
-		Whitespace: linediff.ParseWhitespace(req.Whitespace), IgnoreEOL: req.IgnoreEOL,
+		Whitespace: linediff.ParseWhitespace(req.Whitespace), AlignWhitespace: linediff.ParseWhitespace(req.AlignWhitespace),
+		IgnoreEOL:         req.IgnoreEOL,
 		IgnoreTrailingEOL: req.IgnoreTrailingEOL, LineFilters: filters,
 		SyncPoints: req.SyncPoints,
 	}, nil

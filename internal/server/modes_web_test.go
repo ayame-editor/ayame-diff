@@ -26,7 +26,7 @@ for (const mode of ['text','sorted','threeway']) {
 // csvRequestBody() reads ignoreCase / whitespace / lineFilters only.
 for (const mode of ['csv','threeway-csv']) {
   if (!eq(modes.liveCompareConditions(mode), ['ignoreCase','whitespace','lineFilters'])) process.exit(12);
-  if (!eq(modes.deadCompareConditions(mode), ['ignoreEOL','ignoreTrailingEOL'])) process.exit(13);
+  if (!eq(modes.deadCompareConditions(mode), ['alignWhitespace','ignoreEOL','ignoreTrailingEOL'])) process.exit(13);
 }
 // dirRequestBody() reads none of the shared comparison conditions.
 if (modes.liveCompareConditions('dir').length !== 0) process.exit(14);

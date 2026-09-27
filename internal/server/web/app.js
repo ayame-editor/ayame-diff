@@ -1114,7 +1114,7 @@ async function armFileWatchFromCurrentState() {
 const URL_STATE_MODES = new Set(["text", "sorted", "csv", "threeway", "threeway-csv", "dir"]);
 const URL_STATE_CONTROL_IDS = [
   "encoding", "numeric", "reverse",
-  "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters",
+  "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "alignWhitespace", "lineFilters",
   "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
   "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
   "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
@@ -3903,6 +3903,13 @@ function makeCellExpandable(td, value) {
   td.append(copy);
 }
 
+// requestAlignWhitespace is the whitespace policy used only for line
+// correspondence (#270). The pure web/alignment.js module owns the mapping; the
+// fallback keeps an older cached page (without the script) comparing as before.
+function requestAlignWhitespace() {
+  return globalThis.AyameAlignment?.alignmentWhitespace($("whitespace").value, $("alignWhitespace").checked) || "none";
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   const old = $("old").value.trim();
@@ -3934,6 +3941,7 @@ function requestBody() {
 	ignoreTrailingEOL: $("ignoreTrailingEOL").checked,
 	lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
     whitespace: $("whitespace").value,
+    alignWhitespace: requestAlignWhitespace(),
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
     syncPoints: syncPoints.map((point) => ({ ...point })),
@@ -3944,6 +3952,7 @@ function activeFilters() {
 	const filters = [];
 	if ($("ignoreCase").checked) filters.push(t("ignoreCase"));
 	if ($("whitespace").value !== "none") filters.push(`${t("whitespace")}: ${$("whitespace").value}`);
+	if (requestAlignWhitespace() !== "none") filters.push(t("absorbReindent"));
 	if ($("ignoreEOL").checked) filters.push(t("ignoreEOL"));
 	if ($("ignoreTrailingEOL").checked) filters.push(t("ignoreTrailingEOL"));
 	for (const pattern of $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))

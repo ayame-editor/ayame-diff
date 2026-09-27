@@ -12,7 +12,7 @@
 
   // Every comparison-condition control id in the shared setup pool.
   const COMPARE_CONDITIONS = [
-    "ignoreCase", "whitespace", "ignoreEOL", "ignoreTrailingEOL", "lineFilters",
+    "ignoreCase", "whitespace", "alignWhitespace", "ignoreEOL", "ignoreTrailingEOL", "lineFilters",
   ];
 
   // The subset each mode passes to its request body. Modes absent from this map

@@ -51,6 +51,14 @@ the corresponding modes.
     `change` and `all` normalize only for the comparison. The printed lines are
     the untouched originals.
 
+By default a normalization decides both which lines are *matched* and which
+matched pairs count as a *difference*, so ignoring whitespace also hides
+whitespace-only changes. The GUI (and the `/api/diff` `alignWhitespace` field)
+can separate the two: a whitespace-insensitive match that still reports the
+content difference at its original position, so a re-indented file stays
+aligned instead of the whitespace-only lines vanishing. See
+[the GUI guide](gui.md#manual-alignment-and-ignored-differences).
+
 ### Line endings
 
 EOLs are significant in `text` mode by default. `--ignore-eol` ignores every
