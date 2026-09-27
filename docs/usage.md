@@ -205,7 +205,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 | Flag | Output |
 |---|---|
 | *(none)* | Unified hunks (default). |
-| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. |
+| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. `--east-asian-ambiguous-wide` counts East Asian Ambiguous characters as two cells to match terminals that render them full-width. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
 | `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
@@ -240,6 +240,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)
 --width N                    total width for --side-by-side (default 160)
+--east-asian-ambiguous-wide  count East Asian Ambiguous characters (○, ※, α) as two cells in --side-by-side
 ```
 
 Patch output is never truncated by `--max-hunks` or `--max-lines`. It preserves

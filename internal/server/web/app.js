@@ -864,6 +864,9 @@ function buildContinuousMinimap() {
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 // The word diff lives in worddiff.js so it can be tested without a DOM (#139).
 const { inlineWordDiff, inlineTokens, pushPart } = globalThis.AyameWordDiff;
+// The display-width model lives in textwidth.js, mirroring internal/textwidth,
+// so the tab stops the GUI renders match the width the CLI computes (#289).
+const { displayWidth, nextTabStop, normalizeTabSize } = globalThis.AyameTextWidth;
 const {
   DIR_MARKERS,
   DIR_AUTO_EXPAND_LIMIT,
@@ -1321,11 +1324,16 @@ function syncCopyComparisonURLVisibility() {
 // 801,400 elements — for a display that is off by default, and it was the
 // layout of all those nodes that froze the page (#127). Toggling the option
 // re-renders, which is what applyDisplayPreferences now arranges.
-function appendText(el, text) {
+function appendText(el, text, column) {
+  let col = Number.isFinite(column) ? column : 0;
+  // The column is only consumed to place whitespace markers, so skip the width
+  // walk entirely when they are off. A large diff renders many tokens and the
+  // count would otherwise be paid on every one of them (#127).
   if (!showWhitespace()) {
     el.appendChild(document.createTextNode(text));
-    return;
+    return col;
   }
+  const opts = widthOptions();
   const re = /(\s+)|([^\s]+)/g;
   let m;
   while ((m = re.exec(text))) {
@@ -1337,13 +1345,50 @@ function appendText(el, text) {
       original.textContent = m[1];
       const visible = document.createElement("span");
       visible.className = "ws-visible";
-      visible.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      const marked = visibleWhitespace(m[1], col, opts);
+      visible.textContent = marked.text;
+      col = marked.column;
       s.append(original, visible);
       el.appendChild(s);
     } else {
       el.appendChild(document.createTextNode(m[2]));
+      col += displayWidth(m[2], opts);
     }
   }
+  return col;
+}
+
+// visibleWhitespace renders a whitespace run for the "show whitespace" mode.
+// Raw tabs are hidden behind the markers, so the marker itself has to reach the
+// tab stop: "→" plus one "·" per remaining cell. That is what makes tabbed lines
+// stay aligned while whitespace is visible, and it is where the East Asian
+// Ambiguous width choice changes the result (#289).
+function visibleWhitespace(run, column, options) {
+  const tabSize = currentTabSize();
+  let col = column;
+  let out = "";
+  for (const ch of run) {
+    if (ch === "\t") {
+      const stop = nextTabStop(col, tabSize);
+      out += "→" + "·".repeat(Math.max(0, stop - col - 1));
+      col = stop;
+    } else if (ch === " ") {
+      out += "·";
+      col += 1;
+    } else {
+      out += ch;
+      col += displayWidth(ch, options);
+    }
+  }
+  return { text: out, column: col };
+}
+
+function widthOptions() {
+  return { eastAsianAmbiguousWide: Boolean($("ambiguousWide")?.checked) };
+}
+
+function currentTabSize() {
+  return normalizeTabSize($("tabSize")?.value);
 }
 
 function showWhitespace() { return $("showWs").checked; }
@@ -1351,25 +1396,28 @@ function syntaxPath(side) {
   if ($("scratch").checked) return "";
   return side === "old" ? $("old").value : $("new").value;
 }
-function appendSyntax(el, text, path) {
+function appendSyntax(el, text, path, column) {
   const spans = globalThis.AyameSyntax?.highlightSpans(text, path);
-  if (!spans) { appendText(el, text); return; }
+  let col = Number.isFinite(column) ? column : 0;
+  if (!spans) return appendText(el, text, col);
   for (const part of spans) {
-    if (part.kind === "plain") { appendText(el, part.text); continue; }
+    if (part.kind === "plain") { col = appendText(el, part.text, col); continue; }
     const token = document.createElement("span");
     token.className = `syn syn-${part.kind}`;
-    appendText(token, part.text);
+    col = appendText(token, part.text, col);
     el.append(token);
   }
+  return col;
 }
 function textSpan(parts, changedClass, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
   if (!parts) return tx;
+  let col = 0;
   for (const p of parts) {
     const s = document.createElement("span");
     if (p.changed) s.className = changedClass;
-    appendSyntax(s, p.text, path);
+    col = appendSyntax(s, p.text, path, col);
     tx.append(s);
   }
   return tx;
@@ -1378,7 +1426,7 @@ function textSpan(parts, changedClass, path) {
 function plainSpan(text, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
-  appendSyntax(tx, text, path);
+  appendSyntax(tx, text, path, 0);
   return tx;
 }
 function cell(cls, lineNo, node, side) {
@@ -4333,6 +4381,20 @@ function applyWrap(on) {
   restoreResultScrollAnchor(scrollAnchor);
   refreshMinimapGeometry();
 }
+// Display width settings (#289). The tab size is a CSS token so raw tabs render
+// at the chosen width; the East Asian Ambiguous choice feeds the width model
+// used for whitespace markers. Both are read by the CLI's internal/textwidth
+// too, so the two halves agree on what a line occupies.
+function applyTabSize(size) {
+  const value = normalizeTabSize(size);
+  document.documentElement.style.setProperty("--tab-size", String(value));
+  localStorage.setItem("ayame-tab-size", String(value));
+  $("tabSize").value = String(value);
+}
+function applyAmbiguousWide(on) {
+  localStorage.setItem("ayame-ambiguous-wide", on ? "1" : "0");
+  $("ambiguousWide").checked = on;
+}
 // applyViewMode switches between side-by-side and the unified, git-style single
 // column (#115). Nothing is re-rendered: a changed row already carries both
 // cells, so the layout is entirely a CSS concern and every other feature
@@ -4814,6 +4876,14 @@ $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   rerenderForDisplayChange();
 });
+$("tabSize").addEventListener("change", () => {
+  applyTabSize($("tabSize").value);
+  rerenderForDisplayChange();
+});
+$("ambiguousWide").addEventListener("change", () => {
+  applyAmbiguousWide($("ambiguousWide").checked);
+  rerenderForDisplayChange();
+});
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
   const scrollAnchor = captureResultScrollAnchor();
@@ -4851,6 +4921,8 @@ applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyTheme(localStorage.getItem("ayame-theme") || "system");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 applyViewMode(localStorage.getItem("ayame-view") || "side");
+applyTabSize(localStorage.getItem("ayame-tab-size") || 8);
+applyAmbiguousWide(localStorage.getItem("ayame-ambiguous-wide") === "1");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();

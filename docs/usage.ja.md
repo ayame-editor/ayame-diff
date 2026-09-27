@@ -176,7 +176,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 | フラグ | 出力内容 |
 |---|---|
 | *(なし)* | ユニファイドハンク（デフォルト） |
-| `--side-by-side`（エイリアス `--side`） | 2列の旧 / 新レイアウト。`--width`で列幅を設定可能。 |
+| `--side-by-side`（エイリアス `--side`） | 2列の旧 / 新レイアウト。`--width`で列幅を設定可能。`--east-asian-ambiguous-wide`は東アジア曖昧幅文字を2セルとして数え、全角表示の端末に合わせる。 |
 | `--json` | ハンクの種類、行番号、行数を含む構造化JSON |
 | `--summary` | 標準エラーに1行のサマリーを出力 |
 | `--format unified` / `-U N` | N行のコンテキスト付きユニファイドパッチ（デフォルトは3） |
@@ -211,6 +211,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 --max-lines N               1ハンクあたりの最大行数（デフォルト200）
 --window N                  行の差異時にリシンクの先読みウィンドウサイズ（デフォルト128）
 --width N                   --side-by-sideの総列幅（デフォルト160）
+--east-asian-ambiguous-wide  --side-by-sideで東アジア曖昧幅文字（○、※、α）を2セルとして扱う
 ```
 
 パッチ出力は`--max-hunks`や`--max-lines`で切り詰められません。LF/CRLFや最後の改行なしマーカーを保持し、デコード済みのバイナリやNUL入力を拒否します。ロケールに依存しないファイルヘッダのタイムスタンプを使用します。CIはGNU `patch`とともにこれらのフォーマットを適用し、ユニファイド出力は`git apply`で検証します。

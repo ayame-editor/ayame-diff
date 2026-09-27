@@ -423,7 +423,7 @@ button:active:not(:disabled) {
 .three-pane { min-width: 0; border-right: 1px solid var(--border); }
 .three-pane:last-child { border-right: 0; }
 .three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: var(--fs-label); }
-.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); border-top: 1px solid var(--border); }
+.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); tab-size: var(--tab-size); -moz-tab-size: var(--tab-size); border-top: 1px solid var(--border); }
 .three-event.conflict { border-color: var(--danger); }
 .three-event.same_change { border-color: var(--accent); }
 .three-event.merged { border-color: var(--add-fg); }
@@ -767,6 +767,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   display: grid; grid-template-columns: var(--diff-gutter) 1fr; gap: var(--diff-gap);
   padding: 0.1rem 0.5rem; font-family: var(--mono);
   font-size: var(--fs-data); white-space: pre-wrap; word-break: break-word;
+  tab-size: var(--tab-size); -moz-tab-size: var(--tab-size);
   border-top: 1px solid var(--border);
 }
 .cell:first-child { border-right: 1px solid var(--border); }
