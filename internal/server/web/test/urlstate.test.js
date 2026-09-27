@@ -23,7 +23,7 @@ function sampleState() {
     },
     controls: {
       ignoreCase: true,
-      whitespace: "change",
+      whitespaceScale: "eol-change",
       lineFilters: "^generated,\n一時$",
       maxHunks: "400",
     },
