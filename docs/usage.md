@@ -499,6 +499,23 @@ mistaken for a usage error.
 
 ---
 
+## Error messages { #error-messages }
+
+When a command fails, `ayame-diff` prints a short explanation and a one-line
+remedy on standard error: `error: The file was not found.` followed by
+`hint: Check the path. ...`. The message language follows the locale, in the
+order `LC_ALL`, `LC_MESSAGES`, `LANG`; a value beginning with `ja` selects
+Japanese, and anything else selects English. Common failures — a missing path,
+a permission error, a malformed flag value, malformed JSON, and an output that
+is also an input — are explained in plain language instead of the raw syscall,
+`strconv`, or `encoding/json` text.
+
+Exit codes and machine-readable output (`--json`, `--tsv`, `--summary-json`)
+are unaffected. Set `AYAME_DIFF_DEBUG` to any value to print the raw error text
+beneath the explanation when filing a bug report.
+
+---
+
 ## Scope boundaries
 
 `ayame-diff` is intentionally focused on large structured/text data. Image
