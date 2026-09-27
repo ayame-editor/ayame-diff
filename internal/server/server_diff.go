@@ -154,6 +154,10 @@ type hunkOut struct {
 	New      []string `json:"new"`
 	MoveID   uint64   `json:"move_id,omitempty"`
 	MovePeer *uint64  `json:"move_peer,omitempty"`
+	// Downgraded marks a whitespace- or case-only difference that the active
+	// ignore options dismissed. The GUI renders it subdued and keeps it out
+	// of navigation and the difference counts (#269).
+	Downgraded bool `json:"downgraded,omitempty"`
 }
 
 type diffResponse struct {
@@ -169,6 +173,9 @@ type diffResponse struct {
 	MovedLines           uint64    `json:"moved_lines,omitempty"`
 	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
 	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
+	// DowngradedHunks counts whitespace/case-only differences that stayed
+	// visible but were excluded from HunkCount and the line statistics (#269).
+	DowngradedHunks uint64 `json:"downgraded_hunks,omitempty"`
 	// OldEncoding/NewEncoding report the concrete encoding each side was decoded
 	// from (#130). Populated for file inputs — where `encoding: auto` may have
 	// guessed shift_jis/euc-jp/utf-16 — so the UI can show what was detected and
@@ -224,6 +231,11 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// The display path shows whitespace/case-only differences as a downgraded
+	// third state rather than dropping them (#269). Patch and merge callers
+	// deliberately leave this off so applyable output never gains a dismissed
+	// difference.
+	options.MarkDowngraded = true
 	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
@@ -487,14 +499,15 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 	hunks := make([]hunkOut, len(res.Hunks))
 	for i, h := range res.Hunks {
 		hunks[i] = hunkOut{
-			Kind:     h.Kind.String(),
-			OldStart: h.OldStart,
-			OldLen:   h.OldLen,
-			NewStart: h.NewStart,
-			NewLen:   h.NewLen,
-			Old:      sliceLines(old, h.OldStart, h.OldLen, maxLines),
-			New:      sliceLines(new, h.NewStart, h.NewLen, maxLines),
-			MoveID:   h.MoveID,
+			Kind:       h.Kind.String(),
+			OldStart:   h.OldStart,
+			OldLen:     h.OldLen,
+			NewStart:   h.NewStart,
+			NewLen:     h.NewLen,
+			Old:        sliceLines(old, h.OldStart, h.OldLen, maxLines),
+			New:        sliceLines(new, h.NewStart, h.NewLen, maxLines),
+			MoveID:     h.MoveID,
+			Downgraded: h.Downgraded,
 		}
 		if h.MoveID != 0 {
 			peer := h.MovePeer
@@ -514,6 +527,7 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		MovedLines:           res.MovedLines,
 		MoveDetectionSkipped: res.MoveDetectionSkipped,
 		IgnoredHunks:         res.IgnoredHunks,
+		DowngradedHunks:      res.DowngradedHunks,
 	}
 	if er, ok := old.(encodingReporter); ok {
 		resp.OldEncoding = er.Encoding()

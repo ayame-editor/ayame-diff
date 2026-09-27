@@ -20,6 +20,7 @@ const {
   calculateMinimapViewport,
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
+const { isDowngraded, navigableIndexes, essentialIndex, essentialIndexes } = globalThis.AyameDowngrade;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
@@ -1745,12 +1746,24 @@ function renderHunk(h, index) {
     box.classList.add("moved");
     box.dataset.moveId = String(h.move_id);
   }
+  if (h.downgraded) {
+    // A dismissed whitespace/case-only difference: visible but subdued, and
+    // not a navigation target (#269).
+    box.classList.add("downgraded");
+    box.title = t("downgradedHint");
+  }
   const head = document.createElement("div");
   head.className = "hunk-head";
   const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
   head.textContent = h.move_id
     ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
     : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
+  if (h.downgraded) {
+    const mark = document.createElement("span");
+    mark.className = "hunk-downgraded";
+    mark.textContent = ` ${t("downgraded")}`;
+    head.append(mark);
+  }
   if (h.move_id) {
     const jump = document.createElement("button");
     jump.type = "button";
@@ -1765,27 +1778,31 @@ function renderHunk(h, index) {
     });
     head.append(jump);
   }
-  const ignore = document.createElement("button");
-  ignore.type = "button";
-  ignore.className = "hunk-ignore";
-  ignore.textContent = t("ignoreHunk");
-  ignore.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleIgnoredHunk(index);
-  });
-  if (ignoredHunks.has(index)) {
-    box.classList.add("ignored");
-    ignore.textContent = t("restoreHunk");
+  // A dismissed hunk has no adopt/ignore affordances: it was already ignored
+  // by the comparison options (#269).
+  if (!h.downgraded) {
+    const ignore = document.createElement("button");
+    ignore.type = "button";
+    ignore.className = "hunk-ignore";
+    ignore.textContent = t("ignoreHunk");
+    ignore.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleIgnoredHunk(index);
+    });
+    if (ignoredHunks.has(index)) {
+      box.classList.add("ignored");
+      ignore.textContent = t("restoreHunk");
+    }
+    head.append(ignore);
+    const mergeActions = document.createElement("span");
+    mergeActions.className = "hunk-merge";
+    for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
+      const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
+      button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
+      mergeActions.append(button);
+    }
+    head.append(mergeActions);
   }
-  head.append(ignore);
-  const mergeActions = document.createElement("span");
-  mergeActions.className = "hunk-merge";
-  for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
-    const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
-    button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
-    mergeActions.append(button);
-  }
-  head.append(mergeActions);
   box.append(head);
 
   const rows = document.createElement("div");
@@ -1844,6 +1861,9 @@ function renderSummary(res) {
     stat("del", t("deleted"), res.deleted, "delete"),
     stat("chg", t("modified"), res.modified, "replace"),
   );
+  // Whitespace/case-only differences are dismissed from the counts above but
+  // still shown, so the summary has to name them separately (#269).
+  if (res.downgraded_hunks) el.append(stat("downgraded", t("downgradedCount"), res.downgraded_hunks));
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
   if (res.move_detection_skipped) {
     const skipped = document.createElement("span");
@@ -2171,13 +2191,14 @@ function updateMergeUI() {
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
 	$("allBase").hidden = true;
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
-  const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
+  const mergeable = Boolean(lastData?.hunks?.some((hunk) => !isDowngraded(hunk))) && $("mode").value === "text";
   // Offer the toggle whenever a text diff can be merged, but keep the adopt
   // buttons (CSS) and the merge panel hidden until the user opts into merge mode.
   $("mergeMode").hidden = !mergeable;
   $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
-  lastData.hunks.forEach((_, index) => {
+  lastData.hunks.forEach((hunk, index) => {
+    if (isDowngraded(hunk)) return;
     const box = $(`hunk-${index}`), side = mergeChoices.get(index);
     box?.classList.toggle("merge-left", side === "left"); box?.classList.toggle("merge-right", side === "right");
   });
@@ -2214,6 +2235,17 @@ function redoMerge() {
   mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
   const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
 }
+// mergeChoices keys index the rendered hunk list, which may include dismissed
+// hunks; the merge API computes over real differences only, so remap the keys
+// before sending them (#269).
+function essentialChoices(choices, hunks) {
+  const out = {};
+  for (const [index, side] of choices) {
+    const rank = essentialIndex(hunks || [], index);
+    if (rank >= 0) out[rank] = side;
+  }
+  return out;
+}
 async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
@@ -2223,7 +2255,7 @@ async function saveTextMerge() {
   const overwrite = $("mergeOverwrite").checked;
   const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
-  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...requestBody(), output, choices: essentialChoices(mergeChoices, lastData?.hunks), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -2388,7 +2420,8 @@ function updateCounter() {
 }
 
 function activeHunkIndexes() {
-  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index) && (!threeWayData || threeWayData.events[index]?.kind === "conflict"));
+  const eventKinds = threeWayData ? threeWayData.events.map((event) => event.kind) : null;
+  return navigableIndexes(lastData?.hunks || [], ignoredHunks, eventKinds);
 }
 
 function stepHunk(delta) {
@@ -2399,10 +2432,21 @@ function stepHunk(delta) {
   jumpToHunk(active[next]);
 }
 
+// scrollToHunk moves a hunk into view without making it the current navigation
+// target. Used for dismissed differences, which are visible but not differences
+// (#269).
+function scrollToHunk(index) {
+  $(`hunk-${index}`)?.scrollIntoView({ block: "center" });
+}
+
 function jumpToHunk(index) {
   const total = lastData?.hunks?.length || 0;
   if (!total || ignoredHunks.has(index)) return;
   index = Math.max(0, Math.min(total - 1, index));
+  if (isDowngraded(lastData.hunks[index])) {
+    scrollToHunk(index);
+    return;
+  }
   document.querySelector(".hunk.current")?.classList.remove("current");
   document.querySelectorAll(".minimap-marker.current").forEach((marker) => marker.classList.remove("current"));
   currentHunk = index;
@@ -2458,13 +2502,14 @@ function buildMinimap(data) {
     kind: h.minimap_kind || h.kind,
     moved: Boolean(h.move_id),
     ignored: ignoredHunks.has(index),
+    downgraded: isDowngraded(h),
     displayLength: Math.max(h.display_len || 0, h.old_len || 0, h.new_len || 0, 1),
   })), trackPixels);
 
   for (const segment of segments) {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}`;
+    marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}${segment.downgraded ? " downgraded" : ""}`;
     if (readHunks.has(segment.index)) marker.classList.add("read");
     if (currentHunk === segment.index) marker.classList.add("current");
     marker.dataset.hunk = String(segment.index);
@@ -2536,6 +2581,8 @@ function observeHunks() {
       if (!entry.isIntersecting || entry.intersectionRatio < 0.55) continue;
       const index = Number(entry.target.dataset.hunk);
       if (ignoredHunks.has(index)) continue;
+      // Read tracking is for differences; a dismissed hunk is not one (#269).
+      if (isDowngraded(lastData?.hunks?.[index])) continue;
       if (!readHunks.has(index)) {
         readHunks.add(index);
         entry.target.classList.add("read");
@@ -3840,7 +3887,7 @@ function jumpToKind(kind) {
   const hunks = lastData?.hunks || [];
   const matches = [];
   for (let i = 0; i < hunks.length; i++) {
-    if (hunks[i].kind === kind && !ignoredHunks.has(i)) matches.push(i);
+    if (hunks[i].kind === kind && !ignoredHunks.has(i) && !isDowngraded(hunks[i])) matches.push(i);
   }
   if (!matches.length) return;
   if (kind !== lastJumpKind) lastJumpIndex = -1;
@@ -3966,7 +4013,7 @@ async function runExportPatch() {
   if (!validateInputs(body)) return;
   body.patchFormat = $("patchFormat").value;
   body.context = Math.max(0, Number($("patchContext").value) || 0);
-  body.ignoredHunks = [...ignoredHunks].sort((a, b) => a - b);
+  body.ignoredHunks = essentialIndexes(lastData?.hunks || [], [...ignoredHunks].sort((a, b) => a - b));
   $("exportPatch").disabled = true;
   setStatus(t("exporting"), "busy");
   try {
@@ -4198,8 +4245,12 @@ function buildSidebar(data) {
     button.type = "button";
     button.className = `sidebar-item ${hunk.kind}`;
     button.dataset.hunk = String(index);
+    if (isDowngraded(hunk)) {
+      button.classList.add("downgraded");
+      button.title = t("downgradedHint");
+    }
     const mark = document.createElement("span");
-    mark.className = "sidebar-mark"; mark.textContent = HUNK_KIND_MARK[hunk.kind] || "~";
+    mark.className = "sidebar-mark"; mark.textContent = isDowngraded(hunk) ? "≈" : (HUNK_KIND_MARK[hunk.kind] || "~");
     mark.setAttribute("aria-hidden", "true");
     const line = document.createElement("span");
     line.className = "sidebar-line"; line.textContent = String(hunk.new_start + 1);
@@ -4616,8 +4667,8 @@ $("lastDiff").addEventListener("click", () => {
 $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
-$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
-$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
+$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((hunk, index) => { if (!isDowngraded(hunk)) mergeChoices.set(index, "left"); }); }));
+$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((hunk, index) => { if (!isDowngraded(hunk)) mergeChoices.set(index, "right"); }); }));
 $("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
 $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);

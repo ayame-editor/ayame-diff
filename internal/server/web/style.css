@@ -703,6 +703,29 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .hunk.ignored { opacity: 0.68; border-style: dashed; }
 .hunk.ignored .hunk-head::before { content: "⊘ "; color: var(--muted); }
 .minimap-marker.ignored { opacity: 0.18; }
+/* Whitespace/case-only differences (#269). KDiff3 draws these chequered: the
+   reader can see the difference was found and dismissed, without it competing
+   with a real conflict. The rows stay visible (unlike .ignored, which hides
+   them) but lose the conflict colour and take a subdued checker wash. */
+.hunk.downgraded { border-style: dashed; border-color: color-mix(in srgb, var(--muted) 45%, var(--border)); }
+.hunk.downgraded .rows {
+  background:
+    repeating-conic-gradient(
+      color-mix(in srgb, var(--muted) 16%, transparent) 0% 25%,
+      transparent 0% 50%
+    ) 0 0 / 9px 9px;
+}
+.hunk.downgraded .cell { background: transparent; color: var(--muted); }
+.hunk.downgraded .cell .ln { opacity: 0.72; }
+.hunk.downgraded .w-add, .hunk.downgraded .w-del { background: transparent; box-shadow: none; }
+.hunk-downgraded {
+  margin-left: 0.4rem; padding: 0 0.35rem; border: 1px dashed currentColor;
+  border-radius: 999px; color: var(--muted); font-size: var(--fs-caption);
+}
+.summary .downgraded b { color: var(--muted); }
+.sidebar-item.downgraded { opacity: 0.55; }
+.sidebar-item.downgraded .sidebar-mark { color: var(--muted); }
+.minimap-marker.downgraded { opacity: 0.4; }
 .hunk-head {
   font-family: var(--mono); font-size: var(--fs-label);
   padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);

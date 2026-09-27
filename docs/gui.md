@@ -223,7 +223,12 @@ Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
 use an `.ayamediff` project for very large CSV column selections.
 
 Applied ignore settings are shown in the result summary. They affect matching
-only: rendered lines and exported patches retain the original text.
+only: rendered lines and exported patches retain the original text. Whitespace-
+and case-only differences are not erased: they stay visible as a subdued,
+chequered hunk with their own **ignored-only** count (KDiff3's third state),
+while next/previous navigation, the difference counts, and patch export treat
+them as equal. A dismissed difference therefore remains auditable instead of
+being indistinguishable from one that was never there.
 
 Browser-dropped files are copied to a private local cache. Each file is limited
 to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
@@ -393,7 +398,10 @@ Success response:
 Each hunk's `kind` is `Insert`, `Delete` or `Replace`, with `old`/`new` arrays
 holding the affected lines (truncated to `maxLines` per side). The optional
 `move_detection_skipped: true` field indicates that move detection was
-requested but omitted hunks made a complete result impossible. Errors return
+requested but omitted hunks made a complete result impossible. A whitespace- or
+case-only difference the request's ignore options dismissed is returned with
+`"downgraded": true`; such hunks are excluded from `hunk_count` and the line
+statistics, and `downgraded_hunks` counts them. Errors return
 an HTTP 4xx status with a JSON body:
 
 ```json

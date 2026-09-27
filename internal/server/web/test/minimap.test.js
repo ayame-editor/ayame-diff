@@ -113,6 +113,15 @@ test("puts ignored markers last and clamps every segment to the track", () => {
   }
 });
 
+test("a downgraded marker never outranks a real difference", () => {
+  assert.ok(minimapMarkerPriority({ downgraded: true }) < minimapMarkerPriority({ kind: "insert" }));
+  const segments = calculateMinimapSegments([
+    { index: 0, kind: "replace", downgraded: true, displayLength: 1 },
+    { index: 1, kind: "insert", displayLength: 1 },
+  ], 1);
+  assert.equal(segments[0].index, 1);
+});
+
 test("bounds dense minimaps by track pixels without losing a conflict", () => {
   const markers = Array.from({ length: 1000 }, (_, index) => ({
     index,

@@ -126,6 +126,13 @@ type Options struct {
 	IgnoreTrailingEOL bool
 	LineFilters       []*regexp.Regexp
 	SyncPoints        []SyncPoint
+	// MarkDowngraded surfaces differences that the ignore options collapse —
+	// whitespace-only or case-only line pairs — as Hunks flagged Downgraded
+	// instead of dropping them. They stay visible but are excluded from
+	// HunkCount and the line statistics. It only has an effect when
+	// Whitespace or IgnoreCase is set. Callers that emit applyable output
+	// (patch export, merge) must leave it false (#269).
+	MarkDowngraded bool
 }
 
 // Diff computes the line diff of old vs new. At most maxHunks hunks are stored
@@ -168,9 +175,29 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 	if comparison.norm != nil {
 		comparison.oldNorm, comparison.newNorm = newNormRing(window), newNormRing(window)
 	}
+	// downgrade classifies a line pair that the primary comparison matched
+	// only because whitespace or case was ignored. It reuses the same
+	// whitespace/case rules without the line filters, so a pair that matched
+	// solely through a filter is not offered as a dismissed difference.
+	var downgrade func(string) string
+	if opts.MarkDowngraded {
+		downgrade = downgradeNormalizer(opts)
+	}
 	oldTotal := old.Count()
 	newTotal := new.Count()
 	res := Result{OldLines: oldTotal, NewLines: newTotal}
+
+	// A run of consecutive downgraded pairs becomes one Replace hunk so the
+	// reader sees a contiguous dismissed region, not one hunk per line.
+	var pending *Hunk
+	flushPending := func() {
+		if pending == nil {
+			return
+		}
+		h := *pending
+		pending = nil
+		appendHunk(&res, h, maxHunks)
+	}
 
 	var i, j uint64
 	var steps uint64
@@ -182,24 +209,53 @@ func diffWithOptions(ctx context.Context, old, new Lines, opts Options) (Result,
 		}
 		if i < oldTotal && j < newTotal {
 			if comparison.equal(i, j) {
+				if downgrade != nil {
+					oldText, oldOK := old.Line(i)
+					newText, newOK := new.Line(j)
+					if oldOK && newOK && oldText != newText && downgrade(oldText) == downgrade(newText) {
+						if pending == nil {
+							pending = &Hunk{Kind: Replace, OldStart: i, NewStart: j, Downgraded: true}
+						}
+						pending.OldLen++
+						pending.NewLen++
+						i++
+						j++
+						continue
+					}
+				}
+				flushPending()
 				i++
 				j++
 				continue
 			}
 		}
 
+		flushPending()
 		h := nextDiffHunk(comparison, i, j, window)
-		applyStats(&res, h)
-		res.HunkCount++
-		if len(res.Hunks) < maxHunks {
-			res.Hunks = append(res.Hunks, h)
-		} else {
-			res.OmittedHunks++
-		}
+		appendHunk(&res, h, maxHunks)
 		i += h.OldLen
 		j += h.NewLen
 	}
+	flushPending()
 	return res, nil
+}
+
+// appendHunk stores h unless the max-hunk cap is reached, in which case the
+// hunk is only counted. A downgraded hunk never contributes to HunkCount or
+// the line statistics; it is tracked separately so navigation and the
+// difference counts stay essential-only (#269).
+func appendHunk(res *Result, h Hunk, maxHunks int) {
+	if len(res.Hunks) < maxHunks {
+		res.Hunks = append(res.Hunks, h)
+	} else {
+		res.OmittedHunks++
+	}
+	if h.Downgraded {
+		res.DowngradedHunks++
+		return
+	}
+	res.HunkCount++
+	applyStats(res, h)
 }
 
 func nextDiffHunk(comparison lineComparator, i, j, window uint64) Hunk {
@@ -396,6 +452,29 @@ func normalizer(o Options) func(string) string {
 		for _, filter := range o.LineFilters {
 			s = filter.ReplaceAllString(s, "")
 		}
+		switch o.Whitespace {
+		case WSAll:
+			s = removeSpace(s)
+		case WSChange:
+			s = collapseSpace(s)
+		}
+		if o.IgnoreCase {
+			s = strings.ToLower(s)
+		}
+		return s
+	}
+}
+
+// downgradeNormalizer returns the comparison-normalization used only to decide
+// whether a matched pair is a dismissed whitespace/case-only difference, or nil
+// when neither of those options is set. Unlike [normalizer] it ignores line
+// filters and EOL handling: those suppress content rather than whitespace or
+// case, so their matches must disappear rather than be shown as downgraded.
+func downgradeNormalizer(o Options) func(string) string {
+	if !o.IgnoreCase && o.Whitespace == WSKeep {
+		return nil
+	}
+	return func(s string) string {
 		switch o.Whitespace {
 		case WSAll:
 			s = removeSpace(s)
