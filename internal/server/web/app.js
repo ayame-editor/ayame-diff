@@ -37,6 +37,11 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+const {
+  isPlainComparison: optimisticIsPlain,
+  planLineApproximation: optimisticPlanLine,
+  createRecomputeCoordinator,
+} = globalThis.AyameOptimistic;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -167,9 +172,23 @@ function applyLang(next) {
 let editSession = null;
 let lineEditor = null;
 let editComposing = false;
-let editRecompareTimer = null;
 
 const EDIT_RECOMPARE_DELAY = 150;
+
+// Optimistic re-computation (#258). A committed edit paints the edited line
+// immediately and marks it provisional; the coordinator then folds the burst of
+// edits that follow into one authoritative comparison, plus one catch-up run for
+// whatever arrived while that comparison was in flight. The run is `compare`,
+// which already cancels the previous request and restores the scroll anchor.
+let provisionalActive = false;
+const editRecompute = createRecomputeCoordinator({
+  delay: EDIT_RECOMPARE_DELAY,
+  run: async () => {
+    if (editComposing || !editingEnabled() || lineEditor) return false;
+    if (busyOperation) return "busy";
+    return (await compare()) ? true : false;
+  },
+});
 
 function editingEnabled() {
   return editSession !== null;
@@ -277,6 +296,8 @@ async function leaveEditMode(options = {}) {
 // explicit discard — has to clear the watcher flag too, or auto-reload stays
 // blocked for the rest of the session.
 function clearEditSession() {
+  editRecompute.cancel();
+  clearProvisional();
   editSession = null;
   markEditedPanes();
   syncEditControls();
@@ -358,8 +379,8 @@ function openLineEditor(cellElement) {
 // Typing updates the buffer and the pane's unsaved marker, but not the
 // comparison: re-rendering mid-word would tear the editor out of the DOM, and a
 // line that stops differing would take its own hunk off the screen while the
-// caret is still in it. The comparison catches up when the line is committed.
-// (#258 covers making it live, with the optimistic render that needs.)
+// caret is still in it. The textarea is the live feedback while the editor is
+// open; the optimistic render happens when the line is committed.
 function applyLineEdit() {
   if (!lineEditor) return;
   const buffer = editBufferFor(lineEditor.side);
@@ -387,7 +408,13 @@ function closeLineEditor(options = {}) {
   cell.classList.remove("editing");
   const content = cell.querySelector(".tx");
   if (content) content.hidden = false;
-  if (differs) scheduleEditRecompare();
+  if (differs) {
+    // Paint the committed line before the server answers, then let the
+    // authoritative comparison replace it (#258). `differs` was read from the
+    // pre-optimistic DOM above, so the catch-up is still requested.
+    applyOptimisticLineEdit(side, index);
+    scheduleEditRecompare();
+  }
 }
 
 // renderedLine reports what the comparison on screen was built from, so a
@@ -399,16 +426,108 @@ function renderedLine(side, index) {
 }
 
 // Typing must not re-run the comparison on every keystroke, and never while an
-// IME is mid-word.
-// Committing several lines in quick succession (tabbing through a column, say)
-// should cost one comparison, not one each.
+// IME is mid-word. The coordinator coalesces the burst: an idle burst arms one
+// timer, and edits that land while a comparison is running raise one dirty flag
+// for a single catch-up run. It also cancels nothing explicitly — `compare`
+// aborts the previous request through `currentAbort` and its generation guard
+// rejects a superseded response (#169, #258).
 function scheduleEditRecompare() {
-  if (editRecompareTimer) clearTimeout(editRecompareTimer);
-  editRecompareTimer = setTimeout(() => {
-    editRecompareTimer = null;
-    if (editComposing || !editingEnabled() || lineEditor) return;
-    void compare();
-  }, EDIT_RECOMPARE_DELAY);
+  editRecompute.request();
+}
+
+// ---- Optimistic line render (#258) ----
+//
+// A cheap approximation of the new result, painted without the server: the
+// edited cell shows the line the user committed, and, only when the comparison
+// is a plain exact diff with a counterpart on screen, the pair is re-judged as
+// same/changed. The server's answer replaces the whole result when it arrives,
+// and `compare` restores the scroll anchor, so the reader's position survives.
+//
+// This is only honest for a single committed line edit. Comparison-condition
+// changes (ignore rules, move detection, sync points, paths) change the whole
+// result and cannot be guessed from the buffers, so those keep the existing
+// skeleton-and-wait behaviour; the code comments at `runCompare` mark that.
+let provisionalBar = null;
+
+function lineCell(side, index) {
+  return document.querySelector(
+    `#result .cell.selectable-line[data-side="${side}"][data-line="${index}"]`);
+}
+
+function siblingCell(cell) {
+  const row = cell?.parentElement;
+  if (!row) return null;
+  return [...row.children].find((node) => node !== cell && node.classList.contains("cell")) || null;
+}
+
+function cellText(cell) {
+  const tx = cell?.querySelector(".tx");
+  return tx ? tx.textContent : null;
+}
+
+function markProvisionalCell(cell, plan) {
+  if (!cell) return;
+  cell.classList.add("provisional");
+  cell.classList.toggle("provisional-same", plan.classify && plan.same);
+  cell.dataset.provisional = plan.classify ? (plan.same ? "same" : "changed") : "unknown";
+}
+
+function showProvisionalNotice(plan) {
+  const result = $("result");
+  if (!result) return;
+  if (!provisionalBar) {
+    provisionalBar = document.createElement("div");
+    provisionalBar.className = "provisional-bar";
+    provisionalBar.setAttribute("role", "status");
+  }
+  if (provisionalBar.parentElement !== result) result.prepend(provisionalBar);
+  provisionalBar.textContent = plan.classify
+    ? t("provisionalNotice")
+    : t("provisionalNoticeApprox");
+  provisionalActive = true;
+}
+
+// clearProvisional drops every provisional mark. The whole result is rebuilt
+// from the authoritative data on success, so this mostly covers failures,
+// cancellations and leaving edit mode, where the approximation would otherwise
+// stay on screen with nothing coming to correct it.
+function clearProvisional() {
+  provisionalActive = false;
+  if (provisionalBar) {
+    provisionalBar.remove();
+    provisionalBar = null;
+  }
+  for (const cell of document.querySelectorAll("#result .cell.provisional")) {
+    cell.classList.remove("provisional", "provisional-same");
+    delete cell.dataset.provisional;
+  }
+}
+
+function applyOptimisticLineEdit(side, index) {
+  if (!provisionalRenderingPossible()) return false;
+  const buffer = editBufferFor(side);
+  const cell = lineCell(side, index);
+  const counterpart = siblingCell(cell);
+  const plan = optimisticPlanLine({
+    editedValue: buffer.line(index) ?? "",
+    counterpartValue: counterpart ? cellText(counterpart) : null,
+    plain: optimisticIsPlain(requestBody()),
+  });
+  if (!plan.render) return false;
+  const tx = cell.querySelector(".tx");
+  if (tx) tx.textContent = buffer.line(index) ?? "";
+  markProvisionalCell(cell, plan);
+  if (counterpart) markProvisionalCell(counterpart, plan);
+  showProvisionalNotice(plan);
+  return true;
+}
+
+// A provisional render needs a text diff that is on screen and an active edit
+// session; the line itself also has to be rendered, or there is no cell to
+// paint. Any failure here leaves the caller on the existing compare path.
+function provisionalRenderingPossible() {
+  return editingEnabled() && $("mode").value === "text" &&
+    Boolean(lastData?.hunks?.length) && $("result").children.length > 0;
 }
 
 function markEditedPanes() {
@@ -2126,6 +2245,9 @@ function paneHeads(data = {}) {
 // renderResult draws a diff response once. Display preferences only toggle
 // classes on the completed DOM via applyDisplayPreferences.
 async function renderResult(data) {
+  // The authoritative result replaces the optimistic one wholesale; the
+  // provisional banner and marks are inside #result and go with it (#258).
+  clearProvisional();
   applyDisplayPreferences();
   renderSummary(data);
   const result = $("result");
@@ -3400,10 +3522,12 @@ async function compareDirectory() {
 }
 
 async function runCompare() {
-  if ($("mode").value === "threeway") return compareThreeWay(false);
-  if ($("mode").value === "threeway-csv") return compareThreeWay(true);
-  if ($("mode").value === "csv") return compareCSV();
-	if ($("mode").value === "dir") return compareDirectory();
+  // A provisional line render only exists in a text edit session; anything that
+  // leaves text mode must drop it rather than strand the banner (#258).
+  if ($("mode").value === "threeway") { clearProvisional(); return compareThreeWay(false); }
+  if ($("mode").value === "threeway-csv") { clearProvisional(); return compareThreeWay(true); }
+  if ($("mode").value === "csv") { clearProvisional(); return compareCSV(); }
+	if ($("mode").value === "dir") { clearProvisional(); return compareDirectory(); }
   const body = requestBody();
   if (!validateInputs(body)) return false;
   ignoredHunks = new Set();
@@ -3412,12 +3536,21 @@ async function runCompare() {
   currentAbort = ac;
   const generation = beginRequest();
   $("cancel").hidden = false;
-  lastData = null;
-  lastComparedRequest = null;
-  clearUnchangedContext();
-  syncExportPatchVisibility();
-  $("summary").hidden = true;
-  showResultSkeleton();
+  // While a provisional line edit is on screen, hold it and let the status line
+  // carry progress: the whole result is replaced when this comparison finishes
+  // and `compare` restores the scroll anchor, so the reader sees neither a blank
+  // skeleton nor a jump (#258, #127). Comparison-condition changes have no
+  // honest approximation, so they keep the skeleton-and-wait behaviour.
+  const holdProvisional = provisionalActive && provisionalRenderingPossible();
+  if (!holdProvisional) {
+    clearProvisional();
+    lastData = null;
+    lastComparedRequest = null;
+    clearUnchangedContext();
+    syncExportPatchVisibility();
+    $("summary").hidden = true;
+    showResultSkeleton();
+  }
   const started = Date.now();
   const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
   tick();
@@ -3449,6 +3582,9 @@ async function runCompare() {
     await renderResult(data);
     return true;
   } catch (err) {
+    // A superseded request must not clear a provisional render that the newer
+    // comparison is holding on to.
+    if (isCurrentRequest(generation)) clearProvisional();
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
     else setStatus(String(err.message || err), "error");
     return false;
