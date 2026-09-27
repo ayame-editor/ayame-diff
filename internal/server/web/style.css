@@ -864,9 +864,16 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .file-browser header button { margin-left: auto; padding: 0.2rem 0.55rem; }
 .browser-path input { flex: 1; }
 .browser-path button { margin: 0; padding: 0.35rem 0.7rem; }
-.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 7rem); padding: 0.45rem; }
-.browser-entries button { margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
+.browser-tools { display: flex; align-items: center; gap: 0.5rem; padding: 0 0.65rem 0.65rem; border-bottom: 1px solid var(--border); }
+.browser-tools button { margin: 0; padding: 0.3rem 0.7rem; }
+.browser-tools .browser-recent { flex: 1; min-width: 0; }
+.browser-tools .browser-recent select { width: 100%; }
+.browser-tools input[type="search"] { flex: 1; min-width: 8rem; }
+.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 10.5rem); padding: 0.45rem; }
+.browser-entries button { display: flex; align-items: baseline; gap: 0.75rem; margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
 .browser-entries button:hover { background: var(--bg); }
+.browser-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-entry-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
 #chooseFolder { margin: 0.45rem; }
 /* Folder result tree (#104). Rows were a flat list that faked depth with a left
    padding and put the whole path in every row; folding was impossible and the
