@@ -285,6 +285,20 @@ use the modification color, header badges show per-column change counts, and
 browser response at 5,000 logical differences; **Run and export** writes the
 complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
 
+#### Making a comparison match
+
+Below a CSV result, **How to match** reads the differences the server already
+returned and proposes the option changes that would clear them. It attributes
+differences to column order (align by name), trailing or repeated whitespace,
+letter case, numeric rounding within a tolerance, or a column that most changes
+concentrate in (a candidate to ignore). Each card names its likely cause and
+shows the residual difference count the server measured by re-running the
+comparison with that one option applied, so "ignore whitespace" reads as "leaves
+0" before it is applied. **Apply** writes the option into the setup form,
+re-runs the comparison, and refreshes the cards; proposals stack, so the second
+one is evaluated against the first. The applied normalization set is part of the
+comparison, so **Save project** stores it.
+
 See the [GUI reachability and placement policy](gui-setup-parity.md) for the
 full mapping and the rules that keep advanced settings reachable without
 promoting every engine option onto the result screen.
@@ -484,6 +498,9 @@ answering `409` with code `stale_write` unless `force` is set.
   by default, hard cap `5,000`).
 - `POST /api/csv/export` uses the same request plus `output`, `outputFormat`
   (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
+- `POST /api/csv/suggest` evaluates a bounded list of candidate option sets (at
+  most 8) and returns only the residual difference count for each, so the UI can
+  price a suggestion without running the full diff view.
 
 These endpoints deliberately accept local paths and are subject to the same
 local-single-user and explicit remote-mode warnings as the rest of the GUI.

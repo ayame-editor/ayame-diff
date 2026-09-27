@@ -167,6 +167,27 @@ func TestRunCSVColumnToleranceIsRemovedFromDefaultKey(t *testing.T) {
 	}
 }
 
+// TestRunCSVToleranceIsInclusiveAtTheBoundary pins #121's example: a 0.01
+// tolerance must clear a 30.00 / 30.01 price even though the two parsed floats
+// differ by a hair more than 0.01 (0.010000000000001563).
+func TestRunCSVToleranceIsInclusiveAtTheBoundary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.tsv")
+	mustWriteFile(t, leftPath, "id,price\n1,30.00\n")
+	mustWriteFile(t, rightPath, "id,price\n1,30.01\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.Tolerance, cfg.ToleranceSet = 0.01, true
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EqualRows != 1 || summary.DiffRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+}
+
 func TestRunCSVToleranceUsesMaximumDuplicateMatching(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

@@ -967,3 +967,35 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
      and the already-visible pane headers carry the paths. */
   .statusbar-paths { display: none; }
 }
+
+/* "How do I make it match?" suggestion cards (#121). Shown only for a CSV
+   result, between the messages and the diff navigation. */
+.suggestions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-elevated);
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+}
+.suggestions-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; }
+.suggestions-head strong { font-size: var(--fs-ui); }
+.suggestions-head span { color: var(--fg-dim); font-size: var(--fs-label); }
+.suggestion-cards { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.suggestion-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "cause apply" "action apply" "residual apply";
+  gap: 0.15rem 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 0.45rem 0.6rem;
+  min-width: 15rem;
+  flex: 1 1 15rem;
+}
+.suggestion-cause { grid-area: cause; color: var(--fg-dim); font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: 0.03em; }
+.suggestion-action { grid-area: action; font-size: var(--fs-ui); }
+.suggestion-residual { grid-area: residual; color: var(--fg-dim); font-size: var(--fs-label); }
+.suggestion-residual.suggestion-resolves { color: var(--accent); font-weight: 600; }
+.suggestion-apply { grid-area: apply; align-self: stretch; }
+.suggestion-active, .suggestion-none, .suggestion-causes { flex-basis: 100%; margin: 0; color: var(--fg-dim); font-size: var(--fs-label); }
