@@ -64,11 +64,19 @@ Shift_JIS, EUC-JP, UTF-16, and ISO-2022-JP keys compare as text.
 ## GUI
 
 Choose **3-way text** or **3-way csv**, then select BASE, LEFT, and RIGHT.
-Results use three panes and show a conflict count. Conflict cards offer
-BASE / LEFT / RIGHT; all-conflict actions, undo/redo, and atomic save reuse the
-two-way merge safety model. Difference navigation works across three-way events;
-`Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses BASE.
+Each event is read as **LEFT | RESULT | RIGHT**: the middle column is the merge
+output itself, so what a save would write is visible before any path is chosen.
+BASE is not a permanent fourth column; the **Base** button beside the merge
+controls adds it for the events where the common ancestor matters.
 
-Inputs are never overwritten unless the overwrite option and destructive
-confirmation are both supplied. New result paths are written via a temporary
-sibling and rename.
+Conflict events still offer BASE / LEFT / RIGHT, and the result column follows
+the choice in place. A conflict with no choice is tinted and badged as
+unresolved rather than shown as a finished result. All-conflict actions,
+undo/redo, and atomic save reuse the two-way merge safety model. Difference
+navigation works across three-way events; `Alt+Left` / `Alt+Right` chooses a
+side and `Alt+B` chooses BASE.
+
+Pressing **Save merge** asks for the output path in a dialog at that point; the
+path is no longer part of the result view. Inputs are never overwritten unless
+the overwrite option and destructive confirmation are both supplied. New result
+paths are written via a temporary sibling and rename.
