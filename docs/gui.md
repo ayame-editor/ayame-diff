@@ -143,6 +143,21 @@ Press `Enter` or leave an edited field to compare that replacement immediately;
 the `⇄` control swaps LEFT and RIGHT. Re-comparison restores the logical line that
 was in view rather than returning to the first difference.
 
+### Comparison conditions and the default
+
+Everything under **Comparison conditions** — ignore case, whitespace, EOL
+handling, line filters, and move detection — starts from a saved default.
+Changing one gives the current comparison its own value; the saved default is
+left alone until you press **Make default**. The chip beside the heading names
+the scope in effect (*Using default*, or *This comparison only · N from
+default*) and the group's badge counts how many conditions differ, so a
+one-off tweak is visible instead of silently becoming the next visit's default.
+**Reset to default** puts the saved values back. Loading a comparison URL or an
+`.ayamediff` project applies its conditions as a session override as well, so
+opening a shared link never rewrites your default. Only the condition group
+follows this rule; engine tuning and per-mode options are not part of the saved
+default.
+
 ### Editing a pane
 
 **Edit** in the result toolbar opens both files for editing. It appears for a

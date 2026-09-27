@@ -324,6 +324,12 @@
 <details class="csv-advanced" id="compareConditions" open>
           <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
           <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
+          <p class="details-hint" data-i18n="conditionsScopeHint">Changes here apply to this comparison only, until you make them the default.</p>
+          <div class="condition-scope">
+            <span class="condition-scope-state" id="conditionScopeState" data-i18n="conditionScopeDefault">Default</span>
+            <button id="makeConditionsDefault" type="button" data-i18n="makeConditionsDefault">Make default</button>
+            <button id="resetConditionsDefault" type="button" data-i18n="resetConditionsDefault">Reset to default</button>
+          </div>
           <div class="opts">
             <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
             <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
@@ -388,6 +394,7 @@
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="modes.js"></script>
+    <script src="conditionscope.js"></script>
     <script src="minimap.js"></script>
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
