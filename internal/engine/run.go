@@ -105,10 +105,30 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		Workers:        minInt(resolved.Workers, resolved.Partitions),
 		Elapsed:        time.Since(started).Round(time.Millisecond).String(),
 		UnresolvedRows: stats.UnresolvedRows,
+		ChangedRows:    stats.ChangedRows,
 	}
 	for index, count := range stats.ColumnChanges {
 		if count > 0 {
-			summary.ColumnChanges = append(summary.ColumnChanges, ColumnChange{Index: index, Name: resolvedSchema.Header[index], Count: count})
+			change := ColumnChange{Index: index, Name: resolvedSchema.Header[index], Count: count}
+			if stats.ChangedRows > 0 {
+				change.Share = float64(count) / float64(stats.ChangedRows)
+			}
+			if index < len(stats.ColumnDeltas) {
+				delta := stats.ColumnDeltas[index]
+				if delta.count > 0 {
+					change.Numeric = &ColumnDelta{
+						Count:     delta.count,
+						Sum:       delta.sum,
+						Mean:      delta.sum / float64(delta.count),
+						Min:       delta.min,
+						Max:       delta.max,
+						Increased: delta.increased,
+						Decreased: delta.decreased,
+						Unchanged: delta.unchanged,
+					}
+				}
+			}
+			summary.ColumnChanges = append(summary.ColumnChanges, change)
 		}
 	}
 	sort.Slice(summary.ColumnChanges, func(i, j int) bool {

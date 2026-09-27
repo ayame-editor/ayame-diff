@@ -99,12 +99,37 @@ type Summary struct {
 	Elapsed        string         `json:"elapsed"`
 	ColumnChanges  []ColumnChange `json:"column_changes,omitempty"`
 	UnresolvedRows uint64         `json:"unresolved_rows,omitempty"`
+	// ChangedRows counts the CHANGED row pairs compared cell by cell. It is the
+	// denominator of ColumnChange.Share: the fraction of changed rows in which
+	// that column differs. Zero for a run without cell-level differences (#120).
+	ChangedRows uint64 `json:"changed_rows,omitempty"`
 }
 
+// ColumnChange is one column's share of the cell-level differences (#120).
 type ColumnChange struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	Count uint64 `json:"count"`
+	// Share is Count divided by Summary.ChangedRows: how concentrated the
+	// changes are in this column. Omitted when there are no changed rows.
+	Share float64 `json:"share,omitempty"`
+	// Numeric summarizes right-minus-left over the changed cells that parse as
+	// numbers on both sides. Nil for a column with no numeric changes.
+	Numeric *ColumnDelta `json:"numeric,omitempty"`
+}
+
+// ColumnDelta summarizes the numeric difference right minus left for one
+// column (#120): Sum/Mean/Min/Max over the delta and how many moved up, down,
+// or were numerically unchanged (for example "1" vs "1.0").
+type ColumnDelta struct {
+	Count     uint64  `json:"count"`
+	Sum       float64 `json:"sum"`
+	Mean      float64 `json:"mean"`
+	Min       float64 `json:"min"`
+	Max       float64 `json:"max"`
+	Increased uint64  `json:"increased"`
+	Decreased uint64  `json:"decreased"`
+	Unchanged uint64  `json:"unchanged"`
 }
 
 // Validate reports whether c can be resolved. It is idempotent and does not

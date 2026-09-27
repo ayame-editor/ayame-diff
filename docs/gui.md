@@ -136,6 +136,14 @@ context-line count, then use **Export patch** to download an applyable
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
 
+Every result opens with a **Statistics** panel that describes the change before
+the rows. A text or sorted result shows the whole-file context — the changed
+line count and its share of the file, and the largest hunk — alongside the
+per-kind totals. **Export CSV** downloads the panel as a long-format table
+(`section,column,metric,value`) and **Export JSON** downloads the same summary
+as JSON; both are built from the summary already in the browser, so exporting
+never re-runs the comparison.
+
 After a result appears, the initial path rail is removed from the work area.
 Each sticky pane header identifies its side and carries an editable path, a
 server-side browse button, detected encoding and line count where available.
@@ -281,9 +289,14 @@ the same screen; **Review settings** summarizes the effective run.
 
 The result is paged in groups of 100 logical differences. Changed cells alone
 use the modification color, header badges show per-column change counts, and
-**changed columns only** hides wide unchanged columns. The server caps the
-browser response at 5,000 logical differences; **Run and export** writes the
-complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
+**changed columns only** hides wide unchanged columns. The **Statistics** panel
+at the top of the result lists every changed column with its count and its share
+of the changed rows; a numeric column also reports the sum, mean, and maximum of
+right-minus-left and how many values rose, fell, or changed representation only.
+The list scrolls rather than being capped, and exports as CSV or JSON. The
+server caps the browser response at 5,000 logical differences; **Run and export**
+writes the complete TSV (with `_changed_cols`) or JSON Lines result to a local
+path.
 
 See the [GUI reachability and placement policy](gui-setup-parity.md) for the
 full mapping and the rules that keep advanced settings reachable without
@@ -480,8 +493,8 @@ answering `409` with code `stale_write` unless `force` is set.
 - `POST /api/csv/inspect` accepts CSV setup JSON and returns first-record schema
   inspection without scanning data rows.
 - `POST /api/csv/diff` runs the complete comparison and returns headers,
-  summary/ranking, and at most `maxRows` logical JSON cell differences (`500`
-  by default, hard cap `5,000`).
+  a summary with per-column counts, shares, and numeric deltas, and at most
+  `maxRows` logical JSON cell differences (`500` by default, hard cap `5,000`).
 - `POST /api/csv/export` uses the same request plus `output`, `outputFormat`
   (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
 
