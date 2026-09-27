@@ -166,6 +166,27 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 --diff-exit-code
 ```
 
+### Memory budget and spilling
+
+`--memory` (default `2GiB`) is the resident budget the comparison may use for
+sorting. The GUI requests `512MiB` by default and the server lowers any larger
+request to an `8GiB` cap; a smaller effective budget only makes the engine spill
+more, so the result is unchanged.
+
+When a partition does not fit its share of the budget, the engine sorts it in
+chunks and merges the sorted runs from `--temp-dir`, so a comparison larger than
+RAM still finishes. The run summary reports the budget it resolved as
+`memory_budget_bytes` and whether it spilled as `spilled`; the GUI's CSV summary
+shows the same, for example `memory 512.0MiB / limit 8GiB spilling to /tmp`.
+Spill files live under a per-run directory and are removed after success, after a
+failure, and after cancellation. A running comparison can be cancelled at any
+time — including while it is spilling — and returns promptly.
+
+!!! warning
+    As with `sorted`, point `--temp-dir` at a real filesystem. On many Linux
+    systems `TMPDIR` is RAM-backed, so spilling there consumes memory instead of
+    saving it.
+
 Run `ayame-diff csv --help` for the complete list, including tuning knobs for
 very large inputs (`--memory`, `--partitions`, `--parse-workers`, `--workers`,
 `--merge-fan-in`, `--temp-dir`).

@@ -23,6 +23,7 @@ const {
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
+const { memoryStatus } = globalThis.AyameMemoryBudget;
 const {
   buildUnchangedRegions,
   initialContextRanges,
@@ -2830,6 +2831,14 @@ function renderCSVSummary(data) {
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
+  const memory = memoryStatus(data.memory);
+  if (memory) {
+    const note = document.createElement("span");
+    note.className = "note";
+    note.textContent = t("memoryBudget", memory);
+    if (memory.spilled) note.textContent += " " + t("memorySpilled", { dir: memory.dir || t("systemTemp") });
+    el.append(note);
+  }
   if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
   el.hidden = false;
 }
