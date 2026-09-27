@@ -733,6 +733,7 @@ function renderContinuousSectionBody(section, data, index) {
     return;
   }
   meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: data.hunks.length.toLocaleString() })}`;
+  prepareAccurateSyntax(data.hunks, syntaxPath("old"), syntaxPath("new"));
   for (const [hunkIndex, hunk] of data.hunks.entries()) {
     const node = renderHunk(hunk, hunkIndex);
     // renderHunk names a hunk for the single-file view; here the same number
@@ -1351,8 +1352,43 @@ function syntaxPath(side) {
   if ($("scratch").checked) return "";
   return side === "old" ? $("old").value : $("new").value;
 }
-function appendSyntax(el, text, path) {
-  const spans = globalThis.AyameSyntax?.highlightSpans(text, path);
+// ---- Accurate multi-line highlighting (#287) ----
+// highlightSpans is line-local: a block comment or multi-line string that opens
+// on one rendered line does not color the next. When syntax.js can carry state
+// (createHighlighter), the diff highlights each hunk's lines in order, per side,
+// and keeps the resulting spans in a lookup. Anywhere the state is not
+// trustworthy — omitted lines between hunks, context fetched out of order, a
+// language with no constructs, an older module — the lookup misses and
+// appendSyntax falls back to highlightSpans, unchanged.
+let syntaxAccurateSpans = new Map();
+function resetAccurateSyntax() { syntaxAccurateSpans = new Map(); }
+function accurateSpansFor(side, lineNo) {
+  return lineNo == null ? undefined : syntaxAccurateSpans.get(`${side}:${lineNo}`);
+}
+function prepareAccurateSyntax(hunks, oldPath, newPath) {
+  resetAccurateSyntax();
+  const api = globalThis.AyameSyntax;
+  if (!api?.createHighlighter || !api.lineRuns) return;
+  for (const [side, path] of [["old", oldPath], ["new", newPath]]) {
+    if (!api.createHighlighter(path)) continue;
+    try {
+      // lineRuns splits the side at every omitted-line gap; a fresh highlighter
+      // per run means a construct is never carried across lines we never saw.
+      for (const run of api.lineRuns(hunks, side)) {
+        const highlighter = api.createHighlighter(path);
+        for (const entry of run.lines) {
+          syntaxAccurateSpans.set(`${side}:${entry.line}`, highlighter.highlightLine(entry.text));
+        }
+      }
+    } catch {
+      // Degradation path: an accurate pass that throws is abandoned wholesale,
+      // and every lookup then misses into the unchanged line-local behavior.
+      resetAccurateSyntax();
+      return;
+    }
+  }
+}
+function appendSyntaxSpans(el, spans, text) {
   if (!spans) { appendText(el, text); return; }
   for (const part of spans) {
     if (part.kind === "plain") { appendText(el, part.text); continue; }
@@ -1362,23 +1398,32 @@ function appendSyntax(el, text, path) {
     el.append(token);
   }
 }
-function textSpan(parts, changedClass, path) {
+function appendSyntax(el, text, path, spans) {
+  if (spans) { appendSyntaxSpans(el, spans, text); return; }
+  appendSyntaxSpans(el, globalThis.AyameSyntax?.highlightSpans(text, path), text);
+}
+function textSpan(parts, changedClass, path, spans) {
   const tx = document.createElement("span");
   tx.className = "tx";
   if (!parts) return tx;
+  let offset = 0;
   for (const p of parts) {
     const s = document.createElement("span");
     if (p.changed) s.className = changedClass;
-    appendSyntax(s, p.text, path);
+    // The word-diff parts concatenate back to the whole line, so clipping the
+    // line's accurate spans to each part keeps both signals.
+    const partSpans = spans ? globalThis.AyameSyntax?.sliceSpans?.(spans, offset, offset + p.text.length) : null;
+    appendSyntax(s, p.text, path, partSpans && partSpans.length ? partSpans : null);
     tx.append(s);
+    offset += p.text.length;
   }
   return tx;
 }
 
-function plainSpan(text, path) {
+function plainSpan(text, path, spans) {
   const tx = document.createElement("span");
   tx.className = "tx";
-  appendSyntax(tx, text, path);
+  appendSyntax(tx, text, path, spans);
   return tx;
 }
 function cell(cls, lineNo, node, side) {
@@ -1792,27 +1837,31 @@ function renderHunk(h, index) {
   rows.className = "rows";
   const old = h.old || [], neu = h.new || [];
   const oldPath = syntaxPath("old"), newPath = syntaxPath("new");
+  // Accurate spans were precomputed for this render (prepareAccurateSyntax).
+  // They miss for context/ad-hoc rows, which fall back to highlightSpans.
+  const oldSpans = (lineNo) => accurateSpansFor("old", lineNo);
+  const newSpans = (lineNo) => accurateSpansFor("new", lineNo);
 
   if (h.kind === "insert") {
     for (let k = 0; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath), "new")));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath, newSpans(h.new_start + k)), "new")));
   } else if (h.kind === "delete") {
     for (let k = 0; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath), "old"), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath, oldSpans(h.old_start + k)), "old"), cell("empty", null, plainSpan(""))));
   } else {
     const pairs = Math.min(old.length, neu.length);
     for (let k = 0; k < pairs; k++) {
       // The DP and its per-part spans are pure cost when the highlight is
       // off, since CSS only hid the result (#127).
       const wd = $("word").checked ? inlineWordDiff(old[k], neu[k]) : null;
-      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath) : plainSpan(old[k], oldPath), "old");
-      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath) : plainSpan(neu[k], newPath), "new");
+      const left = cell("chg", h.old_start + k + 1, wd ? textSpan(wd.oldParts, "w-del", oldPath, oldSpans(h.old_start + k)) : plainSpan(old[k], oldPath, oldSpans(h.old_start + k)), "old");
+      const right = cell("chg", h.new_start + k + 1, wd ? textSpan(wd.newParts, "w-add", newPath, newSpans(h.new_start + k)) : plainSpan(neu[k], newPath, newSpans(h.new_start + k)), "new");
       rows.append(row(left, right));
     }
     for (let k = pairs; k < old.length; k++)
-      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath), "old"), cell("empty", null, plainSpan(""))));
+      rows.append(row(cell("del", h.old_start + k + 1, plainSpan(old[k], oldPath, oldSpans(h.old_start + k)), "old"), cell("empty", null, plainSpan(""))));
     for (let k = pairs; k < neu.length; k++)
-      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath), "new")));
+      rows.append(row(cell("empty", null, plainSpan("")), cell("add", h.new_start + k + 1, plainSpan(neu[k], newPath, newSpans(h.new_start + k)), "new")));
   }
   box.append(rows);
   return box;
@@ -2140,6 +2189,7 @@ async function renderResult(data) {
     return;
   }
   prepareUnchangedContext(data);
+  prepareAccurateSyntax(data.hunks, syntaxPath("old"), syntaxPath("new"));
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => {
     const fragment = document.createDocumentFragment();
     fragment.append(unchangedRegions[index].node, renderHunk(hunk, index));

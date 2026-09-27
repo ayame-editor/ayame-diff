@@ -180,7 +180,7 @@ func TestDisplayTogglesKeepSyntaxClassDriven(t *testing.T) {
 	for _, want := range []string{
 		`original.className = "ws-original"`,
 		`visible.className = "ws-visible"`,
-		`const spans = globalThis.AyameSyntax?.highlightSpans(text, path)`,
+		`globalThis.AyameSyntax?.highlightSpans(text, path)`,
 		`result.classList.toggle("show-whitespace"`,
 		`result.classList.toggle("syntax-highlight"`,
 		`result.classList.toggle("word-highlight"`,
