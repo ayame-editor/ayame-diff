@@ -120,21 +120,28 @@ remains available in both `gui` and `serve`.
 
 ## Using the web UI
 
-Enter the **LEFT** and **RIGHT** file paths (or use the server-side file picker),
-choose the mode (`text`, `sorted`, or `csv / tsv`)
-and options (encoding, resync window, ignore-case, whitespace handling, EOL
-controls, repeatable regex filters entered one per line, and for
-`sorted` the numeric/reverse sort), then **Compare**. The result is shown as a
-side-by-side grid with per-hunk headers, line numbers and word-level
-highlighting. **Syntax highlight** adds line-local coloring for common source,
-data, markup, and log formats; the file extension selects the language and the
-toggle is remembered in the browser. It operates only on rendered diff rows, so
-it does not scan or retain the complete input file. Choose **patch format**
-(`normal`, `context`, or `unified`) and a
-context-line count, then use **Export patch** to download an applyable
-`ayame.patch`. Patch export preserves CRLF and missing-final-newline markers and
-rejects binary/NUL input. Export is available in `text` mode only; a patch of a
-sorted view would not apply safely to the original file.
+Enter the **LEFT** and **RIGHT** file paths (or use the server-side file picker)
+and choose **what to compare** — two files, three files (a 3-way merge, which
+adds a **BASE** field), or a folder. Set the comparison options (encoding, resync
+window, ignore-case, whitespace handling, EOL controls, repeatable regex filters
+entered one per line), then **Compare**. The result is shown as a side-by-side
+grid with per-hunk headers, line numbers and word-level highlighting. **Syntax
+highlight** adds line-local coloring for common source, data, markup, and log
+formats; the file extension selects the language and the toggle is remembered in
+the browser. It operates only on rendered diff rows, so it does not scan or
+retain the complete input file. Choose **patch format** (`normal`, `context`, or
+`unified`) and a context-line count, then use **Export patch** to download an
+applyable `ayame.patch`. Patch export preserves CRLF and missing-final-newline
+markers and rejects binary/NUL input. Export is available in `text` mode only; a
+patch of a sorted view would not apply safely to the original file.
+
+**How a result is read is separate from what was compared.** The result toolbar
+carries a **Read as** choice — `text`, `sorted`, or `csv / tsv` — and switching
+it re-runs the same inputs under the new reading, so a wrong guess can be tried
+and reverted without re-entering anything. The choice is offered only where it
+means something: a folder comparison has no reading, and a three-file comparison
+can be read as text or CSV but not sorted. The sorted view's numeric/reverse
+controls and the CSV setup appear as the reading requires them.
 
 After a result appears, the initial path rail is removed from the work area.
 Each sticky pane header identifies its side and carries an editable path, a
