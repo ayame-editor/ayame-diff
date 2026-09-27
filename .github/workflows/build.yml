@@ -37,6 +37,27 @@ jobs:
           cache: true
       - run: go test -race ./...
 
+  # End-to-end large-input benchmarks and their regression budget (#279). The
+  # budgets are generous — tens of seconds against sub-second work — because
+  # shared runners are noisy; they catch a structural slowdown (an accidental
+  # O(n^2), a hang), not a few-percent drift.
+  e2e-benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - name: End-to-end regression budget
+        env:
+          AYAME_E2E_REGRESSION: '1'
+        run: go test ./internal/e2e -run TestEndToEndPerformanceBudget -v
+      - name: Front-end helper performance budget
+        env:
+          AYAME_WEB_PERF: '1'
+        run: node --test internal/server/web/test/perf.test.js
+
   linux-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -58,6 +79,7 @@ jobs:
     needs:
       - unit-tests
       - race-tests
+      - e2e-benchmarks
       - linux-smoke
     runs-on: ubuntu-latest
     steps:
@@ -65,10 +87,12 @@ jobs:
         env:
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           RACE_RESULT: ${{ needs.race-tests.result }}
+          E2E_RESULT: ${{ needs.e2e-benchmarks.result }}
           SMOKE_RESULT: ${{ needs.linux-smoke.result }}
         run: |
           test "$UNIT_RESULT" = success
           test "$RACE_RESULT" = success
+          test "$E2E_RESULT" = success
           test "$SMOKE_RESULT" = success
 
   # Verify the minimum Go declared in go.mod actually builds and tests, so a

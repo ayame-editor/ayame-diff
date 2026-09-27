@@ -509,6 +509,63 @@ go test -race ./...
 go vet ./...
 ```
 
+## Performance
+
+`internal/e2e` runs the large-input shapes from
+[#279](https://github.com/ayame-editor/ayame-diff/issues/279) end to end and
+asserts that each one either finishes or fails with a named limit — never
+hangs, OOMs, or silently truncates. The default sizes are small enough for CI;
+`AYAME_BENCH_LARGE=1` swaps in the sizes named in the issue.
+
+```bash
+# Default (CI) sizes
+go test -run '^$' -bench . -benchmem ./internal/e2e
+
+# The issue's sizes: 10M-row CSV, ~1 GiB text, 100k files, 100 MiB line
+AYAME_BENCH_LARGE=1 go test -run '^$' -bench . -benchtime=1x ./internal/e2e
+
+# The CI regression gate: each representative case must finish inside a
+# generous budget, or it is flagged as a dramatic regression / hang
+AYAME_E2E_REGRESSION=1 go test ./internal/e2e -run TestEndToEndPerformanceBudget -v
+
+# Front-end helper budgets (pure helpers; browser rendering is not measured)
+AYAME_WEB_PERF=1 node --test internal/server/web/test/perf.test.js
+```
+
+Measured once with `-benchtime=1x` on an AMD Ryzen 3 7330U (Linux, Go 1.26).
+Single runs are noisy, so read these as orders of magnitude, not precise
+figures.
+
+| Case | Default size | Time | Large size | Time |
+| --- | --- | --- | --- | --- |
+| CSV, 4 columns, one change per 1,000 rows | 200,000 rows | ~0.5 s | 10,000,000 rows | ~30 s |
+| Text, two files compared line by line | 16 MiB each | ~0.3 s | 1 GiB each | ~28 s |
+| Folder tree, one change per 10 files | 2,000 files | ~0.3 s | 100,000 files | ~8 s |
+| Single very long line | 4 MiB | ~0.1 s | 100 MiB | ~1.2 s |
+
+The 100 MiB line runs with `--max-line-bytes` raised; the default 64 MiB cap
+refuses it explicitly instead.
+
+When an input cannot be compared within bounds, the tool names the limit instead
+of degrading silently:
+
+- A single line past `--max-line-bytes` (default 64 MiB) is refused at open
+  time, before any comparison starts.
+- A folder past `--max-entries` (default 2,000,000) is refused before per-file
+  work, with the actual count and the limit.
+- A CSV record past `--max-record-bytes` (default 256 MiB) fails with the
+  encoded size and the configured maximum.
+
+### What is not measured
+
+Browser rendering — first paint, scrolling, and re-rendering after an option
+change — is not measured in CI; it needs a real browser and is tracked
+separately ([#154](https://github.com/ayame-editor/ayame-diff/issues/154)). What
+the front-end budget does measure is the DOM-free work `app.js` drives: the
+inline word-diff DP, minimap segment packing, and unchanged-range arithmetic on
+large synthetic input. The inline word diff bails out above
+`INLINE_MAX_CHARS` / `INLINE_MAX_TOKENS` rather than running an unbounded DP.
+
 ## Processing Method
 
 1. Inspect left/right format, header, column count, key selection
