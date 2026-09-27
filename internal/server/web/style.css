@@ -433,6 +433,7 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
+#confirmCounter { min-width: 8rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
 /* The minimap column was 18px, below the ~24px a pointer can reliably hit.
    Keep the full-width target at narrow breakpoints too (#102). */
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
@@ -460,6 +461,7 @@ button:active:not(:disabled) {
 /* Read and current are different states and must not be confused: read is
    history, current is where you are. */
 .sidebar-item.read .sidebar-line { opacity: 0.55; }
+.sidebar-item.confirmed .sidebar-mark { color: var(--accent); }
 .sidebar-item.ignored { text-decoration: line-through; opacity: 0.5; }
 .sidebar-item.current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .sidebar-item.current .sidebar-line { color: var(--fg); opacity: 1; font-weight: 700; }
@@ -483,6 +485,7 @@ button:active:not(:disabled) {
 .minimap-marker.current { outline: var(--selection-ring-width) solid var(--accent); z-index: 2; }
 .minimap-marker:focus-visible { outline: var(--focus-ring); outline-offset: -2px; min-height: 8px; z-index: 4; }
 .minimap-marker.read { opacity: 0.38; }
+.minimap-marker.confirmed { box-shadow: inset 0 0 0 1px var(--accent); }
 .minimap-viewport {
   position: absolute; left: 0; right: 0; min-height: 8px; border: var(--selection-ring-width) solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent); cursor: grab; z-index: 1;
@@ -696,6 +699,16 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
   background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
 }
+/* Explicit confirmation (#288). The button reads as a toggle (pressed state and
+   its own label), and a confirmed hunk is demoted without disappearing: it still
+   exports, unlike an ignored hunk, which is a different decision. */
+.hunk-confirm {
+  float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
+  background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
+}
+.hunk-confirm[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.hunk.confirmed { border-left: 4px solid var(--accent); }
+.hunk.confirmed .rows { opacity: 0.6; }
 .filter-input { min-width: 18rem; }
 .filter-input textarea { width: 100%; min-height: 2.6rem; resize: vertical; }
 .filters-active { flex-basis: 100%; }
