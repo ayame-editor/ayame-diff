@@ -136,6 +136,18 @@ context-line count, then use **Export patch** to download an applyable
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
 
+The same **Export** menu carries **Export report**, which writes a
+confirmation/verification record of the review: the compared inputs with their
+sizes, modification times, detected encodings and SHA-256 hashes; the applied
+comparison conditions (ignore settings, line filters, sync points, window and
+move detection); the difference totals; every ignored hunk with its reason; the
+read/unread review state; and the versioned URL state needed to rerun the
+comparison. Choose a printable, self-contained HTML report, Markdown, or JSON.
+The compared content is left out by default; tick **embed compared content**
+only when the report may be shared with what the files contain. Confirmed-hunk
+tracking arrives with #288, so a report from this build states plainly that no
+confirmed hunks are recorded.
+
 After a result appears, the initial path rail is removed from the work area.
 Each sticky pane header identifies its side and carries an editable path, a
 server-side browse button, detected encoding and line count where available.
@@ -268,7 +280,9 @@ Each hunk also has **Ignore this difference**. Ignored hunks remain visible as
 collapsed dashed headers, are excluded from next/previous navigation and unread
 counts, and can be restored. Patch export omits them and records the count in
 the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
-auditable; use declarative line filters (#28) for a permanent rule.
+auditable; use declarative line filters (#28) for a permanent rule. **Export
+report** lists each ignored hunk with its coordinates and the reason
+`manually ignored during review`, so the header count is not the only record.
 
 ### CSV / TSV setup and table result
 
@@ -459,6 +473,42 @@ Accepts the same path, inline-text, mode, encoding and comparison fields as
 The response is `text/x-diff` with `Content-Disposition: attachment`. Valid
 formats are `normal`, `context`, and `unified`; `context` is non-negative and
 defaults to 3 when omitted.
+
+### `POST /api/report`
+
+Builds the confirmation/verification report (#296). It accepts the same path,
+inline-text, mode, encoding and comparison fields as `/api/diff` (including
+`ignoredHunks`), plus:
+
+```json
+{
+  "old": "old.txt",
+  "new": "new.txt",
+  "format": "html",
+  "includeContent": false,
+  "readHunks": [0, 2],
+  "confirmedHunks": [0],
+  "comparisonState": { "v": 1, "mode": "text", "paths": {}, "controls": {} },
+  "reproduceURL": "http://127.0.0.1:9000/#compare=..."
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `format` | string | `json` (default), `markdown`, or `html`. |
+| `includeContent` | bool | Embed the hunk lines. Default `false`; the server never returns compared content unless this is set. |
+| `readHunks` | array | Hunk indexes the reviewer has read. |
+| `confirmedHunks` | array | Hunk indexes confirmed (#288). Omit it when the build has no confirmation tracking; the report then says so instead of guessing. |
+| `comparisonState` | object | The versioned URL state (`v`, `mode`, `paths`, `controls`) captured by the web UI. |
+| `reproduceURL` | string | A share URL without the API token, recorded verbatim. |
+
+The response is a `Content-Disposition: attachment` download named
+`ayame-report.json`, `ayame-report.md`, or `ayame-report.html`. The report
+records the inputs with sizes, modification times, detected encodings and
+SHA-256 hashes; the comparison conditions; the totals; every ignored hunk with
+its reason; the read/unread state; and the `#compare=` fragment that replays the
+comparison. It covers `text` and `sorted` comparisons; CSV, folder, and
+three-way reports are not implemented yet.
 
 ### CSV and file APIs
 

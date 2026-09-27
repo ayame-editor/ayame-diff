@@ -154,6 +154,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s.mux.HandleFunc("/api/diff", s.limited(s.handleDiff))
 	s.mux.HandleFunc("/api/diff/context", s.limited(s.handleDiffContext))
 	s.mux.HandleFunc("/api/patch", s.limited(s.handlePatch))
+	s.mux.HandleFunc("/api/report", s.limited(s.handleReport))
 	s.mux.HandleFunc("/api/merge/text", s.limited(s.handleTextMerge))
 	s.mux.HandleFunc("/api/three-way/text", s.limited(s.handleThreeWayText))
 	s.mux.HandleFunc("/api/merge/three-way/text", s.limited(s.handleThreeWayTextMerge))
