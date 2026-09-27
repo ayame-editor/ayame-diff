@@ -667,7 +667,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   content-visibility: auto; contain-intrinsic-size: auto 3rem;
 }
 .context-gap {
-  display: grid; grid-template-columns: minmax(2.4rem, 1fr) auto minmax(2.4rem, 1fr);
+  display: grid; grid-template-columns: minmax(2.4rem, 1fr) minmax(0, auto) minmax(2.4rem, 1fr);
   align-items: center; gap: 0.35rem; min-height: 1.9rem;
   padding: 0.15rem 0.45rem; border-block: 1px dashed var(--border);
   background: var(--panel); color: var(--muted); font-size: var(--fs-caption);
@@ -675,8 +675,9 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .context-gap:first-child { border-top: 0; }
 .context-gap:last-child { border-bottom: 0; }
 .context-gap-label {
-  grid-column: 2; margin: 0; padding: 0.12rem 0.55rem;
+  grid-column: 2; margin: 0; padding: 0.12rem 0.55rem; max-width: 100%;
   border: 0; background: transparent; color: var(--muted); font: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .context-gap-label:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .context-expand { margin: 0; padding: 0.08rem 0.55rem; font-size: var(--fs-caption); }
@@ -830,6 +831,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
 .csv-page-input { width: 4.5rem; padding: 0.25rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--fg); text-align: right; }
+.csv-key-range { color: var(--muted); font-size: var(--fs-caption); }
 /* The result is the scroll container now, so a 70vh cap here made two nested
    vertical scrollbars and left the last row unreachable. Vertical scrolling
    belongs to the result; this keeps only the horizontal axis, which a wide

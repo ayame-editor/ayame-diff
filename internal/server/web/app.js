@@ -30,6 +30,12 @@ const {
   batchContextRanges,
 } = globalThis.AyameUnchanged;
 const {
+  describeGap,
+  keyRange,
+  formatKeyRange,
+  keyIndexes: hiddenKeyIndexes,
+} = globalThis.AyameHidden;
+const {
   continuousEntries,
   windowAround,
   unloadTargets,
@@ -955,6 +961,9 @@ let syncPoints = [];
 let ignoredHunks = new Set();
 let csvInspection = null;
 let csvData = null;
+// The header positions the comparison used as keys, so the result can name the
+// key range when it truncates (#268). Empty unless the user chose key columns.
+let csvKeyColumns = [];
 let csvPage = 0;
 const CSV_PAGE_SIZE = 100;
 let browserTarget = null;
@@ -1447,6 +1456,24 @@ function contextLineCount() {
   return Number.isFinite(value) ? Math.max(0, Math.min(CONTEXT_MAX_LINES, Math.trunc(value))) : 3;
 }
 
+// A recognised language means the hidden range can name a symbol or heading;
+// plain data/text falls back to the first-line excerpt (#268).
+function hiddenSourceMode() {
+  const language = globalThis.AyameSyntax?.languageForPath;
+  if (!language) return false;
+  return Boolean(language(syntaxPath("old")) || language(syntaxPath("new")));
+}
+
+function gapLabel(region, gap) {
+  return describeGap({
+    count: gap.count,
+    oldStart: region.oldStart + gap.offset,
+    newStart: region.newStart + gap.offset,
+    preview: region.previews?.get(gap.offset),
+    source: hiddenSourceMode(),
+  }, t);
+}
+
 function clearUnchangedContext() {
   contextLoadToken++;
   unchangedRegions = [];
@@ -1463,7 +1490,10 @@ function prepareUnchangedContext(data) {
       node.className = "context-region";
       node.dataset.contextRegion = String(region.index);
       node.setAttribute("aria-label", t("contextRegion"));
-      return { ...region, node, segments: [], pending: false };
+      // previews holds one hidden line per gap, fetched for the bar label only
+      // (#268). It is deliberately not a segment: the line names what is hidden
+      // without unfolding it.
+      return { ...region, node, segments: [], previews: new Map(), pending: false };
     });
   renderAllContextRegions();
 }
@@ -1487,6 +1517,7 @@ function contextGapControl(region, gap) {
   const control = document.createElement("div");
   control.className = "context-gap";
   control.dataset.contextCount = String(gap.count);
+  control.dataset.contextOffset = String(gap.offset);
   const chunk = Math.min(CONTEXT_EXPAND_CHUNK, gap.count);
   const canExpandUp = region.index < unchangedRegions.length - 1;
   const canExpandDown = region.index > 0;
@@ -1505,7 +1536,7 @@ function contextGapControl(region, gap) {
   const label = document.createElement("button");
   label.type = "button";
   label.className = "context-gap-label";
-  label.textContent = t("contextHidden", { count: gap.count.toLocaleString() });
+  label.textContent = gapLabel(region, gap);
   label.title = canExpandUp && canExpandDown
     ? t("contextExpandBoth", { count: chunk.toLocaleString() })
     : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: chunk.toLocaleString() });
@@ -1577,7 +1608,8 @@ function refreshContextTranslations() {
       const chunk = Math.min(CONTEXT_EXPAND_CHUNK, count).toLocaleString();
       const label = gap.querySelector(".context-gap-label");
       if (label) {
-        label.textContent = t("contextHidden", { count: count.toLocaleString() });
+        const offset = Number(gap.dataset.contextOffset) || 0;
+        label.textContent = gapLabel(region, { offset, count });
         const hasUp = Boolean(gap.querySelector(".context-expand.up"));
         const hasDown = Boolean(gap.querySelector(".context-expand.down"));
         label.title = hasUp && hasDown
@@ -1681,8 +1713,61 @@ async function loadContextRanges(ranges, options = {}) {
 async function loadInitialContext(options = {}) {
   if (!contextIsVisible() || !unchangedRegions.length) return true;
   const ranges = initialContextRanges(unchangedRegions, contextLineCount());
-  if (!ranges.length) return true;
-  return loadContextRanges(ranges, { ...options, token: contextLoadToken });
+  const loaded = ranges.length ? await loadContextRanges(ranges, { ...options, token: contextLoadToken }) : true;
+  if (loaded) await loadHiddenPreviews();
+  return loaded;
+}
+
+// loadHiddenPreviews fetches one line at the head of every gap so the collapsed
+// bar can name what it hides (#268). Previews are label-only: they are never
+// appended as context rows, so folding a ten-million-line run still costs one
+// line per gap rather than the whole run. Bounded like the expansion ranges.
+async function loadHiddenPreviews() {
+  if (!contextIsVisible() || !lastComparedRequest) return;
+  let source;
+  try { source = JSON.parse(lastComparedRequest); } catch (_) { return; }
+  const token = contextLoadToken;
+  const byID = new Map();
+  const prepared = [];
+  for (const region of unchangedRegions) {
+    if (!region.count) continue;
+    const gaps = missingContextSpans(region.count, region.segments);
+    const live = new Set(gaps.map((gap) => gap.offset));
+    for (const offset of [...region.previews.keys()]) {
+      if (!live.has(offset)) region.previews.delete(offset);
+    }
+    for (const gap of gaps) {
+      if (region.previews.has(gap.offset)) continue;
+      const id = ++contextRequestID;
+      byID.set(id, { region, offset: gap.offset });
+      prepared.push({ id, old_start: region.oldStart + gap.offset, new_start: region.newStart + gap.offset, count: 1 });
+    }
+  }
+  if (!prepared.length) return;
+  try {
+    for (const batch of batchContextRanges(prepared, CONTEXT_BATCH_RANGES, CONTEXT_BATCH_LINES)) {
+      const response = await apiFetch("/api/diff/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...source, ranges: batch }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw apiError(data, response);
+      if (token !== contextLoadToken) return;
+      for (const returned of data.ranges || []) {
+        const requested = byID.get(returned.id);
+        if (!requested) continue;
+        const text = returned.old?.[0] ?? returned.new?.[0];
+        if (typeof text === "string") requested.region.previews.set(requested.offset, text);
+      }
+    }
+  } catch (_) {
+    // A preview is an adornment: failing to load one must not fail the context
+    // the user did ask for, so the bar simply keeps its line range.
+    return;
+  }
+  if (token !== contextLoadToken) return;
+  for (const { region } of byID.values()) renderContextRegion(region);
 }
 
 async function expandContextSpan(region, gap, direction) {
@@ -1702,6 +1787,7 @@ async function expandContextSpan(region, gap, direction) {
     ];
   }
   await loadContextRanges(ranges, { preserveAnchor: true });
+  await loadHiddenPreviews();
 }
 
 function setContextVisibility(on, persist = true) {
@@ -1722,6 +1808,7 @@ function resetContextRanges() {
   contextLoadToken++;
   for (const region of unchangedRegions) {
     region.segments = [];
+    region.previews.clear();
     region.pending = false;
   }
   renderAllContextRegions();
@@ -2823,6 +2910,22 @@ async function inspectCSV() {
   finally { $("inspectCSV").disabled = false; }
 }
 
+// The key span of the differences that made it into the response. The CSV table
+// shows differences only and never folds unchanged rows, so there is no collapsed
+// bar to label; when the display cap omits part of the result, naming the key
+// range the shown rows cover is the closest honest equivalent (#268). Only the
+// explicit key columns are used — with "all columns" keys there is nothing a
+// reader would call a key.
+function csvRowsKeyRange(rows) {
+  if (!csvKeyColumns.length) return "";
+  const list = (rows || []).map((diff) => (diff.new?.length ? diff.new : diff.old));
+  return formatKeyRange(keyRange(list, csvKeyColumns));
+}
+
+function csvShownKeyRange(data) {
+  return csvRowsKeyRange(data?.differences);
+}
+
 function renderCSVSummary(data) {
   const summary = data.summary, el = $("summary");
   el.innerHTML = "";
@@ -2830,7 +2933,13 @@ function renderCSVSummary(data) {
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
-  if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
+  if (data.truncated) {
+    const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note);
+    const range = csvShownKeyRange(data);
+    if (range) {
+      const keys = document.createElement("span"); keys.className = "note"; keys.textContent = t("csvShownKeyRange", { range }); el.append(keys);
+    }
+  }
   el.hidden = false;
 }
 
@@ -2871,6 +2980,10 @@ function renderCSV(data) {
   const prev = document.createElement("button"); prev.type = "button"; prev.className = "csv-page-prev"; prev.textContent = "←"; prev.setAttribute("aria-label", t("previousPage")); prev.title = t("previousPage");
   const pageInput = document.createElement("input"); pageInput.type = "number"; pageInput.className = "csv-page-input"; pageInput.min = "1"; pageInput.max = String(pageCount); pageInput.step = "1"; pageInput.setAttribute("aria-label", t("pageInput", { total: pageCount }));
   const total = document.createElement("span"); total.textContent = t("pageTotal", { total: pageCount });
+  // The key span of the rows on this page (#268). The CSV view lists differences
+  // only, so the key range is the one thing a reader checking data by key can
+  // hold onto when the display cap hides the rest.
+  const keyInfo = document.createElement("span"); keyInfo.className = "csv-key-range"; keyInfo.hidden = true;
   const next = document.createElement("button"); next.type = "button"; next.className = "csv-page-next"; next.textContent = "→"; next.setAttribute("aria-label", t("nextPage")); next.title = t("nextPage");
   // The controls stay put across a page turn, so the button that was clicked
   // keeps its focus without having to be found again afterwards.
@@ -2886,7 +2999,7 @@ function renderCSV(data) {
   };
   pageInput.onchange = jumpToPage;
   pageInput.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); jumpToPage(); } };
-  controls.append(prev, pageInput, total, next); result.append(controls);
+  controls.append(prev, pageInput, total, keyInfo, next); result.append(controls);
 
   const wrap = document.createElement("div"); wrap.className = "csv-table-wrap";
   const table = document.createElement("table"); table.className = "csv-table";
@@ -2894,7 +3007,7 @@ function renderCSV(data) {
   const tbody = document.createElement("tbody");
   table.append(head, tbody); wrap.append(table); result.append(wrap);
 
-  csvView = { data, table, head, tbody, controls: { prev, next, pageInput }, pageCount, columns: [] };
+  csvView = { data, table, head, tbody, controls: { prev, next, pageInput, keyInfo }, pageCount, columns: [] };
   renderCSVColumns();
 }
 
@@ -2959,6 +3072,12 @@ function renderCSVRows() {
   };
 
   const { start, rows } = pageSlice(data.differences, csvPage, CSV_PAGE_SIZE);
+  const keyInfo = csvView.controls.keyInfo;
+  if (keyInfo) {
+    const range = csvRowsKeyRange(rows);
+    keyInfo.textContent = range ? t("csvPageKeyRange", { range }) : "";
+    keyInfo.hidden = !range;
+  }
   for (const [pageIndex, diff] of rows.entries()) {
     const action = document.createElement("tr"); action.className = "csv-merge-choice"; action.dataset.mergeId = diff.id;
     action.dataset.scrollAnchor = "csv";
@@ -3010,6 +3129,7 @@ async function compareCSV() {
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
+    csvKeyColumns = body.keyMode === "include" ? hiddenKeyIndexes(data.header, body.keyNames, body.keyIndexes) : [];
     csvPage = 0; renderCSV(data); rememberComparison(body); setStatus(""); return true;
   } catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); return false; }
   finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
