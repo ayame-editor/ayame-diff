@@ -499,6 +499,32 @@ function syncContinuousControls() {
   button.classList.toggle("active", continuousActive());
 }
 
+// ---- Flattened folder view (#275) ----
+// A deep tree scattered with differences means opening folders until the files
+// appear. Flattening drops the hierarchy and lists the files by relative path
+// in a Location column, the way Meld's flattened view does. It is orthogonal to
+// the status filter, which still decides what is in the list.
+function dirFlatActive() {
+  const button = $("dirFlat");
+  return button ? button.getAttribute("aria-pressed") === "true" : false;
+}
+
+function applyDirFlat(on, persist = true) {
+  const button = $("dirFlat");
+  if (!button) return;
+  button.setAttribute("aria-pressed", on ? "true" : "false");
+  button.classList.toggle("active", on);
+  if (persist) localStorage.setItem("ayame-dirflat", on ? "1" : "0");
+}
+
+function syncDirFlatControls() {
+  const button = $("dirFlat");
+  if (!button) return;
+  // The continuous view already has no hierarchy to flatten.
+  button.hidden = !directoryData || continuousActive();
+  button.classList.toggle("active", dirFlatActive());
+}
+
 async function toggleContinuousView() {
   if (!directoryData || !directoryBody) return;
   if (continuousActive()) {
@@ -526,6 +552,7 @@ async function renderContinuous(data, body) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
+  syncDirFlatControls();
   for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle"]) {
     const node = $(id); if (node) node.hidden = true;
   }
@@ -872,6 +899,8 @@ const {
   dirEntryStamp,
   directoryEntryRequest,
   filterDirectoryEntries,
+  sortDirectoryEntries,
+  locationOf,
 } = globalThis.AyameDirectory;
 
 // In-flight request controller, so the Cancel button can abort a long compare.
@@ -2516,6 +2545,7 @@ function setupNavigation(data) {
   $("diffNav").hidden = !hasHunks;
   $("dirStatusWrap").hidden = true;
   $("dirSearchWrap").hidden = true;
+  $("dirFlat").hidden = true;
   for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "diffCounter"]) {
     const node = $(id);
     if (node) node.hidden = false;
@@ -3128,7 +3158,7 @@ function captureFolderTreeState(selectedPath = "") {
   return {
     anchor: captureResultScrollAnchor(),
     expanded,
-    selectedPath: selectedPath || document.activeElement?.dataset.dirPath || "",
+    selectedPath: selectedPath || document.activeElement?.dataset.dirPath || document.querySelector(".dir-entry.selected")?.dataset.dirPath || "",
   };
 }
 
@@ -3199,6 +3229,8 @@ async function renderDirectory(data, body, state = {}) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
+  syncDirFlatControls();
+  const flat = dirFlatActive();
   for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter", "viewModeWrap", "sidebarToggle"]) {
     const node = $(id); if (node) node.hidden = true;
   }
@@ -3219,11 +3251,15 @@ async function renderDirectory(data, body, state = {}) {
   const result = $("result"); result.innerHTML = "";
   result.append(paneHeads(data));
   const tree = document.createElement("div"); tree.className = "dir-tree";
+  tree.classList.toggle("flat", flat);
   tree.setAttribute("role", "tree");
   tree.setAttribute("aria-label", t("folderSetup"));
   const header = document.createElement("div"); header.className = "dir-entry dir-header";
   header.setAttribute("role", "presentation");
-  for (const [cls, label] of [["dir-marker", ""], ["dir-name", t("folderName")], ["dir-size", t("folderSize")], ["dir-stamp", t("folderModified")]]) {
+  const headerColumns = [["dir-marker", ""], ["dir-name", t("folderName")]];
+  if (flat) headerColumns.push(["dir-location", t("folderLocation")]);
+  headerColumns.push(["dir-size", t("folderSize")], ["dir-stamp", t("folderModified")]);
+  for (const [cls, label] of headerColumns) {
     const cell = document.createElement("span"); cell.className = cls; cell.textContent = label; header.append(cell);
   }
   tree.append(header);
@@ -3254,7 +3290,15 @@ async function renderDirectory(data, body, state = {}) {
     const size = document.createElement("span"); size.className = "dir-size"; size.textContent = dirEntrySize(entry);
     const stamp = document.createElement("span"); stamp.className = "dir-stamp"; stamp.textContent = dirEntryStamp(entry);
     // The marker carries meaning that colour alone would not convey.
-    row.append(marker, name, size, stamp);
+    if (flat) {
+      const location = document.createElement("span");
+      location.className = "dir-location";
+      location.textContent = locationOf(entry.path);
+      location.title = entry.path;
+      row.append(marker, name, location, size, stamp);
+    } else {
+      row.append(marker, name, size, stamp);
+    }
     row.setAttribute("aria-label", `${t(entry.status)} ${entry.path}`);
     row.title = `${entry.path}\n${describeBytes(entry)}`;
     if (entry.status !== "same") row.addEventListener("click", () => openFromFolder(entry, body));
@@ -3321,6 +3365,15 @@ async function renderDirectory(data, body, state = {}) {
   }
 
   result.append(tree);
+  if (flat) {
+    // No hierarchy: every filtered file in path order, with its relative
+    // location beside the name (#275).
+    const items = sortDirectoryEntries(visible).map((entry) => ({ file: entry }));
+    if (!(await renderInSlices(tree, items, (item) => fileRow(item.file, 0)))) return;
+    initDirKeyboard(tree, state.selectedPath);
+    setStatus("");
+    return;
+  }
   if (visible.length) {
     // Slice the top level so a wide root still yields to the browser (#127).
     const top = [
@@ -4614,6 +4667,14 @@ $("lastDiff").addEventListener("click", () => {
   const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]);
 });
 $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
+// Flattening only changes how the same result is drawn, so it re-renders the
+// existing data and keeps the reader's place instead of re-comparing (#275).
+$("dirFlat").addEventListener("click", async () => {
+  if (!directoryData || !directoryBody || continuousActive()) return;
+  const state = captureFolderTreeState();
+  applyDirFlat(!dirFlatActive());
+  await renderDirectory(directoryData, directoryBody, state);
+});
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
 $("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
@@ -4854,6 +4915,7 @@ applyViewMode(localStorage.getItem("ayame-view") || "side");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();
+applyDirFlat(localStorage.getItem("ayame-dirflat") === "1", false);
 $("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
 $("stopServer").addEventListener("click", stopServer);
 syncModeOpts();

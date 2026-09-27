@@ -11,6 +11,8 @@ const {
   dirEntryStamp,
   directoryEntryRequest,
   filterDirectoryEntries,
+  sortDirectoryEntries,
+  locationOf,
 } = require("../directory.js");
 
 test("flat entries become a counted folder hierarchy", () => {
@@ -94,4 +96,23 @@ test("status and path search filter the flat entries before building the tree", 
     filterDirectoryEntries(entries, "all", "guide").map((entry) => entry.path),
     ["docs/guide.md"],
   );
+});
+
+test("the flat view lists files in path order without mutating the input", () => {
+  const entries = [
+    { path: "src/z.go", status: "changed" },
+    { path: "README.md", status: "same" },
+    { path: "src/a.go", status: "added" },
+  ];
+  const sorted = sortDirectoryEntries(entries);
+  assert.deepEqual(sorted.map((entry) => entry.path), ["README.md", "src/a.go", "src/z.go"]);
+  assert.deepEqual(entries.map((entry) => entry.path), ["src/z.go", "README.md", "src/a.go"]);
+  assert.deepEqual(sortDirectoryEntries([]), []);
+});
+
+test("the Location column holds the parent folder, empty at the root", () => {
+  assert.equal(locationOf("src/nested/a.go"), "src/nested");
+  assert.equal(locationOf("src/a.go"), "src");
+  assert.equal(locationOf("README.md"), "");
+  assert.equal(locationOf(""), "");
 });

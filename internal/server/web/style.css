@@ -902,6 +902,9 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .dir-size, .dir-stamp { color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dir-stamp { min-width: 9rem; text-align: right; }
 .dir-size { min-width: 6rem; text-align: right; }
+/* Flattened folder view (#275): a Location column replaces the indentation. */
+.dir-tree.flat .dir-entry { grid-template-columns: var(--dir-marker-col) minmax(0, 1fr) minmax(0, 1.2fr) auto auto; }
+.dir-location { color: var(--muted); font-size: var(--fs-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dir-folder { color: var(--fg); font-weight: 600; }
 .dir-folder .dir-twisty::before { content: "▸"; display: inline-block; }
 .dir-folder[aria-expanded="true"] .dir-twisty::before { transform: rotate(90deg); }

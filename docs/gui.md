@@ -298,7 +298,11 @@ and exposes a path sample before any content comparison. Folder settings can be
 saved in a portable `.ayamediff.json` project. Results form an
 indented, status-colored tree with status filters. Clicking a changed file
 switches to text mode and opens the paired relative paths. Symbolic links are
-skipped and `.gz` files compare decompressed content.
+skipped and `.gz` files compare decompressed content. **Flat** drops the nesting
+and lists the filtered files in path order with their parent folder in a
+Location column, so a difference scattered through a deep tree is found without
+opening folders one by one; the status filter and search still decide what is
+listed, and the selection and scroll position survive switching between the two.
 
 **Continuous** switches the same result to one scroll through every differing
 file, so a change set is read straight through instead of opened and returned to
