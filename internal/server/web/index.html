@@ -285,6 +285,7 @@
         <span id="mergeUnresolved" aria-live="polite"></span>
         <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <button id="simulateMerge" type="button" data-i18n="simulateMerge">Preview impact</button>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
       <div class="diff-layout">
@@ -372,6 +373,7 @@
       <form method="dialog">
         <h2 id="confirmTitle" data-i18n="confirmTitle">Confirm</h2>
         <p id="confirmMessage"></p>
+        <ul id="confirmDetails" class="confirm-details" hidden></ul>
         <menu>
           <button id="confirmCancel" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
           <button id="confirmOk" value="ok" type="submit" class="primary" data-i18n="confirmProceed">Proceed</button>
@@ -396,6 +398,7 @@
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
     <script src="unchanged.js"></script>
+    <script src="simulate.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>

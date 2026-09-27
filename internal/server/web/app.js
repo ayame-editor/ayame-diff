@@ -891,7 +891,7 @@ let busyOperation = null;
 // operation is in flight. Cancel is deliberately absent: stopping the running
 // operation is the one thing that must stay available.
 const EXCLUSIVE_CONTROLS = [
-  "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge",
+  "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge", "simulateMerge",
   "saveProject", "loadProject", "dirPreview", "saveDirProject", "loadDirProject",
   "addSync", "clearSync", "allLeft", "allRight", "allBase", "copyComparisonURL",
 ];
@@ -2214,14 +2214,72 @@ function redoMerge() {
   mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
   const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
 }
-async function saveTextMerge() {
+
+// ---- Simulate / Do impact preview (#273) ----
+// Overwriting an input is the one destructive thing this screen does. Before
+// the overwrite is confirmed the user sees what will be written and where, as a
+// list, in the same spirit as KDiff3's "Simulate it / Do it". The simulation is
+// pure (AyameSimulate); only the wording is resolved here.
+function mergeUnresolvedCount(mode) {
+  if (mode === "threeway" || mode === "threeway-csv")
+    return Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
+  if (mode === "csv")
+    return mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
+  return mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
+}
+
+function buildMergeImpact(mode, unresolved) {
+  const threeWay = mode === "threeway" || mode === "threeway-csv";
+  return globalThis.AyameSimulate.mergeImpact({
+    mode,
+    output: $("mergeOutput").value.trim(),
+    old: $("old").value.trim(),
+    new: $("new").value.trim(),
+    base: threeWay ? $("base").value.trim() : "",
+    overwrite: $("mergeOverwrite").checked,
+    unresolved,
+  });
+}
+
+function impactRoleLabel(role) {
+  if (role === "base") return t("sideBase");
+  return role === "old" ? t("sideLeft") : t("sideRight");
+}
+
+// Each row is plain data for askConfirm; the dialog renders it as a list.
+function mergeImpactRows(impact) {
+  const rows = [];
+  if (impact.output) rows.push({ kind: "write", text: t("impactWrite", { path: impact.output }) });
+  for (const input of impact.affected)
+    rows.push({ kind: "overwrite", text: t("impactOverwrite", { role: impactRoleLabel(input.role), path: input.path }) });
+  if (impact.unresolved > 0) rows.push({ kind: "info", text: t("unresolved", impact.unresolved) });
+  return rows;
+}
+
+function mergeImpactPrompt(impact) {
+  return impact.affected.length && impact.overwrite ? t("overwriteWarning") : t("impactLead");
+}
+
+// The distinct "Simulate" step: show the list, then let Proceed execute. The
+// save is told the overwrite was already confirmed so it does not ask again.
+async function previewMergeImpact() {
+  const mode = $("mode").value;
+  if (!$("mergeOutput").value.trim()) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
+  const impact = buildMergeImpact(mode, mergeUnresolvedCount(mode));
+  if (!await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact))) return;
+  mergeImpactConfirmed = true;
+  try { await saveMergeResult(); } finally { mergeImpactConfirmed = false; }
+}
+
+async function saveTextMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
+  const unresolved = mergeUnresolvedCount("text");
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
+  const impact = buildMergeImpact("text", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact));
   if (!confirmOverwrite) return;
   const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -2232,14 +2290,15 @@ async function saveTextMerge() {
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-async function saveCSVMerge() {
+async function saveCSVMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
+  const unresolved = mergeUnresolvedCount("csv");
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
+  const impact = buildMergeImpact("csv", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact));
   if (!confirmOverwrite) return;
   const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -2250,7 +2309,16 @@ async function saveCSVMerge() {
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-function runSaveMergeResult() { if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(); return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+// mergeImpactConfirmed is set by the Simulate dialog's Proceed so the save it
+// starts does not ask the same question twice. It is consumed exactly once.
+let mergeImpactConfirmed = false;
+
+function runSaveMergeResult() {
+  const previewConfirmed = mergeImpactConfirmed;
+  mergeImpactConfirmed = false;
+  if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(previewConfirmed);
+  return $("mode").value === "csv" ? saveCSVMerge(previewConfirmed) : saveTextMerge(previewConfirmed);
+}
 // A merge writes a file from the current inputs, so it must not run while a
 // comparison for different inputs is still in flight (#128).
 async function saveMergeResult() { return runExclusive("saveMerge", runSaveMergeResult); }
@@ -2363,11 +2431,13 @@ async function compareThreeWay(csvMode) {
     currentAbort = null;
   }
 }
-async function saveThreeWayMerge() {
+async function saveThreeWayMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
+  const unresolved = mergeUnresolvedCount(threeWayData.csvMode ? "threeway-csv" : "threeway");
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
-  const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning")); if (!confirmOverwrite) return;
+  const overwrite = $("mergeOverwrite").checked;
+  const impact = buildMergeImpact(threeWayData.csvMode ? "threeway-csv" : "threeway", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact)); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
@@ -3761,14 +3831,27 @@ function swapSides() {
 // what they are confirming.
 
 // askConfirm resolves true when the user proceeds. It mirrors confirm()'s
-// shape so the call sites stay a single awaited expression.
-function askConfirm(message) {
+// shape so the call sites stay a single awaited expression. An optional list of
+// impact rows (#273) is rendered inside the dialog so a destructive step shows
+// what it will do before Proceed is available.
+function askConfirm(message, details) {
   const dialog = $("confirmDialog");
   // showModal throws on an already-open dialog, which would reject into a
   // caller that has no answer to give. A second question while one is on
   // screen is declined instead, leaving the first one to be answered.
   if (dialog.open) return Promise.resolve(false);
   $("confirmMessage").textContent = message;
+  const list = $("confirmDetails");
+  if (list) {
+    list.textContent = "";
+    for (const item of details || []) {
+      const row = document.createElement("li");
+      row.textContent = typeof item === "string" ? item : item.text;
+      row.className = "impact-" + (item && item.kind ? item.kind : "info");
+      list.append(row);
+    }
+    list.hidden = list.childElementCount === 0;
+  }
   const opener = document.activeElement;
   return new Promise((resolve) => {
     dialog.addEventListener("close", () => {
@@ -4623,6 +4706,7 @@ $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updat
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);
+$("simulateMerge").addEventListener("click", () => void previewMergeImpact());
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
