@@ -18,14 +18,33 @@ type ColumnTolerance struct {
 	Value   float64 `json:"value"`
 }
 
+// ColumnPair is one canonical output column of an explicit left-to-right
+// mapping (#119). A negative index means that side has no such column, which
+// makes a one-sided column "missing tolerant": the other side contributes an
+// empty value. Ignore keeps the column in the row for display but excludes it
+// from comparison, like IgnoreColumnIndexes.
+//
+// ColumnMap names the columns in output order, so its length is also the
+// canonical column count. Left and right indexes may therefore come from
+// inputs with different physical column counts.
+type ColumnPair struct {
+	Left   int  `json:"left"`
+	Right  int  `json:"right"`
+	Ignore bool `json:"ignore,omitempty"`
+}
+
 type Config struct {
-	LeftPath, RightPath, OutputPath                        string
-	KeyNames                                               []string
-	KeyIndexes                                             []int
-	ExcludeKeyNames                                        []string
-	ExcludeKeyIndexes                                      []int
-	IndexBase                                              int
-	HasHeader, AlignColumnsByName                          bool
+	LeftPath, RightPath, OutputPath string
+	KeyNames                        []string
+	KeyIndexes                      []int
+	ExcludeKeyNames                 []string
+	ExcludeKeyIndexes               []int
+	IndexBase                       int
+	HasHeader, AlignColumnsByName   bool
+	// ColumnMap, when non-empty, replaces header-name alignment with an
+	// explicit left-to-right pairing (#119). It is validated against the
+	// inspected headers in buildSchema.
+	ColumnMap                                              []ColumnPair
 	LeftFormat, RightFormat, LeftDelimiter, RightDelimiter string
 	LeftParser, RightParser                                string
 	LazyQuotes, TrimLeadingSpace                           bool
@@ -124,6 +143,7 @@ func (c Config) resolve() (resolvedConfig, error) {
 	r.IgnoreColumnNames = append([]string(nil), c.IgnoreColumnNames...)
 	r.IgnoreColumnIndexes = append([]int(nil), c.IgnoreColumnIndexes...)
 	r.ColumnTolerances = append([]ColumnTolerance(nil), c.ColumnTolerances...)
+	r.ColumnMap = append([]ColumnPair(nil), c.ColumnMap...)
 	r.MergeChoices = make(map[string]string, len(c.MergeChoices))
 	for id, side := range c.MergeChoices {
 		r.MergeChoices[id] = side
@@ -133,6 +153,9 @@ func (c Config) resolve() (resolvedConfig, error) {
 		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
 	}
 	if err := validateKeySelection(c); err != nil {
+		return resolvedConfig{}, err
+	}
+	if err := validateColumnMapShape(c.ColumnMap); err != nil {
 		return resolvedConfig{}, err
 	}
 	if !c.HasHeader && (len(c.KeyNames) > 0 || len(c.ExcludeKeyNames) > 0) {
@@ -277,6 +300,39 @@ func validateKeySelection(c Config) error {
 	excludeCount := len(c.ExcludeKeyNames) + len(c.ExcludeKeyIndexes)
 	if includeCount > 0 && excludeCount > 0 {
 		return fmt.Errorf("include and exclude key options cannot be combined")
+	}
+	return nil
+}
+
+// validateColumnMapShape checks the parts of an explicit column map that do not
+// depend on the inspected headers: indexes are -1 (absent) or non-negative, no
+// index repeats, and every canonical column names at least one side. The
+// per-side bounds are checked against the real headers in buildSchema.
+func validateColumnMapShape(mapping []ColumnPair) error {
+	leftSeen := make(map[int]struct{}, len(mapping))
+	rightSeen := make(map[int]struct{}, len(mapping))
+	for i, pair := range mapping {
+		if pair.Left < -1 {
+			return fmt.Errorf("column map entry %d has invalid left index %d", i, pair.Left)
+		}
+		if pair.Right < -1 {
+			return fmt.Errorf("column map entry %d has invalid right index %d", i, pair.Right)
+		}
+		if pair.Left == -1 && pair.Right == -1 {
+			return fmt.Errorf("column map entry %d must name a left or right column", i)
+		}
+		if pair.Left >= 0 {
+			if _, dup := leftSeen[pair.Left]; dup {
+				return fmt.Errorf("column map uses left column %d more than once", pair.Left)
+			}
+			leftSeen[pair.Left] = struct{}{}
+		}
+		if pair.Right >= 0 {
+			if _, dup := rightSeen[pair.Right]; dup {
+				return fmt.Errorf("column map uses right column %d more than once", pair.Right)
+			}
+			rightSeen[pair.Right] = struct{}{}
+		}
 	}
 	return nil
 }

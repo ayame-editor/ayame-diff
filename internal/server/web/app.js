@@ -24,6 +24,14 @@ const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const {
+  ABSENT: COLUMN_ABSENT,
+  initialMapping,
+  validateMapping,
+  mappingToRequest,
+  mappingFromRequest,
+  reorderColumns,
+} = globalThis.AyameColumnMap;
+const {
   buildUnchangedRegions,
   initialContextRanges,
   missingContextSpans,
@@ -2730,6 +2738,141 @@ function selectedCSVColumns() {
   return [...document.querySelectorAll("#columnList input:checked")].map((input) => ({ name: input.dataset.name, index: Number(input.dataset.index) }));
 }
 
+// ---- Manual column mapping (#119) ----
+// The result table already aligns the right side to the left header through the
+// engine, but only by column name. When names disagree, or a column exists on
+// one side only, this editor lets the user state the pairing. It starts from
+// the engine's own name alignment when that succeeds and from positions
+// otherwise; #116's content-based estimate is not part of this build, so the
+// source line says so rather than pretending otherwise. Nothing is sent until
+// the user edits or applies the map.
+let columnMap = [];
+let columnMapSource = "position";
+let columnMapDirty = false;
+
+function columnMapHeaders() {
+  return { left: csvInspection?.left_header || [], right: csvInspection?.right_header || [] };
+}
+
+function fillColumnMapSelect(select, names, selected, noneLabel) {
+  const none = document.createElement("option");
+  none.value = String(COLUMN_ABSENT);
+  none.textContent = noneLabel;
+  select.append(none);
+  names.forEach((name, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${index}: ${name}`;
+    select.append(option);
+  });
+  select.value = names[selected] == null ? String(COLUMN_ABSENT) : String(selected);
+}
+
+function columnMapValidation() {
+  const { left, right } = columnMapHeaders();
+  return validateMapping(columnMap, left.length, right.length);
+}
+
+function renderColumnMap() {
+  const host = $("columnMapRows");
+  if (!host) return;
+  const source = $("columnMapSource");
+  if (source) source.textContent = t(columnMapSource === "name" ? "columnMapFromNames" : "columnMapFromPositions");
+  host.textContent = "";
+  if (!csvInspection) {
+    const note = document.createElement("p");
+    note.className = "details-hint";
+    note.textContent = t("columnMapInspectFirst");
+    host.append(note);
+    return;
+  }
+  const { left, right } = columnMapHeaders();
+  const check = columnMapValidation();
+  const invalid = new Set(check.errors.map((entry) => entry.position));
+  columnMap.forEach((pair, position) => {
+    const row = document.createElement("div");
+    row.className = "column-map-row";
+    const leftSelect = document.createElement("select");
+    leftSelect.setAttribute("aria-label", t("columnMapLeftColumn"));
+    fillColumnMapSelect(leftSelect, left, pair.left, t("columnMapNone"));
+    const arrow = document.createElement("span");
+    arrow.className = "column-map-arrow";
+    arrow.textContent = "↔";
+    const rightSelect = document.createElement("select");
+    rightSelect.setAttribute("aria-label", t("columnMapRightColumn"));
+    fillColumnMapSelect(rightSelect, right, pair.right, t("columnMapNone"));
+    const ignore = document.createElement("input");
+    ignore.type = "checkbox";
+    ignore.checked = Boolean(pair.ignore);
+    const ignoreLabel = document.createElement("label");
+    ignoreLabel.className = "opt check";
+    ignoreLabel.append(ignore, t("columnMapIgnore"));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "\u00d7";
+    remove.title = t("columnMapRemove");
+    remove.setAttribute("aria-label", t("columnMapRemove"));
+    if (invalid.has(position)) row.classList.add("column-map-invalid");
+    const update = () => {
+      columnMap[position] = { left: Number(leftSelect.value), right: Number(rightSelect.value), ignore: ignore.checked };
+      columnMapDirty = true;
+      updateColumnMapError();
+      updateCSVReview();
+      scheduleComparisonURLReplace();
+    };
+    leftSelect.addEventListener("change", update);
+    rightSelect.addEventListener("change", update);
+    ignore.addEventListener("change", update);
+    remove.addEventListener("click", () => {
+      columnMap.splice(position, 1);
+      columnMapDirty = true;
+      renderColumnMap();
+      updateCSVReview();
+      scheduleComparisonURLReplace();
+    });
+    row.append(leftSelect, arrow, rightSelect, ignoreLabel, remove);
+    host.append(row);
+  });
+  if (!columnMap.length) {
+    const note = document.createElement("p");
+    note.className = "details-hint";
+    note.textContent = t("columnMapEmpty");
+    host.append(note);
+  }
+  updateColumnMapError();
+}
+
+function updateColumnMapError() {
+  const error = $("columnMapError");
+  if (!error) return;
+  const check = columnMapValidation();
+  const invalid = columnMapDirty && !check.valid;
+  error.hidden = !invalid;
+  error.textContent = invalid ? t("columnMapInvalid") : "";
+}
+
+function setColumnMap(mapping, source, dirty) {
+  columnMap = mappingFromRequest(mapping);
+  columnMapSource = source || "position";
+  columnMapDirty = Boolean(dirty);
+  renderColumnMap();
+}
+
+function buildColumnMap() {
+  const { left, right } = columnMapHeaders();
+  const built = initialMapping(left, right, { alignByName: $("alignColumns").checked });
+  setColumnMap(built.mapping, built.source, true);
+  updateCSVReview();
+}
+
+async function applyColumnMap() {
+  const check = columnMapValidation();
+  if (columnMapDirty && !check.valid) { updateColumnMapError(); return false; }
+  columnMapDirty = true;
+  renderColumnMap();
+  return compareCSV();
+}
+
 function csvRequestBody() {
   const hasHeader = $("hasHeader").checked;
   const selected = selectedCSVColumns();
@@ -2752,6 +2895,9 @@ function csvRequestBody() {
     maxRows: Number($("csvMaxRows").value), output: $("csvOutput").value.trim(),
     outputFormat: $("csvOutputFormat").value, outputHeader: $("outputHeader").checked,
   };
+  // A manual map is opt-in: the default comparison keeps using the engine's
+  // name alignment, and the editor only supplies a pairing once touched (#119).
+  body.columnMap = columnMapDirty ? mappingToRequest(columnMap) : [];
   if (keyMode === "include") body[hasHeader ? "keyNames" : "keyIndexes"] = selected.map((item) => hasHeader ? item.name : item.index);
   if (keyMode === "exclude") body[hasHeader ? "excludeKeyNames" : "excludeKeyIndexes"] = selected.map((item) => hasHeader ? item.name : item.index);
   const ignored = splitList($("ignoreColumns").value);
@@ -2767,6 +2913,7 @@ function csvRequestBody() {
 	if (!Number.isFinite(value) || value < 0 || (!hasHeader && (!Number.isInteger(Number(selector)) || Number(selector) < 0))) { body._validationError = `${t("columnTolerances")}: ${spec}`; continue; }
     body.columnTolerances.push(hasHeader ? { name: selector, value } : { index: Number(selector), by_index: true, value });
   }
+  if (columnMapDirty && !columnMapValidation().valid) body._validationError = t("columnMapInvalid");
   return body;
 }
 
@@ -2816,6 +2963,14 @@ async function inspectCSV() {
     csvInspection = data;
     $("inspection").textContent = t("inspectionDone", data);
     renderColumnSelection(data);
+    // Offer the name alignment the engine would use as the editor's starting
+    // value; #116's content-based estimate is not available here (#119).
+    if (!columnMap.length) {
+      const built = initialMapping(data.left_header, data.right_header, { alignByName: $("alignColumns").checked });
+      setColumnMap(built.mapping, built.source, false);
+    } else {
+      renderColumnMap();
+    }
     setStatus("");
     updateCSVReview();
     return true;
@@ -2903,22 +3058,47 @@ function renderCSV(data) {
 // does not come through here.
 function renderCSVColumns() {
   if (!csvView) return;
-  const { data, head } = csvView;
+  const { data } = csvView;
   const changedSet = (data.summary.column_changes || []).map((column) => column.index);
   csvView.columns = visibleColumns(data.header.length, changedSet, $("changedColumnsOnly").checked);
+  renderCSVHeader();
+  renderCSVRows();
+}
 
+// renderCSVHeader builds the column headers, each draggable so a wide result
+// can be arranged to read left-to-right by hand (#119). Reordering is
+// presentation only: csvView.columns holds canonical indexes, and the rows
+// below read the same indexes in the new order.
+function renderCSVHeader() {
+  if (!csvView) return;
+  const { data, head } = csvView;
   head.textContent = "";
   const headerRow = document.createElement("tr");
   const sideHead = document.createElement("th"); sideHead.textContent = "_side"; headerRow.append(sideHead);
   const counts = new Map((data.summary.column_changes || []).map((column) => [column.index, column.count]));
-  for (const index of csvView.columns) {
+  csvView.columns.forEach((index, position) => {
     const th = document.createElement("th");
     th.textContent = data.header[index];
     if (counts.has(index)) { const badge = document.createElement("b"); badge.textContent = counts.get(index); th.append(badge); }
+    th.draggable = true;
+    th.title = t("columnMapDragHint");
+    th.addEventListener("dragstart", (event) => {
+      event.dataTransfer.setData("text/plain", String(position));
+      event.dataTransfer.effectAllowed = "move";
+      th.classList.add("csv-column-dragging");
+    });
+    th.addEventListener("dragend", () => th.classList.remove("csv-column-dragging"));
+    th.addEventListener("dragover", (event) => event.preventDefault());
+    th.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const from = Number(event.dataTransfer.getData("text/plain"));
+      csvView.columns = reorderColumns(csvView.columns, from, position);
+      renderCSVHeader();
+      renderCSVRows();
+    });
     headerRow.append(th);
-  }
+  });
   head.append(headerRow);
-  renderCSVRows();
 }
 
 // showCSVPage moves to a page by replacing the rows, which is the only part of
@@ -3061,7 +3241,9 @@ async function applyCSVProject(body) {
   const names = new Set([...(body.keyNames || []), ...(body.excludeKeyNames || [])]);
   const indexes = new Set([...(body.keyIndexes || []), ...(body.excludeKeyIndexes || [])]);
   document.querySelectorAll("#columnList input").forEach((input) => { input.checked = names.has(input.dataset.name) || indexes.has(Number(input.dataset.index)); });
-  syncKeyMode(); updateCSVReview();
+  syncKeyMode();
+  if (body.columnMap?.length) setColumnMap(body.columnMap, "position", true);
+  updateCSVReview();
 }
 
 async function runSaveProject() {
@@ -4822,6 +5004,20 @@ $("syntax").addEventListener("change", () => {
 });
 $("word").addEventListener("change", rerenderForDisplayChange);
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
+$("buildColumnMap").addEventListener("click", buildColumnMap);
+$("addColumnMapRow").addEventListener("click", () => {
+  columnMap.push({ left: COLUMN_ABSENT, right: COLUMN_ABSENT, ignore: false });
+  columnMapDirty = true;
+  renderColumnMap();
+  updateCSVReview();
+});
+$("clearColumnMap").addEventListener("click", () => {
+  columnMap = [];
+  columnMapDirty = true;
+  renderColumnMap();
+  updateCSVReview();
+});
+$("applyColumnMap").addEventListener("click", applyColumnMap);
 for (const id of URL_STATE_CONTROL_IDS) {
   const control = $(id);
   if (!control) continue;
@@ -4829,7 +5025,7 @@ for (const id of URL_STATE_CONTROL_IDS) {
   control.addEventListener("change", scheduleComparisonURLReplace);
 }
 for (const id of ["base", "old", "new", "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace"]) {
-	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; });
+	$(id).addEventListener("change", () => { csvInspection = null; $("inspection").textContent = ""; $("keySetup").hidden = true; renderColumnMap(); });
 }
 function applyScratch() {
   const on = $("scratch").checked;
@@ -4854,11 +5050,12 @@ applyViewMode(localStorage.getItem("ayame-view") || "side");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();
-$("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
+$("lang").addEventListener("click", () => { applyLang(lang === "ja" ? "en" : "ja"); renderColumnMap(); });
 $("stopServer").addEventListener("click", stopServer);
 syncModeOpts();
 syncPatchOpts();
 applyLang(lang);
+renderColumnMap();
 startBrowserSession();
 
 const launch = new URLSearchParams(location.search);

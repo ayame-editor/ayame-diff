@@ -119,6 +119,19 @@
 			<label class="opt check"><input id="hasHeader" type="checkbox" checked /><span data-i18n="hasHeader">header row</span></label>
 			<label class="opt check"><input id="alignColumns" type="checkbox" checked /><span data-i18n="alignColumns">align by name</span></label>
 		  </div>
+		  <details class="csv-advanced" id="csvColumnMap">
+			<summary><span data-i18n="columnMapping">manual column mapping</span></summary>
+			<p class="details-hint" data-i18n="columnMappingHint">When names disagree or a column exists on one side, pair left and right columns by hand. Drag result headers to reorder them for reading.</p>
+			<p class="details-hint" id="columnMapSource"></p>
+			<div class="column-map-actions">
+			  <button id="buildColumnMap" type="button" data-i18n="columnMapBuild">Build from names</button>
+			  <button id="addColumnMapRow" type="button" data-i18n="columnMapAdd">Add row</button>
+			  <button id="clearColumnMap" type="button" data-i18n="columnMapClear">Clear</button>
+			  <button id="applyColumnMap" type="button" data-i18n="columnMapApply">Apply and re-compare</button>
+			</div>
+			<p class="details-hint" id="columnMapError" role="alert" hidden></p>
+			<div id="columnMapRows" class="column-map-rows"></div>
+		  </details>
 		  <details class="csv-advanced" id="csvParsing">
 			<summary><span data-i18n="csvParsingOptions">File format</span><span class="details-badge" id="csvParsingBadge" hidden></span></summary>
 			<p class="details-hint" data-i18n="csvParsingHint">Detected automatically. Set these only when a file is misread.</p>
@@ -395,6 +408,7 @@
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
+    <script src="columnmap.js"></script>
     <script src="unchanged.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>

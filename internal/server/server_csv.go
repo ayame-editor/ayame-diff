@@ -40,6 +40,7 @@ type csvRequest struct {
 	IgnoreColumnIndexes []int                    `json:"ignoreColumnIndexes"`
 	Tolerance           *float64                 `json:"tolerance"`
 	ColumnTolerances    []engine.ColumnTolerance `json:"columnTolerances"`
+	ColumnMap           []engine.ColumnPair      `json:"columnMap"`
 	Partitions          int                      `json:"partitions"`
 	ParseWorkers        int                      `json:"parseWorkers"`
 	Workers             int                      `json:"workers"`
@@ -76,6 +77,7 @@ func requestFromConfig(cfg engine.Config) csvRequest {
 		LeftParser: cfg.LeftParser, RightParser: cfg.RightParser, LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace,
 		IgnoreCase: cfg.IgnoreCase, Whitespace: cfg.IgnoreWhitespace, LineFilters: cfg.LineFilters,
 		IgnoreColumnNames: cfg.IgnoreColumnNames, IgnoreColumnIndexes: cfg.IgnoreColumnIndexes, Tolerance: tolerance, ColumnTolerances: cfg.ColumnTolerances,
+		ColumnMap:  cfg.ColumnMap,
 		Partitions: cfg.Partitions, ParseWorkers: cfg.ParseWorkers, Workers: cfg.Workers, Memory: cfg.MemoryText, PartitionBuffer: cfg.PartitionBufferText,
 		MergeFanIn: cfg.MergeFanIn, MaxRecordBytes: cfg.MaxRecordText, TempDir: cfg.TempDir, KeepTemp: cfg.KeepTemp,
 		Output: cfg.OutputPath, OutputFormat: cfg.OutputFormat, OutputHeader: cfg.OutputHeader,
@@ -167,6 +169,7 @@ func csvConfig(req csvRequest, output string) engine.Config {
 		LeftParser: req.LeftParser, RightParser: req.RightParser, LazyQuotes: req.LazyQuotes, TrimLeadingSpace: req.TrimLeadingSpace,
 		IgnoreCase: req.IgnoreCase, IgnoreWhitespace: req.Whitespace, LineFilters: req.LineFilters,
 		IgnoreColumnNames: req.IgnoreColumnNames, IgnoreColumnIndexes: req.IgnoreColumnIndexes,
+		ColumnMap:        req.ColumnMap,
 		ColumnTolerances: req.ColumnTolerances, Partitions: req.Partitions, ParseWorkers: req.ParseWorkers, Workers: req.Workers,
 		MemoryText: req.Memory, PartitionBufferText: req.PartitionBuffer, MergeFanIn: req.MergeFanIn, MaxRecordText: req.MaxRecordBytes,
 		TempDir: req.TempDir, KeepTemp: req.KeepTemp, OutputHeader: false, CellDiff: true, OutputFormat: "jsonl",
