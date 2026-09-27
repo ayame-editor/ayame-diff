@@ -12,7 +12,10 @@ After a text comparison, each hunk has **Use left** and **Use right** actions.
 Use **All left** or **All right** for the whole result. Undo and redo store only
 hunk-choice maps, so large source files are not copied into browser history.
 `Alt+Left` and `Alt+Right` choose the side for the current hunk; the existing
-`Alt+Up` / `Alt+Down` shortcuts navigate.
+`Alt+Up` / `Alt+Down` shortcuts navigate and `Ctrl+Shift+S` saves the merge. In a
+three-way result `Alt+B` chooses BASE and `Alt+A` keeps both sides; `F8` /
+`Shift+F8` walk the conflicts only, and `Alt+Shift+A` turns on auto-advance to the
+next unresolved conflict after each choice (#277).
 
 Saving recomputes the complete diff and streams unchanged/chosen ranges into a
 temporary sibling file. The temporary file is flushed before atomic rename.

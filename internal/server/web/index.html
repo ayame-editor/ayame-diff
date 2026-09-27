@@ -285,6 +285,7 @@
         <span id="mergeUnresolved" aria-live="polite"></span>
         <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <label class="opt check"><input id="mergeAutoAdvance" type="checkbox" /><span data-i18n="autoAdvanceOption">auto-advance</span></label>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
       <div class="diff-layout">
@@ -400,6 +401,7 @@
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
     <script src="apierrors.js"></script>
+    <script src="keymap.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

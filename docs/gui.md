@@ -240,6 +240,17 @@ click-to-jump, and overlays the current viewport. Left/right text stays vertical
 and horizontally synchronized because each hunk is rendered as one shared grid
 and scroll row rather than two independent panes.
 
+In a merge, moving between differences and moving between conflicts are separate
+tasks, so they have separate keys. `Alt+Down` / `Alt+Up` walk every difference and
+`Alt+Home` / `Alt+End` reach the ends, while `F8` / `Shift+F8` walk only the
+conflicts of a three-way result. `Alt+Left`, `Alt+Right`, and `Alt+B` adopt the
+left, right, or base side of the current conflict, and `Alt+A` adopts both
+(left's lines followed by right's). `Ctrl+Shift+S` saves the merge while the merge
+panel is open; `Ctrl+Enter` still runs the comparison. Turn on **auto-advance** in
+the merge panel, or press `Alt+Shift+A`, to jump to the next unresolved conflict
+after each adoption, so the whole merge can be resolved without the mouse. The `?`
+button lists this default map.
+
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
 dedicated purple color and an `↔` button jumps to the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the

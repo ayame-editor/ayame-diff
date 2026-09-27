@@ -68,22 +68,37 @@ func TestConfirmDialogRestoresFocus(t *testing.T) {
 }
 
 // TestShortcutListIsGeneratedFromOneSource keeps the help from drifting away
-// from the handlers it documents.
+// from the handlers it documents. Since #277 the one source is the keymap
+// module's default map; app.js labels each action and the dialog renders the
+// resolved chords, so there is no second list to update.
 func TestShortcutListIsGeneratedFromOneSource(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
-	if !strings.Contains(app, "const SHORTCUTS = [") {
-		t.Fatal("the shortcut list is not defined in one place")
-	}
-	list := sectionBetween(t, app, "const SHORTCUTS = [", "];")
-	// The bindings the app actually installs must appear in the help.
-	for _, keys := range []string{"Alt+↓", "Ctrl+F", "Esc", "Alt+B"} {
-		if !strings.Contains(list, keys) {
-			t.Errorf("the shortcut help omits %s", keys)
+	keymap := readWebAsset(t, "keymap.js")
+
+	for _, want := range []string{
+		"const SHORTCUT_ACTIONS = KEYMAP_ACTION_IDS.map(",
+		"const SHORTCUT_BINDINGS = KEYMAP_DEFAULT_BINDINGS;",
+		"function matchesShortcut(event, id)",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js no longer builds the help from the keymap: missing %q", want)
 		}
 	}
+	if !strings.Contains(app, "displayChord(SHORTCUT_BINDINGS[action.id])") {
+		t.Error("the shortcut dialog does not render the bound chord")
+	}
+	if strings.Contains(app, "const SHORTCUTS = [") {
+		t.Error("app.js still carries a second shortcut list")
+	}
 	// Entries are i18n keys, not baked-in English.
-	if strings.Contains(list, "Next / previous difference") {
+	if strings.Contains(app, "Next / previous difference") {
 		t.Error("the shortcut help hardcodes English instead of using translation keys")
+	}
+	// The bindings the app documents live in the tested default map.
+	for _, chord := range []string{"Alt+ArrowDown", "Alt+ArrowUp", "Alt+ArrowLeft", "Alt+ArrowRight", "Alt+B", "Ctrl+F", "Escape", "Ctrl+Enter"} {
+		if !strings.Contains(keymap, `"`+chord+`"`) {
+			t.Errorf("the default keymap is missing %s", chord)
+		}
 	}
 }

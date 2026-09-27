@@ -533,6 +533,10 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 				rows = event.Right
 			case "base":
 				rows = event.Base
+			case "both":
+				// Union: LEFT rows followed by RIGHT rows, matching the text
+				// merge's "both" choice (#277).
+				rows = append(append([][]string{}, event.Left...), event.Right...)
 			default:
 				unresolved++
 				if !allowUnresolved {

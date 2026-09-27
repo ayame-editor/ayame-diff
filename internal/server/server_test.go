@@ -507,6 +507,32 @@ func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
 	}
 }
 
+// TestThreeWayTextMergeBothChoiceAPI covers the union choice added in #277: the
+// server must accept "both" and emit left's lines ahead of right's.
+func TestThreeWayTextMergeBothChoiceAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt"), filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "base\ntail\n", left: "left\ntail\n", right: "right\ntail\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	req := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base}
+	req.Output, req.Choices = output, map[string]string{"0": "both"}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if string(data) != "left\nright\ntail\n" {
+		t.Fatalf("merged=%q", data)
+	}
+}
+
 func TestThreeWayCSVCompareAndMergeAPI(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

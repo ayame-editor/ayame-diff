@@ -196,6 +196,11 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 				selected = event.Right
 			case "base":
 				selected = event.Base
+			case "both":
+				// Union: keep LEFT first, then RIGHT. This is an explicit user
+				// choice for a conflict both sides changed (#277).
+				selected = append(selected, event.Left...)
+				selected = append(selected, event.Right...)
 			default:
 				unresolved++
 				if !allowUnresolved {

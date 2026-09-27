@@ -65,9 +65,12 @@ Shift_JIS, EUC-JP, UTF-16, and ISO-2022-JP keys compare as text.
 
 Choose **3-way text** or **3-way csv**, then select BASE, LEFT, and RIGHT.
 Results use three panes and show a conflict count. Conflict cards offer
-BASE / LEFT / RIGHT; all-conflict actions, undo/redo, and atomic save reuse the
-two-way merge safety model. Difference navigation works across three-way events;
-`Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses BASE.
+BASE / LEFT / RIGHT / BOTH; all-conflict actions, undo/redo, and atomic save reuse
+the two-way merge safety model. Difference navigation moves across every
+three-way event (`Alt+Down` / `Alt+Up`) while `F8` / `Shift+F8` moves only between
+conflicts; `Alt+Left` / `Alt+Right` chooses a side, `Alt+B` chooses BASE, and
+`Alt+A` keeps both sides. `Ctrl+Shift+S` saves the merge and `Alt+Shift+A` turns on
+auto-advance to the next unresolved conflict (#277).
 
 Inputs are never overwritten unless the overwrite option and destructive
 confirmation are both supplied. New result paths are written via a temporary

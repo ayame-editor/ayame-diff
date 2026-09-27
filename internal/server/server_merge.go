@@ -201,7 +201,7 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 	choices := make(map[int]string, len(req.Choices))
 	for idText, side := range req.Choices {
 		id, parseErr := strconv.Atoi(idText)
-		if parseErr != nil || id < 0 || (side != "left" && side != "right" && side != "base") {
+		if parseErr != nil || id < 0 || (side != "left" && side != "right" && side != "base" && side != "both") {
 			writeError(w, http.StatusBadRequest, "invalid conflict choice")
 			return
 		}
