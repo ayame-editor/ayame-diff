@@ -20,9 +20,9 @@ func TestWriteTextChoicesAndOriginalsUnchanged(t *testing.T) {
 	}
 	old, new := linediff.SplitTextLines(oldText), linediff.SplitTextLines(newText)
 	diff := linediff.Diff(old, new, 100, 10)
-	choices := make(map[int]Side)
+	choices := make(map[int][]Side)
 	for i := range diff.Hunks {
-		choices[i] = Right
+		choices[i] = []Side{Right}
 	}
 	result, err := WriteText(old, new, diff, TextOptions{Output: out, OldPath: oldPath, NewPath: newPath, Choices: choices})
 	if err != nil {
@@ -55,12 +55,39 @@ func TestWriteTextRequiresResolutionAndOverwriteConfirmation(t *testing.T) {
 	if _, err := WriteText(old, new, diff, TextOptions{Output: filepath.Join(dir, "out.txt")}); err == nil {
 		t.Fatal("unresolved save succeeded")
 	}
-	if _, err := WriteText(old, new, diff, TextOptions{Output: input, OldPath: input, Choices: map[int]Side{0: Right}}); err == nil {
+	if _, err := WriteText(old, new, diff, TextOptions{Output: input, OldPath: input, Choices: map[int][]Side{0: {Right}}}); err == nil {
 		t.Fatal("unconfirmed overwrite succeeded")
 	}
 	got, _ := os.ReadFile(input)
 	if string(got) != "untouched" {
 		t.Fatalf("input changed after rejected save: %q", got)
+	}
+}
+
+// TestWriteTextBothSideOrderIsCanonical is the #271 contract: adopting both
+// contributions of a hunk concatenates left then right, and the result does not
+// depend on the order the caller listed them in.
+func TestWriteTextBothSideOrderIsCanonical(t *testing.T) {
+	old := linediff.SplitTextLines("same\nold\ntail\n")
+	new := linediff.SplitTextLines("same\nnew\ntail\n")
+	diff := linediff.Diff(old, new, 10, 10)
+	if len(diff.Hunks) != 1 {
+		t.Fatalf("hunks=%d", len(diff.Hunks))
+	}
+	out := filepath.Join(t.TempDir(), "both.txt")
+	result, err := WriteText(old, new, diff, TextOptions{
+		Output:  out,
+		Choices: map[int][]Side{0: {Right, Left}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(out)
+	if string(got) != "same\nold\nnew\ntail\n" {
+		t.Fatalf("both merged=%q", got)
+	}
+	if result.Resolved != 1 || result.Unresolved != 0 {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

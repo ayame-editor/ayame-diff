@@ -23,13 +23,39 @@ type lineEndings interface{ LineEnding(uint64) string }
 
 // TextOptions controls safe output behavior.
 type TextOptions struct {
-	Output           string
-	OldPath          string
-	NewPath          string
-	Choices          map[int]Side
+	Output  string
+	OldPath string
+	NewPath string
+	// Choices maps a hunk index to the contributions it adopts. An empty slice
+	// is unresolved; more than one entry concatenates them in canonical order
+	// (left before right) so adopting "both" is order-independent (#271).
+	Choices          map[int][]Side
 	AllowUnresolved  bool
 	Overwrite        bool
 	ConfirmOverwrite bool
+}
+
+// orderedSides returns the recognized sides in canonical concatenation order
+// (left before right), dropping duplicates and values that are not Left or
+// Right.
+func orderedSides(sides []Side) []Side {
+	var hasLeft, hasRight bool
+	for _, side := range sides {
+		switch side {
+		case Left:
+			hasLeft = true
+		case Right:
+			hasRight = true
+		}
+	}
+	var ordered []Side
+	if hasLeft {
+		ordered = append(ordered, Left)
+	}
+	if hasRight {
+		ordered = append(ordered, Right)
+	}
+	return ordered
 }
 
 // TextResult reports the result without retaining any input lines.
@@ -47,8 +73,7 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 		return result, fmt.Errorf("output path is required")
 	}
 	for index := range diff.Hunks {
-		choice := opts.Choices[index]
-		if choice == Left || choice == Right {
+		if len(orderedSides(opts.Choices[index])) > 0 {
 			result.Resolved++
 		} else {
 			result.Unresolved++
@@ -91,12 +116,23 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 			if err := writeRange(old, oldCursor, hunk.OldStart-oldCursor); err != nil {
 				return err
 			}
-			if opts.Choices[index] == Right {
-				if err := writeRange(new, hunk.NewStart, hunk.NewLen); err != nil {
+			// An unresolved hunk (no adopted side) keeps the left side,
+			// matching the documented allowUnresolved fallback. Adopted sides
+			// are concatenated in canonical order.
+			adopted := orderedSides(opts.Choices[index])
+			if len(adopted) == 0 {
+				adopted = []Side{Left}
+			}
+			for _, side := range adopted {
+				if side == Right {
+					if err := writeRange(new, hunk.NewStart, hunk.NewLen); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := writeRange(old, hunk.OldStart, hunk.OldLen); err != nil {
 					return err
 				}
-			} else if err := writeRange(old, hunk.OldStart, hunk.OldLen); err != nil {
-				return err
 			}
 			oldCursor = hunk.OldStart + hunk.OldLen
 		}

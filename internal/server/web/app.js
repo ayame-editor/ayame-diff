@@ -965,7 +965,12 @@ let directoryData = null, directoryBody = null;
 // the flag accidentally.
 let directoryEntryView = null;
 let directorySearchTimer = 0;
-let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
+// Merge selection is a toggle model (#271): each hunk holds the set of
+// contributions it adopts, so clicking a chosen side again clears it and a hunk
+// can adopt both sides. The kind fixes the canonical concatenation order.
+const { createMergeSelection } = globalThis.AyameMergeSelect;
+let mergeSelection = createMergeSelection("text"), mergeUndo = [], mergeRedo = [];
+function resetMergeSelection(kind) { mergeSelection = createMergeSelection(kind); }
 // Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
 // so the per-hunk adopt buttons and the merge panel stay hidden until the user
 // enters merge mode. setMergeMode syncs the body class the CSS keys off and the
@@ -1782,6 +1787,7 @@ function renderHunk(h, index) {
   mergeActions.className = "hunk-merge";
   for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
     const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
+    button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint");
     button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
     mergeActions.append(button);
   }
@@ -2159,13 +2165,26 @@ async function renderResult(data) {
 }
 
 function mutateMerge(mutator) {
-  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
+  mergeUndo.push(mergeSelection.clone());
   if (mergeUndo.length > 100) mergeUndo.shift();
   mergeRedo = [];
   mutator();
   updateMergeUI();
 }
-function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
+// chooseMerge toggles one contribution: clicking a chosen side clears it, so
+// selecting and deselecting are the same gesture (P4Merge-style, #271).
+function chooseMerge(id, side) { mutateMerge(() => mergeSelection.toggle(id, side)); }
+// syncMergeRow paints the adopted sides on one hunk or CSV row: the border
+// classes the CSS keys off and the buttons' aria-pressed state.
+function syncMergeRow(row, id) {
+  if (!row) return;
+  for (const side of mergeSelection.order) {
+    const adopted = mergeSelection.has(id, side);
+    row.classList.toggle(`merge-${side}`, adopted);
+    const button = row.querySelector(`.choose-${side}`);
+    if (button) button.setAttribute("aria-pressed", adopted ? "true" : "false");
+  }
+}
 function updateMergeUI() {
 	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
@@ -2177,11 +2196,8 @@ function updateMergeUI() {
   $("mergeMode").hidden = !mergeable;
   $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
-  lastData.hunks.forEach((_, index) => {
-    const box = $(`hunk-${index}`), side = mergeChoices.get(index);
-    box?.classList.toggle("merge-left", side === "left"); box?.classList.toggle("merge-right", side === "right");
-  });
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, lastData.hunk_count - mergeChoices.size));
+  lastData.hunks.forEach((_, index) => syncMergeRow($(`hunk-${index}`), index));
+  $("mergeUnresolved").textContent = t("unresolved", mergeSelection.unresolved(lastData.hunk_count));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 // mergeRowIndex maps a merge id to the row that represents it, filled while
@@ -2196,34 +2212,30 @@ function indexMergeRow(id, node) { mergeRowIndex.set(String(id), node); }
 
 function updateCSVMergeUI() {
   $("mergePanel").hidden = false;
-  const chosen = new Set([...mergeChoices.keys()].map(String));
-  for (const [id, row] of mergeRowIndex) {
-    const side = mergeChoices.get(id);
-    row.classList.toggle("merge-left", side === "left"); row.classList.toggle("merge-right", side === "right");
-  }
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, (csvData.difference_count || csvData.differences.length) - chosen.size));
+  for (const [id, row] of mergeRowIndex) syncMergeRow(row, id);
+  $("mergeUnresolved").textContent = t("unresolved", mergeSelection.unresolved(csvData.difference_count || csvData.differences.length));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 function undoMerge() {
   if (!mergeUndo.length) return;
-  mergeRedo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
-  const state = mergeUndo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  mergeRedo.push(mergeSelection.clone());
+  mergeSelection = mergeUndo.pop(); updateMergeUI();
 }
 function redoMerge() {
   if (!mergeRedo.length) return;
-  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
-  const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  mergeUndo.push(mergeSelection.clone());
+  mergeSelection = mergeRedo.pop(); updateMergeUI();
 }
 async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
+  const unresolved = mergeSelection.unresolved(lastData?.hunk_count || 0);
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
   const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
-  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...requestBody(), output, choices: mergeSelection.toWire(), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -2235,13 +2247,13 @@ async function saveTextMerge() {
 async function saveCSVMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
+  const unresolved = mergeSelection.unresolved(csvData?.difference_count || 0);
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
   const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
-  const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...csvRequestBody(), output, choices: mergeSelection.toWire(), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -2297,7 +2309,7 @@ async function renderThreeWay(data, csvMode) {
     const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `${t("sideBase")} ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
-      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
+      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint"); button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
@@ -2323,10 +2335,9 @@ function updateThreeWayMergeUI() {
   $("mergePanel").hidden = !threeWayData;
   if (!threeWayData) return;
   for (const event of threeWayData.events) {
-    const row = mergeRowIndex.get(String(event.id)), side = mergeChoices.get(event.id);
-    for (const value of ["left", "right", "base"]) row?.classList.toggle(`merge-${value}`, side === value);
+    syncMergeRow(mergeRowIndex.get(String(event.id)), event.id);
   }
-  $("mergeUnresolved").textContent = t("unresolved", Math.max(0, threeWayData.conflicts - mergeChoices.size));
+  $("mergeUnresolved").textContent = t("unresolved", mergeSelection.unresolved(threeWayData.conflicts));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 async function compareThreeWay(csvMode) {
@@ -2348,7 +2359,7 @@ async function compareThreeWay(csvMode) {
     const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
     if (!isCurrentRequest(generation)) return false;
-    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    threeWayData = null; resetMergeSelection(csvMode ? "threeway-csv" : "threeway"); mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
     clearInterval(timer);
     await renderThreeWay(data, csvMode);
@@ -2365,11 +2376,11 @@ async function compareThreeWay(csvMode) {
 }
 async function saveThreeWayMerge() {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
+  const unresolved = mergeSelection.unresolved(threeWayData?.conflicts || 0);
   const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning")); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
-  const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...base, output, choices: mergeSelection.toWire(), allowUnresolved, overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); setStatus(t("mergeSaved", data.output), "success"); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
@@ -2968,8 +2979,12 @@ function renderCSVRows() {
     const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
     const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
     actionCell.append(label);
+    // Both toggles are offered even for a one-sided difference: the present
+    // side keeps the row and the absent side drops it, mirroring the engine's
+    // keep/drop decision. On a CHANGED pair both sides adopt real rows (#271).
     for (const [side, text] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = text;
+      button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint");
       button.onclick = () => chooseMerge(diff.id, side); actionCell.append(button);
     }
     action.append(actionCell); tbody.append(action);
@@ -3006,7 +3021,7 @@ async function compareCSV() {
     const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
-    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    threeWayData = null; resetMergeSelection("csv"); mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
@@ -3437,7 +3452,7 @@ async function runCompare() {
     lastData = data;
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
-    mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    resetMergeSelection("text"); mergeUndo = []; mergeRedo = [];
     setMergeMode(false); // every fresh diff opens in reading mode (#100)
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
@@ -4616,9 +4631,23 @@ $("lastDiff").addEventListener("click", () => {
 $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
-$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
-$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
-$("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
+// The units "All left / All right / All base" apply to: every hunk of the
+// active comparison, conflicts only for three-way.
+function mergeUnitIds() {
+  if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) return threeWayData.events.filter((item) => item.kind === "conflict").map((item) => item.id);
+  if ($("mode").value === "csv" && csvData) return csvData.differences.map((item) => item.id);
+  return (lastData?.hunks || []).map((_, index) => index);
+}
+function chooseAllMerge(side) {
+  return () => {
+    if (!mergeSelection.order.includes(side)) return;
+    const ids = mergeUnitIds();
+    mutateMerge(() => { for (const id of ids) mergeSelection.choose(id, side); });
+  };
+}
+$("allLeft").addEventListener("click", chooseAllMerge("left"));
+$("allRight").addEventListener("click", chooseAllMerge("right"));
+$("allBase").addEventListener("click", chooseAllMerge("base"));
 $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
