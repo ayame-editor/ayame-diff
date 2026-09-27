@@ -16,6 +16,7 @@ type threeWayCSVRequest struct {
 	Base             string            `json:"base"`
 	Choices          map[string]string `json:"choices,omitempty"`
 	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	UnresolvedTarget string            `json:"unresolvedTarget,omitempty"`
 	Overwrite        bool              `json:"overwrite,omitempty"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
 }
@@ -63,10 +64,17 @@ func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	unresolved, err := threeway.WriteCSVMerge(req.Base, req.Output, result, req.Choices, req.AllowUnresolved)
+	if !validUnresolvedTarget(req.UnresolvedTarget, threeway.UnresolvedLeft, threeway.UnresolvedRight, threeway.UnresolvedBase) {
+		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left, right, or base for CSV")
+		return
+	}
+	unresolved, err := threeway.WriteCSVMergeTarget(req.Base, req.Output, result, req.Choices, req.AllowUnresolved, req.UnresolvedTarget)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"output": req.Output, "conflicts": result.Conflicts,
+		"unresolved": unresolved, "unresolvedTarget": req.UnresolvedTarget,
+	})
 }

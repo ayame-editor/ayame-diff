@@ -30,6 +30,10 @@ const {
   batchContextRanges,
 } = globalThis.AyameUnchanged;
 const {
+  unresolvedItems: computeMergeUnresolved,
+  targetsFor: mergeTargetsFor,
+} = globalThis.AyameUnresolved;
+const {
   continuousEntries,
   windowAround,
   unloadTargets,
@@ -2130,6 +2134,7 @@ async function renderResult(data) {
   renderSummary(data);
   const result = $("result");
   result.innerHTML = "";
+  resetMergeRowIndex();
   setupNavigation(data);
   syncExportPatchVisibility();
   result.append(paneHeads(data));
@@ -2166,6 +2171,140 @@ function mutateMerge(mutator) {
   updateMergeUI();
 }
 function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
+
+// ---- Unresolved-difference list and implicit-resolution target (#272) ----
+// A save used to confirm once and silently resolve every remaining conflict to
+// the left. These helpers list the unresolved items so the user can jump to
+// them, and read the target a save uses when they still choose to continue.
+
+// mergeKind names the active merge so the target list and the item labels can
+// be chosen without re-reading the mode at every call site.
+function mergeKind() {
+  const mode = $("mode").value;
+  if (mode === "threeway") return "threeway-text";
+  if (mode === "threeway-csv") return "threeway-csv";
+  if (mode === "csv") return "csv";
+  return "text";
+}
+
+function mergeTargetLabel(target) {
+  switch (target) {
+    case "right": return t("right");
+    case "base": return t("sideBase");
+    case "markers": return t("targetMarkersShort");
+    default: return t("left");
+  }
+}
+
+function mergeTargetOptions() { return mergeTargetsFor(mergeKind()); }
+
+function currentUnresolvedTarget() {
+  const value = $("mergeUnresolvedTarget")?.value || "left";
+  return mergeTargetOptions().includes(value) ? value : "left";
+}
+
+function textHunkLabel(hunk, index) {
+  const kind = t(hunk.kind === "insert" ? "added" : hunk.kind === "delete" ? "deleted" : "modified");
+  return `#${index + 1} · ${kind} · ${hunk.new_start + 1}`;
+}
+function csvDifferenceLabel(diff, index) {
+  return `#${index + 1} · ${diff.kind} · ${String(diff.id).slice(0, 8)}`;
+}
+function threeWayEventLabel(event) {
+  const id = String(event.id).slice(0, 10);
+  if (Array.isArray(event.key) && event.key.length) return `#${id} · ${event.key.join(" / ")}`;
+  const at = Number.isFinite(event.base_start) ? ` · ${t("sideBase")} ${event.base_start + 1}` : "";
+  return `#${id} · ${t("conflicts")}${at}`;
+}
+
+// mergeDecidableItems lists the items a save must decide and the total the
+// server will count. Capped text hunks have no row to list; carrying the total
+// keeps the confirmation honest about them.
+function mergeDecidableItems() {
+  const kind = mergeKind();
+  if (kind === "threeway-text" || kind === "threeway-csv") {
+    const events = (threeWayData?.events || []).filter((event) => event.kind === "conflict");
+    return { kind, items: events.map((event) => ({ id: event.id, label: threeWayEventLabel(event) })),
+      total: threeWayData?.conflicts || 0, fallback: null };
+  }
+  if (kind === "csv") {
+    const diffs = csvData?.differences || [];
+    return { kind, items: diffs.map((diff, index) => ({ id: diff.id, label: csvDifferenceLabel(diff, index) })),
+      total: csvData?.difference_count || diffs.length, fallback: mergeDefault };
+  }
+  const hunks = lastData?.hunks || [];
+  return { kind, items: hunks.map((hunk, index) => ({ id: index, label: textHunkLabel(hunk, index) })),
+    total: lastData?.hunk_count ?? hunks.length, fallback: mergeDefault };
+}
+
+function mergeUnresolvedState() {
+  const { kind, items, total, fallback } = mergeDecidableItems();
+  const list = computeMergeUnresolved(items, mergeChoices, fallback);
+  const count = fallback ? 0 : Math.max(0, total - mergeChoices.size);
+  return { kind, list, count, hidden: Math.max(0, count - list.length) };
+}
+
+function jumpToMergeItem(id) {
+  let node = mergeRowIndex.get(String(id));
+  if (!node || node.isConnected === false) node = document.getElementById(`hunk-${id}`);
+  if (!node) return;
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (typeof node.focus === "function") node.focus({ preventScroll: true });
+}
+
+function renderMergeUnresolved(state) {
+  const box = $("mergeUnresolvedBox"), list = $("mergeUnresolvedList");
+  list.innerHTML = "";
+  box.hidden = state.count === 0;
+  for (const item of state.list) {
+    const entry = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "merge-unresolved-jump";
+    button.textContent = item.label;
+    button.addEventListener("click", () => jumpToMergeItem(item.id));
+    entry.append(button);
+    list.append(entry);
+  }
+  if (state.hidden > 0) {
+    const entry = document.createElement("li");
+    entry.className = "merge-unresolved-more";
+    entry.textContent = t("unresolvedMore", { count: state.hidden });
+    list.append(entry);
+  }
+  const go = $("mergeGoUnresolved");
+  go.disabled = state.list.length === 0;
+  go.onclick = state.list.length ? () => jumpToMergeItem(state.list[0].id) : null;
+}
+
+// The target select offers only what the active endpoint can honor: two-way CSV
+// has no marker form, and only three-way text has BASE.
+function updateUnresolvedTargetOptions() {
+  const select = $("mergeUnresolvedTarget");
+  if (!select) return;
+  const allowed = mergeTargetOptions();
+  for (const option of select.options) option.hidden = !allowed.includes(option.value);
+  if (!allowed.includes(select.value)) select.value = "left";
+}
+
+function refreshMergeUnresolved() {
+  updateUnresolvedTargetOptions();
+  const state = mergeUnresolvedState();
+  $("mergeUnresolved").textContent = t("unresolved", state.count);
+  renderMergeUnresolved(state);
+}
+
+// reportMergeSaved keeps "saved" distinct from "no conflicts remain": a file
+// written with implicit side choices or leftover markers says so, and only a
+// fully decided merge reads as a plain success (#272).
+function reportMergeSaved(data, target, path) {
+  const markers = typeof data?.conflictsRemaining === "number" ? data.conflictsRemaining : (Number(data?.conflictMarkers) || 0);
+  const implicit = Array.isArray(data?.implicitlyResolved) ? data.implicitlyResolved.length : (Number(data?.unresolved) || 0);
+  if (markers > 0) { setStatus(t("mergeSavedWithMarkers", { path, count: markers }), "warning"); return; }
+  if (implicit > 0) { setStatus(t("mergeSavedWithImplicit", { path, count: implicit, target: mergeTargetLabel(target) }), "warning"); return; }
+  setStatus(t("mergeSaved", data.output), "success");
+}
+
 function updateMergeUI() {
 	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
@@ -2181,7 +2320,7 @@ function updateMergeUI() {
     const box = $(`hunk-${index}`), side = mergeChoices.get(index);
     box?.classList.toggle("merge-left", side === "left"); box?.classList.toggle("merge-right", side === "right");
   });
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, lastData.hunk_count - mergeChoices.size));
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 // mergeRowIndex maps a merge id to the row that represents it, filled while
@@ -2196,12 +2335,11 @@ function indexMergeRow(id, node) { mergeRowIndex.set(String(id), node); }
 
 function updateCSVMergeUI() {
   $("mergePanel").hidden = false;
-  const chosen = new Set([...mergeChoices.keys()].map(String));
   for (const [id, row] of mergeRowIndex) {
     const side = mergeChoices.get(id);
     row.classList.toggle("merge-left", side === "left"); row.classList.toggle("merge-right", side === "right");
   }
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, (csvData.difference_count || csvData.differences.length) - chosen.size));
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 function undoMerge() {
@@ -2217,36 +2355,38 @@ function redoMerge() {
 async function saveTextMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) }));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
   const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
-  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
-    setStatus(t("mergeSaved", data.output), "success");
+    reportMergeSaved(data, target, data.output);
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
 async function saveCSVMerge() {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) }));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
   const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
   if (!confirmOverwrite) return;
-  const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
-    setStatus(t("mergeSaved", data.output), "success");
+    reportMergeSaved({ output: data.output, unresolved: data.summary?.unresolved_rows }, target, data.output);
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
@@ -2326,7 +2466,7 @@ function updateThreeWayMergeUI() {
     const row = mergeRowIndex.get(String(event.id)), side = mergeChoices.get(event.id);
     for (const value of ["left", "right", "base"]) row?.classList.toggle(`merge-${value}`, side === value);
   }
-  $("mergeUnresolved").textContent = t("unresolved", Math.max(0, threeWayData.conflicts - mergeChoices.size));
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 async function compareThreeWay(csvMode) {
@@ -2365,13 +2505,14 @@ async function compareThreeWay(csvMode) {
 }
 async function saveThreeWayMerge() {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) })); if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning")); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
-  const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
-  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); setStatus(t("mergeSaved", data.output), "success"); }
+  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); reportMergeSaved(data, target, data.output); }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 

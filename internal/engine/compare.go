@@ -57,6 +57,7 @@ type reconcileConfig struct {
 	enabled         bool
 	choices         map[string]string
 	defaultTo       string
+	unresolvedTo    string
 	delimiter       rune
 	allowUnresolved bool
 }
@@ -67,6 +68,9 @@ func (r reconcileConfig) choice(id string) (string, bool) {
 	}
 	if r.defaultTo != "" {
 		return r.defaultTo, false
+	}
+	if r.unresolvedTo == "right" {
+		return "right", true
 	}
 	return "left", true
 }

@@ -57,3 +57,36 @@ func TestMergeLinesRejectsOrMarksUnresolved(t *testing.T) {
 		t.Fatalf("merged=%q count=%d err=%v", merged, count, err)
 	}
 }
+
+// TestMergeLinesTargetSelectsImplicitResolution covers #272: rather than always
+// leaving markers, an unresolved three-way conflict can be sent to left, right,
+// or base, and the marker count distinguishes a saved clean merge from one that
+// still holds conflict markers.
+func TestMergeLinesTargetSelectsImplicitResolution(t *testing.T) {
+	base := linediff.SplitLines("base\n")
+	result, err := Compare(base, linediff.SplitLines("left\n"), linediff.SplitLines("right\n"), linediff.Options{Window: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string][]string{
+		UnresolvedLeft:  {"left"},
+		UnresolvedRight: {"right"},
+		UnresolvedBase:  {"base"},
+	}
+	for target, want := range cases {
+		merged, unresolved, markers, err := MergeLinesTarget(base, result, nil, true, target)
+		if err != nil || unresolved != 1 || markers != 0 {
+			t.Fatalf("%s: merged=%q unresolved=%d markers=%d err=%v", target, merged, unresolved, markers, err)
+		}
+		if !reflect.DeepEqual(merged, want) {
+			t.Fatalf("%s: merged=%q want=%q", target, merged, want)
+		}
+	}
+	merged, unresolved, markers, err := MergeLinesTarget(base, result, nil, true, UnresolvedMarkers)
+	if err != nil || unresolved != 1 || markers != 1 || merged[0] != "<<<<<<< LEFT" {
+		t.Fatalf("markers: merged=%q unresolved=%d markers=%d err=%v", merged, unresolved, markers, err)
+	}
+	if _, _, _, err := MergeLinesTarget(base, result, nil, true, "middle"); err == nil {
+		t.Fatal("unknown target accepted")
+	}
+}

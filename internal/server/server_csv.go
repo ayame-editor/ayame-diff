@@ -325,6 +325,7 @@ type csvMergeRequest struct {
 	Choices          map[string]string `json:"choices"`
 	DefaultChoice    string            `json:"defaultChoice"`
 	AllowUnresolved  bool              `json:"allowUnresolved"`
+	UnresolvedTarget string            `json:"unresolvedTarget"`
 	Overwrite        bool              `json:"overwrite"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite"`
 }
@@ -347,6 +348,10 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 			"overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
+	if !validUnresolvedTarget(req.UnresolvedTarget, "left", "right") {
+		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left or right")
+		return
+	}
 	target := req.Output
 	if overwriteInput {
 		temp, err := os.CreateTemp(filepath.Dir(req.Output), ".ayame-diff-csv-merge-*"+filepath.Ext(req.Output))
@@ -363,6 +368,7 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 	cfg.OutputFormat, cfg.OutputHeader = "tsv", req.HasHeader
 	cfg.Reconcile, cfg.MergeChoices, cfg.MergeDefault = true, req.Choices, req.DefaultChoice
 	cfg.AllowUnresolved = req.AllowUnresolved
+	cfg.UnresolvedTarget = req.UnresolvedTarget
 	if strings.HasSuffix(strings.TrimSuffix(strings.ToLower(req.Output), ".gz"), ".csv") {
 		cfg.OutputDelimiter = ','
 	} else {

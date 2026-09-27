@@ -241,7 +241,7 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
 	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat, reconcileConfig{
-		enabled: cfg.Reconcile, choices: cfg.MergeChoices, defaultTo: cfg.MergeDefault, delimiter: cfg.OutputDelimiter, allowUnresolved: cfg.AllowUnresolved,
+		enabled: cfg.Reconcile, choices: cfg.MergeChoices, defaultTo: cfg.MergeDefault, unresolvedTo: cfg.UnresolvedTarget, delimiter: cfg.OutputDelimiter, allowUnresolved: cfg.AllowUnresolved,
 	})
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)

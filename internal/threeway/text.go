@@ -175,9 +175,36 @@ func lineRange(source linediff.Lines, start, length uint64) []string {
 // Missing conflict choices are emitted with standard conflict markers when
 // allowUnresolved is true; otherwise an error is returned.
 func MergeLines(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]string, int, error) {
+	lines, unresolved, _, err := MergeLinesTarget(base, result, choices, allowUnresolved, UnresolvedMarkers)
+	return lines, unresolved, err
+}
+
+// Resolution targets for an undecided three-way conflict. The zero value
+// and UnresolvedMarkers both leave standard markers, so the CLI and existing
+// callers keep their behavior (#272).
+const (
+	UnresolvedLeft    = "left"
+	UnresolvedRight   = "right"
+	UnresolvedBase    = "base"
+	UnresolvedMarkers = "markers"
+)
+
+// MergeLinesTarget is MergeLines with a selectable implicit-resolution target.
+// A left/right/base target resolves every undecided conflict to that side; the
+// markers target leaves standard LEFT/BASE/RIGHT markers. It returns the number
+// of conflicted events left undecided and the number of marker blocks written.
+func MergeLinesTarget(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool, target string) ([]string, int, int, error) {
+	if target == "" {
+		target = UnresolvedMarkers
+	}
+	switch target {
+	case UnresolvedLeft, UnresolvedRight, UnresolvedBase, UnresolvedMarkers:
+	default:
+		return nil, 0, 0, fmt.Errorf("unresolvedTarget must be left, right, base, or markers")
+	}
 	var output []string
 	var cursor uint64
-	unresolved := 0
+	unresolved, markers := 0, 0
 	for _, event := range result.Events {
 		output = append(output, lineRange(base, cursor, event.BaseStart-cursor)...)
 		var selected []string
@@ -199,22 +226,32 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 			default:
 				unresolved++
 				if !allowUnresolved {
-					return nil, unresolved, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
+					return nil, unresolved, markers, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
 				}
-				selected = append(selected, "<<<<<<< LEFT")
-				selected = append(selected, event.Left...)
-				selected = append(selected, "||||||| BASE")
-				selected = append(selected, event.Base...)
-				selected = append(selected, "=======")
-				selected = append(selected, event.Right...)
-				selected = append(selected, ">>>>>>> RIGHT")
+				switch target {
+				case UnresolvedLeft:
+					selected = event.Left
+				case UnresolvedRight:
+					selected = event.Right
+				case UnresolvedBase:
+					selected = event.Base
+				default:
+					markers++
+					selected = append(selected, "<<<<<<< LEFT")
+					selected = append(selected, event.Left...)
+					selected = append(selected, "||||||| BASE")
+					selected = append(selected, event.Base...)
+					selected = append(selected, "=======")
+					selected = append(selected, event.Right...)
+					selected = append(selected, ">>>>>>> RIGHT")
+				}
 			}
 		}
 		output = append(output, selected...)
 		cursor = event.BaseStart + event.BaseLen
 	}
 	output = append(output, lineRange(base, cursor, base.Count()-cursor)...)
-	return output, unresolved, nil
+	return output, unresolved, markers, nil
 }
 
 // The byte-level conventions of an input — encoding, BOM, terminator, final

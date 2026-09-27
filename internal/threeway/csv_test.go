@@ -60,6 +60,40 @@ func TestCompareAndMergeCSV(t *testing.T) {
 	}
 }
 
+// TestWriteCSVMergeTargetSelectsImplicitSide covers #272: an unresolved CSV
+// conflict can be sent to left or right instead of always retaining BASE.
+func TestWriteCSVMergeTargetSelectsImplicitSide(t *testing.T) {
+	dir := t.TempDir()
+	base, left, right := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	for path, value := range map[string]string{base: "id,v\n1,b\n", left: "id,v\n1,l\n", right: "id,v\n1,r\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := threeWayTestConfig()
+	cfg.KeyNames = []string{"id"}
+	result, err := CompareCSV(context.Background(), base, left, right, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for target, want := range map[string]string{UnresolvedLeft: "l", UnresolvedRight: "r", UnresolvedBase: "b"} {
+		// A distinct output path: writing over the input is refused by the
+		// server, and on Windows an input held open cannot be replaced (#272).
+		output := filepath.Join(dir, "merged-"+target+".csv")
+		unresolved, err := WriteCSVMergeTarget(base, output, result, nil, true, target)
+		if err != nil || unresolved != 1 {
+			t.Fatalf("%s: unresolved=%d err=%v", target, unresolved, err)
+		}
+		records := readMergedCSV(t, output, "utf-8", ',')
+		if len(records) != 2 || records[1][1] != want {
+			t.Fatalf("%s: records=%#v want value %q", target, records, want)
+		}
+	}
+	if _, err := WriteCSVMergeTarget(base, filepath.Join(dir, "bad.csv"), result, nil, true, "markers"); err == nil {
+		t.Fatal("markers target accepted for CSV")
+	}
+}
+
 func TestWriteCSVMergeRejectsUnresolved(t *testing.T) {
 	dir := t.TempDir()
 	base, left, right := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")

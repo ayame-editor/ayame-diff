@@ -512,6 +512,21 @@ func orderLikeBase(base, rows [][]string) [][]string {
 // WriteCSVMerge streams the base file, replacing only event key groups. CSV
 // conflicts default to BASE only after an explicit allowUnresolved decision.
 func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string]string, allowUnresolved bool) (unresolved int, resultErr error) {
+	return WriteCSVMergeTarget(basePath, output, result, choices, allowUnresolved, UnresolvedBase)
+}
+
+// WriteCSVMergeTarget is WriteCSVMerge with a selectable implicit-resolution
+// target for undecided conflicts: left, right, or base (#272). CSV has no line
+// markers, so "markers" is not a valid target here.
+func WriteCSVMergeTarget(basePath, output string, result CSVResult, choices map[string]string, allowUnresolved bool, target string) (unresolved int, resultErr error) {
+	if target == "" {
+		target = UnresolvedBase
+	}
+	switch target {
+	case UnresolvedLeft, UnresolvedRight, UnresolvedBase:
+	default:
+		return 0, fmt.Errorf("unresolvedTarget must be left, right, or base for CSV")
+	}
 	plans := make(map[string]*csvPlan, len(result.Events))
 	order := make([]string, 0, len(result.Events))
 	for _, event := range result.Events {
@@ -538,7 +553,14 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 				if !allowUnresolved {
 					return unresolved, fmt.Errorf("%d CSV conflicts are unresolved", unresolved)
 				}
-				rows = event.Base
+				switch target {
+				case UnresolvedLeft:
+					rows = event.Left
+				case UnresolvedRight:
+					rows = event.Right
+				default:
+					rows = event.Base
+				}
 			}
 		}
 		plans[key] = newCSVPlan(event.Base, rows)

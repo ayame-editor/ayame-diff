@@ -19,8 +19,23 @@ type textMergeRequest struct {
 	Choices          map[string]string `json:"choices"`
 	DefaultChoice    string            `json:"defaultChoice"`
 	AllowUnresolved  bool              `json:"allowUnresolved"`
+	UnresolvedTarget string            `json:"unresolvedTarget"`
 	Overwrite        bool              `json:"overwrite"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite"`
+}
+
+// validUnresolvedTarget reports whether target is an allowed implicit-resolution
+// target. An empty target keeps the historical left-side behavior.
+func validUnresolvedTarget(target string, allowed ...string) bool {
+	if target == "" {
+		return true
+	}
+	for _, candidate := range allowed {
+		if target == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
@@ -80,9 +95,14 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if !validUnresolvedTarget(req.UnresolvedTarget, merge.UnresolvedLeft, merge.UnresolvedRight, merge.UnresolvedMarkers) {
+		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left, right, or markers")
+		return
+	}
 	merged, err := merge.WriteText(oldLines, newLines, result, merge.TextOptions{
 		Output: req.Output, OldPath: req.Old, NewPath: req.New, Choices: choices,
-		AllowUnresolved: req.AllowUnresolved, Overwrite: req.Overwrite, ConfirmOverwrite: req.ConfirmOverwrite,
+		AllowUnresolved: req.AllowUnresolved, UnresolvedTarget: req.UnresolvedTarget,
+		Overwrite: req.Overwrite, ConfirmOverwrite: req.ConfirmOverwrite,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -97,6 +117,7 @@ type threeWayTextRequest struct {
 	Output           string            `json:"output,omitempty"`
 	Choices          map[string]string `json:"choices,omitempty"`
 	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
+	UnresolvedTarget string            `json:"unresolvedTarget,omitempty"`
 	Overwrite        bool              `json:"overwrite,omitempty"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
 }
@@ -210,7 +231,11 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 	// Capture the base file's encoding/BOM/EOL before MergeLines streams it, so
 	// the written merge round-trips them instead of BOM-less UTF-8/LF (#159).
 	profile := threeway.ProfileOf(base)
-	lines, unresolved, err := threeway.MergeLines(base, result, choices, req.AllowUnresolved)
+	if !validUnresolvedTarget(req.UnresolvedTarget, threeway.UnresolvedLeft, threeway.UnresolvedRight, threeway.UnresolvedBase, threeway.UnresolvedMarkers) {
+		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left, right, base, or markers")
+		return
+	}
+	lines, unresolved, markers, err := threeway.MergeLinesTarget(base, result, choices, req.AllowUnresolved, req.UnresolvedTarget)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -219,5 +244,8 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"output": req.Output, "conflicts": result.Conflicts,
+		"unresolved": unresolved, "conflictMarkers": markers,
+	})
 }
