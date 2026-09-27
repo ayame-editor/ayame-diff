@@ -123,7 +123,7 @@ func TestCompleteMatchCardsIncludeScopeAndDistinguishTruncation(t *testing.T) {
 		`completeMatch: "✔ 完全一致"`, `completeMatch: "✔ Complete match"`,
 		"textMatchScope", "csvMatchScope", "threeWayTextMatchScope", "threeWayCSVMatchScope",
 		`if (data.truncated) result.append(resultStateCard(t("matchNotVerified")`,
-		`comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"`,
+		`equivalenceTitleKey(data.verdict, comparisonUsesRules(true))`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("match result handling missing %q", want)

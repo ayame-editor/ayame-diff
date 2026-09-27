@@ -52,6 +52,14 @@ their row order differs, and write the differing rows to a TSV. Left and right
 may use different formats; if the header names match, differing column orders
 are aligned automatically.
 
+The comparison is row-order independent by design: the same rows in a different
+order are equal data, not a difference. The GUI states that verdict in one line
+— "data equal (only column order differs)", "data equal (only row order
+differs)", or "N real data differences" — instead of leaving you to interpret
+the counts. When both sides name the same columns in a different order, it also
+offers to align them by name and compare again in one action, so a mis-ordered
+extraction can be confirmed equal without re-extracting it.
+
 ```bash
 ayame-diff csv --left old.tsv --right new.csv --key id --out diff.tsv
 ```

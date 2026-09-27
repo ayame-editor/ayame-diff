@@ -23,6 +23,7 @@ const {
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
+const { equivalenceTitleKey, alignmentProposal } = globalThis.AyameEquivalence;
 const {
   buildUnchangedRegions,
   initialContextRanges,
@@ -2830,8 +2831,28 @@ function renderCSVSummary(data) {
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
+  // The counts alone leave the reader to decide whether anything is really
+  // different. State the verdict in one line: real data differences, or none
+  // apart from column/row order (#116).
+  const verdict = data.verdict;
+  if (verdict && !verdict.substantively_equal) {
+    const note = document.createElement("span"); note.className = "note csv-verdict-differences";
+    note.textContent = t("csvDataDifferenceVerdict", { count: Number(verdict.differences || 0).toLocaleString() });
+    el.append(note);
+  }
   if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
   el.hidden = false;
+}
+
+// A reordered column set is not an error when both sides name the same
+// columns: show the verdict and a one-click way to align and compare (#116).
+function csvAlignProposalCard(data) {
+  const card = resultStateCard(t("columnsReorderedTitle"), t("columnsReorderedScope"), "partial");
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "csv-align-columns"; button.textContent = t("alignAndCompare");
+  button.onclick = () => { $("alignColumns").checked = true; compareCSV(); };
+  card.append(button);
+  return card;
 }
 
 // csvView holds the parts of the table that survive a page turn. Paging used to
@@ -2852,14 +2873,19 @@ function renderCSV(data) {
   // UI here would only toggle classes on nodes that are discarded below; the
   // call after the table is built is the one that matters (#154).
   resetMergeRowIndex();
-  renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
   result.append(paneHeads(data));
+  if (alignmentProposal(data.verdict)) {
+    $("summary").hidden = true;
+    result.append(csvAlignProposalCard(data));
+    return;
+  }
+  renderCSVSummary(data);
   if (!data.differences.length) {
     if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
     else {
       const scope = t("csvMatchScope", { rows: Number(data.summary.equal_rows || 0).toLocaleString(), columns: data.header.length.toLocaleString() });
-      result.append(resultStateCard(t(comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"), scope));
+      result.append(resultStateCard(t(equivalenceTitleKey(data.verdict, comparisonUsesRules(true))), scope));
     }
     return;
   }

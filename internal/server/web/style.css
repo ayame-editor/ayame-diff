@@ -824,6 +824,8 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .result-match strong { color: var(--add-fg); }
 .result-partial { border-color: var(--gold); background: var(--chg-bg); }
 .result-partial strong { color: var(--chg-fg); }
+.csv-align-columns { margin-top: 0.7rem; }
+.summary .note.csv-verdict-differences { color: var(--del-fg); font-weight: 700; }
 .initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .initial-empty strong { color: var(--fg); font-size: var(--fs-emphasis); }
 .initial-empty p { margin: 0.35rem 0 0; }
