@@ -419,6 +419,30 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 }
 .gutter-change:hover { filter: brightness(1.15); }
 
+/* Optimistic line render (#258). A committed edit is painted before the
+   authoritative comparison returns. The bar and the tinted marks say so, so the
+   approximation is never read as the final result, and the bar is sticky so the
+   warning stays visible while scrolling the provisional line. */
+.provisional-bar {
+  position: sticky; top: var(--pane-heads-height, 0px); z-index: 3;
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0; padding: 0.35rem 0.7rem;
+  border-bottom: 1px solid var(--chg-fg);
+  background: var(--chg-bg); color: var(--chg-fg);
+  font: var(--fs-label) var(--ui);
+}
+.provisional-bar::before {
+  content: ""; width: 0.7rem; height: 0.7rem; flex: 0 0 auto;
+  border: var(--selection-ring-width) solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: status-spin 0.75s linear infinite;
+}
+.cell.provisional {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--chg-fg) 10%, transparent);
+}
+.cell.provisional-same {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--muted) 16%, transparent);
+}
+
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;
   margin-top: 0.6rem; padding: 0.5rem 0.7rem;
@@ -1153,6 +1177,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
   .file-diff.loading .file-diff-head::after { animation: none; }
+  .provisional-bar::before { animation: none; }
   .message { animation: none; }
   button, .cell.selectable-line, .hunk, .hunk-toolbar, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }

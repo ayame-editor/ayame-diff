@@ -192,6 +192,21 @@ moving away commits too. The comparison catches up when a line is committed
 rather than on every keystroke, and an IME composition is left alone until it
 ends, so Japanese input is not interrupted mid-word.
 
+A committed line is shown immediately: the edited cell is painted from the
+buffer and marked provisional, with a bar that says the result is being
+recomputed. The authoritative comparison then replaces the whole result and the
+logical line that was in view is restored, so nothing jumps. Commits are
+coalesced: an edit made while a comparison is running queues one catch-up run
+rather than one comparison each, and starting the new comparison cancels the
+previous request. The provisional guess re-judges that one line as same/changed
+only for a plain exact text comparison; with `ignore case`, a whitespace rule,
+`ignore EOL`, line filters, move detection, sync points, or a line whose
+counterpart is not on screen, it shows the typed text and leaves the
+classification to the server. A comparison-condition change has no honest local
+approximation, so it keeps the usual progress placeholder until the result
+arrives, and this pane edits line content only — line insertion and deletion are
+not operations it performs.
+
 Each pane header carries its own state: a marker when it holds unsaved lines, a
 **Save** button for that side alone, and a `read-only` badge when the file
 cannot be written. `Ctrl+S` saves the pane being edited. A save preserves the
