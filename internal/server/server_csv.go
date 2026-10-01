@@ -40,6 +40,8 @@ type csvRequest struct {
 	IgnoreColumnIndexes []int                    `json:"ignoreColumnIndexes"`
 	Tolerance           *float64                 `json:"tolerance"`
 	ColumnTolerances    []engine.ColumnTolerance `json:"columnTolerances"`
+	RowFilter           *engine.RowFilter        `json:"rowFilter,omitempty"`
+	ColumnFilter        *engine.RowFilter        `json:"columnFilter,omitempty"`
 	ColumnMap           []engine.ColumnPair      `json:"columnMap"`
 	Partitions          int                      `json:"partitions"`
 	ParseWorkers        int                      `json:"parseWorkers"`
@@ -77,6 +79,7 @@ func requestFromConfig(cfg engine.Config) csvRequest {
 		LeftParser: cfg.LeftParser, RightParser: cfg.RightParser, LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace,
 		IgnoreCase: cfg.IgnoreCase, Whitespace: cfg.IgnoreWhitespace, LineFilters: cfg.LineFilters,
 		IgnoreColumnNames: cfg.IgnoreColumnNames, IgnoreColumnIndexes: cfg.IgnoreColumnIndexes, Tolerance: tolerance, ColumnTolerances: cfg.ColumnTolerances,
+		RowFilter: cfg.RowFilter, ColumnFilter: cfg.ColumnFilter,
 		ColumnMap:  cfg.ColumnMap,
 		Partitions: cfg.Partitions, ParseWorkers: cfg.ParseWorkers, Workers: cfg.Workers, Memory: cfg.MemoryText, PartitionBuffer: cfg.PartitionBufferText,
 		MergeFanIn: cfg.MergeFanIn, MaxRecordBytes: cfg.MaxRecordText, TempDir: cfg.TempDir, KeepTemp: cfg.KeepTemp,
@@ -203,8 +206,9 @@ func csvConfig(req csvRequest, output string) engine.Config {
 		LeftParser: req.LeftParser, RightParser: req.RightParser, LazyQuotes: req.LazyQuotes, TrimLeadingSpace: req.TrimLeadingSpace,
 		IgnoreCase: req.IgnoreCase, IgnoreWhitespace: req.Whitespace, LineFilters: req.LineFilters,
 		IgnoreColumnNames: req.IgnoreColumnNames, IgnoreColumnIndexes: req.IgnoreColumnIndexes,
-		ColumnMap:        req.ColumnMap,
-		ColumnTolerances: req.ColumnTolerances, Partitions: req.Partitions, ParseWorkers: req.ParseWorkers, Workers: req.Workers,
+		ColumnTolerances: req.ColumnTolerances, RowFilter: req.RowFilter, ColumnFilter: req.ColumnFilter,
+		ColumnMap:  req.ColumnMap,
+		Partitions: req.Partitions, ParseWorkers: req.ParseWorkers, Workers: req.Workers,
 		MemoryText: req.Memory, PartitionBufferText: req.PartitionBuffer, MergeFanIn: req.MergeFanIn, MaxRecordText: req.MaxRecordBytes,
 		TempDir: req.TempDir, KeepTemp: req.KeepTemp, OutputHeader: false, CellDiff: true, OutputFormat: "jsonl",
 	}
@@ -254,6 +258,23 @@ func (s *Server) handleCSVInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, inspection)
+}
+
+// handleCSVPreview reports how many rows the built filter keeps, without
+// running a comparison (#129). It is bounded to a fixed row scan per side so an
+// accidental click on a huge input cannot walk it to completion.
+func (s *Server) handleCSVPreview(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeCSVRequest(w, r)
+	if !ok {
+		return
+	}
+	cfg := csvConfig(req, "preview.tmp")
+	preview, err := engine.PreviewFilter(r.Context(), cfg, 100000)
+	if err != nil {
+		writeClassifiedError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {

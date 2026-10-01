@@ -161,6 +161,7 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s.mux.HandleFunc("/api/three-way/text/preview", s.limited(s.handleThreeWayTextPreview))
 	s.mux.HandleFunc("/api/merge/three-way/text", s.limited(s.handleThreeWayTextMerge))
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
+	s.mux.HandleFunc("/api/csv/preview", s.limited(s.handleCSVPreview))
 	s.mux.HandleFunc("/api/csv/diff", s.limited(s.handleCSVDiff))
 	s.mux.HandleFunc("/api/csv/export", s.limited(s.handleCSVExport))
 	s.mux.HandleFunc("/api/csv/suggest", s.limited(s.handleCSVSuggest))

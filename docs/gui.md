@@ -527,6 +527,16 @@ modes plus Select all / Invert. Parsing, delimiter, compatibility, ignore,
 tolerance, resource, temporary-storage, and output settings are available in
 the same screen; **Review settings** summarizes the effective run.
 
+**Row & column filter** builds comparison conditions without SQL. A condition is
+a column, an operator (`=`, `≠`, contains, starts/ends, `>`, `≥`, `<`, `≤`,
+numeric range, empty, regular expression), and a value; conditions combine with
+AND/OR and nested groups. Row conditions drop non-matching rows before the
+comparison, and column conditions ignore columns whose *names* match — the same
+declarative ignore-column mechanism as the text field. **Preview matches** scans
+the inputs and reports LEFT/RIGHT kept rows and kept columns. The built filter is
+stored in the project file, and the existing per-line regular expression filters
+remain available as an advanced fallback for text.
+
 The result is paged in groups of 100 logical differences. Changed cells alone
 use the modification color, header badges show per-column change counts, and
 **changed columns only** hides wide unchanged columns. The **Statistics** panel

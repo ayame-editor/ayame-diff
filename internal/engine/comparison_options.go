@@ -45,6 +45,7 @@ type comparisonConfig struct {
 	toleranceSet  []bool
 	global        float64
 	globalSet     bool
+	rowFilter     *compiledFilter
 }
 
 type preparedComparison struct {
@@ -77,6 +78,24 @@ func buildComparisonConfig(header []string, cfg Config) (comparisonConfig, error
 	for _, index := range indexes {
 		c.ignoreColumns[index] = true
 	}
+	columnFilterMatched := false
+	if cfg.ColumnFilter != nil {
+		filter, err := compileRowFilter(header, cfg.ColumnFilter, true, "column filter")
+		if err != nil {
+			return comparisonConfig{}, err
+		}
+		for index, name := range header {
+			if matchFilterName(filter, name) {
+				c.ignoreColumns[index] = true
+				columnFilterMatched = true
+			}
+		}
+	}
+	rowFilter, err := compileRowFilter(header, cfg.RowFilter, false, "row filter")
+	if err != nil {
+		return comparisonConfig{}, err
+	}
+	c.rowFilter = rowFilter
 	for _, tolerance := range cfg.ColumnTolerances {
 		index := tolerance.Index
 		if !tolerance.ByIndex {
@@ -92,7 +111,7 @@ func buildComparisonConfig(header []string, cfg Config) (comparisonConfig, error
 		c.tolerances[index], c.toleranceSet[index] = tolerance.Value, true
 	}
 	c.enabled = c.ignoreCase || c.whitespace != "none" || len(c.filters) > 0 ||
-		len(indexes) > 0 || c.globalSet || len(cfg.ColumnTolerances) > 0
+		len(indexes) > 0 || columnFilterMatched || c.globalSet || len(cfg.ColumnTolerances) > 0
 	return c, nil
 }
 

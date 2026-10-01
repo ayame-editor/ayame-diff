@@ -61,7 +61,14 @@ original filter file.
     "PartitionBufferText": "256KiB",
     "MergeFanIn": 32,
     "MaxRecordText": "256MiB",
-    "OutputHeader": true
+    "OutputHeader": true,
+    "RowFilter": {
+      "match": "all",
+      "conditions": [{ "column": "status", "op": "eq", "value": "active" }]
+    },
+    "ColumnFilter": {
+      "conditions": [{ "op": "starts", "value": "tmp_" }]
+    }
   },
   "report": {
     "cell_diff": true,
@@ -72,8 +79,10 @@ original filter file.
 
 `csv` is the serializable `engine.Config`: paths, keys, parser/resource
 settings, declarative ignore rules, numeric tolerances, cell report settings,
-and output settings are retained. Runtime writers/callbacks are deliberately
-excluded. Unknown fields and versions other than `1` fail closed.
+output settings, and the optional visual filter-builder trees (`RowFilter` for
+value conditions and `ColumnFilter` for ignored columns) are retained. Runtime
+writers/callbacks are deliberately excluded. Unknown fields and versions other
+than `1` fail closed.
 
 `ColumnMap` records a manual left-to-right column pairing: one entry per output
 column, with `-1` for a side that has no such column and `ignore` to keep a

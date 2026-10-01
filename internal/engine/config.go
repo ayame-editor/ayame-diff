@@ -67,6 +67,11 @@ type Config struct {
 	Tolerance                                              float64
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
+	// RowFilter drops rows that do not match before comparison; ColumnFilter
+	// turns matching header names into ignored columns (#129). Both are compiled
+	// to bounded, streaming predicates and never buffer rows.
+	RowFilter    *RowFilter
+	ColumnFilter *RowFilter
 	// Reconcile emits a complete key-sorted CSV/TSV using MergeChoices instead
 	// of a diff report. Choice keys are stable IDs from JSONL diff records. A
 	// value is a side ("left"/"right") or a comma-joined combination

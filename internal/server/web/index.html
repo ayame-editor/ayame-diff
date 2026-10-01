@@ -186,6 +186,13 @@
 			  <label class="opt check"><input id="changedColumnsOnly" type="checkbox" /><span data-i18n="changedColumnsOnly">changed columns only</span></label>
 			</div>
 		  </details>
+		  <details class="csv-advanced" id="csvFilterBuilder">
+			<summary><span data-i18n="filterBuilder">Row &amp; column filter</span><span class="details-badge" id="filterBuilderBadge" hidden></span></summary>
+			<p class="details-hint" data-i18n="filterBuilderHint">Build conditions without SQL. Rows that do not match are left out of the comparison; columns whose names match are ignored.</p>
+			<div class="filter-builder" data-filter-target="rows"></div>
+			<div class="filter-builder" data-filter-target="columns"></div>
+			<div class="csv-actions"><button id="filterPreview" type="button" data-i18n="filterPreview">Preview matches</button><span id="filterPreviewResult" aria-live="polite"></span></div>
+		  </details>
 		  <details id="csvReview"><summary data-i18n="review">Review settings</summary><pre id="reviewText"></pre></details>
 		  <button id="exportCSV" type="button" data-i18n="runExport">Run and export</button>
 		</fieldset>
@@ -650,6 +657,7 @@
     <script src="optimistic.js"></script>
     <script src="threewayview.js"></script>
     <script src="suggest.js"></script>
+    <script src="rowfilter.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are
