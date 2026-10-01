@@ -46,6 +46,8 @@ other names use tab. Quoting is written with the standard CSV rules.
   unresolved items retain the left side.
 - A new output path is the default and is written atomically.
 - An output path matching either input is rejected unless **overwrite input**
-  is enabled and the second destructive confirmation is accepted.
+  is enabled and the second destructive confirmation is accepted. **Preview
+  impact** (or the save confirmation) lists the output that will be written and
+  every compared input it would overwrite before the step proceeds.
 - Rejected, cancelled, or failed operations leave both inputs unchanged and do
   not publish a partial output.
