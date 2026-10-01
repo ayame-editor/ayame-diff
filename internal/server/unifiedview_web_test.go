@@ -56,17 +56,18 @@ func TestUnifiedViewIsOfferedInTheResultToolbar(t *testing.T) {
 
 // TestUnifiedViewMarksRemovalsAndAdditions checks the -/+ prefixes. A changed
 // pair is two cells sharing the "chg" class, so the side is what separates the
-// removal from the addition.
+// removal from the addition. The glyph is computed by diffmark.js (#298), which
+// is what lets side-by-side print the same signal in its gutter.
 func TestUnifiedViewMarksRemovalsAndAdditions(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
 
 	cell := renderFunctionBody(t, app, "function cell(")
-	if !strings.Contains(cell, `dataset.marker = "+"`) || !strings.Contains(cell, `dataset.marker = "-"`) {
-		t.Fatal("cells carry no unified marker")
+	if !strings.Contains(cell, "cellMarker(cls, side)") || !strings.Contains(cell, "c.dataset.marker = marker") {
+		t.Fatal("cells carry no shared diff marker")
 	}
-	if !strings.Contains(cell, `cls === "chg" && side === "new"`) {
-		t.Error("a changed line's addition is not distinguished from its removal")
+	if !strings.Contains(app, "globalThis.AyameDiffMark") {
+		t.Error("app.js does not load the shared marker mapping")
 	}
 
 	style := readWebAsset(t, "style.css")

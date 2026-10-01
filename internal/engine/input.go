@@ -231,6 +231,12 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 	if err := validateKeySelection(cfg); err != nil {
 		return schema{}, err
 	}
+	if err := validateColumnMapShape(cfg.ColumnMap); err != nil {
+		return schema{}, err
+	}
+	if len(cfg.ColumnMap) > 0 {
+		return buildMappedSchema(left, right, cfg)
+	}
 	if left.ColumnCount != right.ColumnCount {
 		return schema{}, fmt.Errorf("column count differs: left=%d right=%d", left.ColumnCount, right.ColumnCount)
 	}
@@ -268,6 +274,74 @@ func buildSchema(left, right inspectedInput, cfg Config) (schema, error) {
 	}
 	return schema{
 		Header:       append([]string(nil), left.Header...),
+		ColumnCount:  n,
+		LeftMap:      leftMap,
+		RightMap:     rightMap,
+		KeyIndexes:   keys,
+		KeyIsFullRow: isIdentityKey(keys, n) && !comparison.enabled,
+		Comparison:   comparison,
+	}, nil
+}
+
+// buildMappedSchema builds the schema from an explicit left-to-right column
+// map instead of header-name alignment (#119). Canonical positions are the map
+// entries in order; a negative index reads an empty value for that side, so a
+// column may exist on only one input. Ignored entries stay in the row for
+// display but are excluded from comparison.
+func buildMappedSchema(left, right inspectedInput, cfg Config) (schema, error) {
+	n := len(cfg.ColumnMap)
+	header := make([]string, n)
+	leftMap, rightMap := make([]int, n), make([]int, n)
+	var ignored []int
+	for position, pair := range cfg.ColumnMap {
+		if pair.Left >= left.ColumnCount {
+			return schema{}, fmt.Errorf("column map entry %d: left index %d is outside 0..%d", position, pair.Left, left.ColumnCount-1)
+		}
+		if pair.Right >= right.ColumnCount {
+			return schema{}, fmt.Errorf("column map entry %d: right index %d is outside 0..%d", position, pair.Right, right.ColumnCount-1)
+		}
+		leftMap[position], rightMap[position] = pair.Left, pair.Right
+		switch {
+		case pair.Left >= 0:
+			header[position] = left.Header[pair.Left]
+		case pair.Right >= 0:
+			header[position] = right.Header[pair.Right]
+		}
+		if pair.Ignore {
+			ignored = append(ignored, position)
+		}
+	}
+	includeMode := len(cfg.KeyNames)+len(cfg.KeyIndexes) > 0
+	var keys []int
+	var err error
+	if includeMode {
+		keys, err = resolveIncludeKeys(header, n, cfg.KeyNames, cfg.KeyIndexes)
+	} else {
+		keys, err = resolveExcludeKeys(header, n, cfg.ExcludeKeyNames, cfg.ExcludeKeyIndexes)
+	}
+	if err != nil {
+		return schema{}, err
+	}
+	comparison, err := buildComparisonConfig(header, cfg)
+	if err != nil {
+		return schema{}, err
+	}
+	comparison.ignoreMapped(ignored)
+	explicitKey := len(cfg.KeyNames)+len(cfg.KeyIndexes)+len(cfg.ExcludeKeyNames)+len(cfg.ExcludeKeyIndexes) != 0
+	if !explicitKey {
+		keys = comparison.defaultKeys(keys)
+	}
+	if len(keys) == 0 {
+		return schema{}, fmt.Errorf("no key columns remain after applying key selection")
+	}
+	if cfg.ToleranceSet && isIdentityKey(keys, n) {
+		return schema{}, fmt.Errorf("--tolerance requires --key/--key-index or --exclude-key/--exclude-key-index")
+	}
+	if err := comparison.validateToleranceKeys(keys); err != nil {
+		return schema{}, err
+	}
+	return schema{
+		Header:       header,
 		ColumnCount:  n,
 		LeftMap:      leftMap,
 		RightMap:     rightMap,

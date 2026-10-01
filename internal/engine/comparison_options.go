@@ -120,6 +120,19 @@ func resolveComparisonColumns(header, names []string, indexes []int, label strin
 	return resolved, nil
 }
 
+// ignoreMapped marks canonical positions excluded by an explicit column map
+// (#119). The column stays in the decoded row for display but is skipped by
+// prepare/equivalence, exactly like an ignored column resolved by name.
+func (c *comparisonConfig) ignoreMapped(positions []int) {
+	for _, position := range positions {
+		if position < 0 || position >= len(c.ignoreColumns) {
+			continue
+		}
+		c.ignoreColumns[position] = true
+		c.enabled = true
+	}
+}
+
 func (c comparisonConfig) defaultKeys(keys []int) []int {
 	result := keys[:0]
 	for _, index := range keys {

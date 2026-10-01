@@ -26,16 +26,26 @@ func encodeByteFields(input [][]byte, mapping, keyIndexes []int, keyIsFullRow bo
 
 // encodeFields is shared by the RFC string path and the zero-copy simple byte
 // path. Both therefore produce byte-identical keys and rows by construction.
+//
+// A mapping entry of -1 is a column the input does not have (#119); it encodes
+// as an empty field so a one-sided column still lines up with its counterpart.
 func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullRow bool, keyDst, rowDst []byte) ([]byte, []byte, error) {
 	keyDst = keyDst[:0]
 	rowDst = rowDst[:0]
+	var zero T
+	appendField := func(dst []byte, index int) ([]byte, error) {
+		if index < 0 {
+			return appendLengthPrefixed(dst, zero)
+		}
+		if index >= len(input) {
+			return nil, fmt.Errorf("column mapping index %d outside record with %d columns", index, len(input))
+		}
+		return appendLengthPrefixed(dst, input[index])
+	}
 	if keyIsFullRow {
 		for _, j := range mapping {
-			if j < 0 || j >= len(input) {
-				return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
-			}
 			var err error
-			keyDst, err = appendLengthPrefixed(keyDst, input[j])
+			keyDst, err = appendField(keyDst, j)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -43,19 +53,15 @@ func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullR
 		return keyDst, rowDst, nil
 	}
 	for _, j := range mapping {
-		if j < 0 || j >= len(input) {
-			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
-		}
 		var err error
-		rowDst, err = appendLengthPrefixed(rowDst, input[j])
+		rowDst, err = appendField(rowDst, j)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 	for _, i := range keyIndexes {
-		j := mapping[i]
 		var err error
-		keyDst, err = appendLengthPrefixed(keyDst, input[j])
+		keyDst, err = appendField(keyDst, mapping[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -65,18 +71,36 @@ func encodeFields[T fieldBytes](input []T, mapping, keyIndexes []int, keyIsFullR
 
 func encodeComparedFields[T fieldBytes](input []T, mapping, keyIndexes []int, comparison comparisonConfig, keyDst, rowDst []byte) ([]byte, []byte, error) {
 	keyDst, rowDst = keyDst[:0], rowDst[:0]
-	for _, j := range mapping {
-		if j < 0 || j >= len(input) {
-			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
+	var zero T
+	appendField := func(dst []byte, index int) ([]byte, error) {
+		if index < 0 {
+			return appendLengthPrefixed(dst, zero)
 		}
+		if index >= len(input) {
+			return nil, fmt.Errorf("column mapping index %d outside record with %d columns", index, len(input))
+		}
+		return appendLengthPrefixed(dst, input[index])
+	}
+	for _, j := range mapping {
 		var err error
-		rowDst, err = appendLengthPrefixed(rowDst, input[j])
+		rowDst, err = appendField(rowDst, j)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 	for _, index := range keyIndexes {
 		j := mapping[index]
+		if j < 0 {
+			var err error
+			keyDst, err = appendLengthPrefixed(keyDst, zero)
+			if err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		if j >= len(input) {
+			return nil, nil, fmt.Errorf("column mapping index %d outside record with %d columns", j, len(input))
+		}
 		value := comparison.normalize(string(input[j]))
 		var err error
 		keyDst, err = appendLengthPrefixed(keyDst, value)
