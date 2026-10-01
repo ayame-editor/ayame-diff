@@ -111,3 +111,42 @@ func TestDirectoryTreeAssetsAreWired(t *testing.T) {
 		}
 	}
 }
+
+// TestDirectoryFlatViewAssetsAreWired guards the browser half of #275: the
+// flattened view is a second rendering of the same filtered entries, so the
+// toggle must exist, the Location column must reach both the header and the
+// rows, and the flattening must not run its own comparison.
+func TestDirectoryFlatViewAssetsAreWired(t *testing.T) {
+	t.Parallel()
+
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	style := readWebAsset(t, "style.css")
+
+	if !strings.Contains(index, `id="dirFlat"`) {
+		t.Fatal("index.html has no flat-view toggle")
+	}
+	for _, want := range []string{
+		`sortDirectoryEntries(visible)`,
+		`locationOf(entry.path)`,
+		`t("folderLocation")`,
+		`localStorage.getItem("ayame-dirflat")`,
+		`directoryData, directoryBody, state`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js missing %q", want)
+		}
+	}
+	if !strings.Contains(style, ".dir-location") || !strings.Contains(style, ".dir-tree.flat") {
+		t.Error("style.css has no flattened-view layout")
+	}
+	// A flat toggle re-renders the existing result; only the filters decide
+	// membership, and it must not re-compare.
+	handler := renderFunctionBody(t, app, `$("dirFlat").addEventListener("click", async () => {`)
+	if strings.Contains(handler, "compare(") {
+		t.Error("toggling the flat view starts a new comparison")
+	}
+	if !strings.Contains(handler, "renderDirectory(directoryData, directoryBody, state)") {
+		t.Error("toggling the flat view does not re-render in place")
+	}
+}

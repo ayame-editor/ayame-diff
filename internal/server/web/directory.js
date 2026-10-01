@@ -119,6 +119,20 @@
     });
   }
 
+  // Flattened folder view (#275): the filter result in path order, so a flat
+  // list reads like the tree's depth-first order with the hierarchy removed.
+  // Returns a copy; the caller's entry array is untouched.
+  function sortDirectoryEntries(entries) {
+    return [...entries].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  // The parent folder shown in the flat view's Location column. A file at the
+  // comparison root has no directory to name.
+  function locationOf(path) {
+    const at = String(path).lastIndexOf("/");
+    return at > 0 ? path.slice(0, at) : "";
+  }
+
   const api = {
     DIR_MARKERS,
     DIR_AUTO_EXPAND_LIMIT,
@@ -131,6 +145,8 @@
     dirEntryStamp,
     directoryEntryRequest,
     filterDirectoryEntries,
+    sortDirectoryEntries,
+    locationOf,
   };
   root.AyameDirectory = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
