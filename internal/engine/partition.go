@@ -49,6 +49,13 @@ func newRowEmitter(ctx context.Context, set *partitionSet, progress *progressCou
 }
 
 func emitRow[T fieldBytes](e *rowEmitter, fields []T, rawBytes uint64) error {
+	if e.comparison.rowFilter != nil && !matchFilterFields(e.comparison.rowFilter, fields, e.mapping) {
+		// A filtered-out row is never encoded, partitioned, or counted as a
+		// comparison row. Progress still advances so a filter that drops most
+		// of a large file does not make the parser look stuck.
+		e.progress.add(1, rawBytes)
+		return nil
+	}
 	var err error
 	if e.comparison.enabled {
 		e.key, e.row, err = encodeComparedFields(fields, e.mapping, e.keyIndexes, e.comparison, e.key, e.row)

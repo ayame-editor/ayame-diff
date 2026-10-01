@@ -169,8 +169,9 @@ func TestDiffEncoding(t *testing.T) {
 }
 
 // TestDiffIgnoreOptions verifies that case-only and whitespace-only differences
-// collapse to zero hunks once the corresponding request option is set, while the
-// same inputs differ without it.
+// stop being differences once the corresponding request option is set, while
+// the same inputs differ without it. Since #269 they are still returned, but
+// flagged downgraded rather than dropped.
 func TestDiffIgnoreOptions(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)
@@ -227,9 +228,19 @@ func TestDiffIgnoreOptions(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 			}
-			if resp.HunkCount != 0 || len(resp.Hunks) != 0 {
-				t.Fatalf("expected 0 hunks with %s, got count=%d len=%d",
+			if resp.HunkCount != 0 {
+				t.Fatalf("expected 0 differences with %s, got count=%d len=%d",
 					c.name, resp.HunkCount, len(resp.Hunks))
+			}
+			// The dismissed pair stays visible as a downgraded hunk (#269).
+			if resp.DowngradedHunks == 0 || resp.DowngradedHunks != uint64(len(resp.Hunks)) {
+				t.Fatalf("expected downgraded hunks with %s, got count=%d len=%d",
+					c.name, resp.DowngradedHunks, len(resp.Hunks))
+			}
+			for _, hunk := range resp.Hunks {
+				if !hunk.Downgraded {
+					t.Fatalf("hunk not marked downgraded with %s: %+v", c.name, hunk)
+				}
 			}
 		})
 	}

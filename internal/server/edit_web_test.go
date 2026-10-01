@@ -90,10 +90,10 @@ func TestUnsavedEditsAreVisibleAndGuarded(t *testing.T) {
 	app := readWebAsset(t, "app.js")
 	style := readWebAsset(t, "style.css")
 
-	if !strings.Contains(app, `if (editBufferFor(side)?.changedLines().includes(lineNo - 1)) c.classList.add("edited");`) {
-		t.Error("an edited line is not marked in the gutter")
+	if !strings.Contains(app, `applyLocalChangeMark(marked, localChangeMaps[side].get(Number(marked.dataset.line)) || null);`) {
+		t.Error("an edited line is not re-marked in the gutter")
 	}
-	if !strings.Contains(style, ".cell.edited > .ln") {
+	if !strings.Contains(style, ".gutter-change") {
 		t.Error("style.css has no gutter mark for an edited line")
 	}
 	if !strings.Contains(app, "async function guardUnsavedEdits()") {
@@ -105,7 +105,10 @@ func TestUnsavedEditsAreVisibleAndGuarded(t *testing.T) {
   const value = input.value.trim();
   if (value === comparedPath || busyOperation) return;
   if (!(await guardUnsavedEdits())) {`,
-		`$("mode").addEventListener("change", async () => {
+		// The mode dropdown split into two axes (#263); both still guard.
+		`async function changeInputShape() {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {`,
+		`async function changeInterpretation() {
   if (editingEnabled() && !(await guardUnsavedEdits())) {`,
 		`$("scratch").addEventListener("change", async () => {
   if (editingEnabled() && !(await guardUnsavedEdits())) {`,
@@ -147,5 +150,96 @@ func TestEditingIsOfferedOnlyWhereItCanWork(t *testing.T) {
 	}
 	if !strings.Contains(app, "buffer.readOnly()") {
 		t.Error("app.js does not refuse to edit a read-only pane")
+	}
+}
+
+// TestGutterQuickDiffAssetsAreWired guards the browser half of #292. The region
+// arithmetic is executed under node --test; what this checks is that the page
+// still loads it before app.js, that the mark is applied from that pure module
+// rather than an ad-hoc scan, and that the two signals — the comparison's own
+// shading and the session's edit handle — both survive in the stylesheet.
+func TestGutterQuickDiffAssetsAreWired(t *testing.T) {
+	t.Parallel()
+
+	index := readWebAsset(t, "index.html")
+	app := readWebAsset(t, "app.js")
+	module := readWebAsset(t, "quickdiff.js")
+	style := readWebAsset(t, "style.css")
+	i18n := readWebAsset(t, "i18n.js")
+
+	if !strings.Contains(index, `<script src="quickdiff.js"></script>`) {
+		t.Error("index.html does not load quickdiff.js")
+	}
+	if strings.Index(index, `src="quickdiff.js"`) > strings.Index(index, `src="app.js"`) {
+		t.Error("quickdiff.js must load before app.js")
+	}
+	if strings.Contains(module, "document.") || strings.Contains(module, "$(") {
+		t.Error("quickdiff.js touches the DOM; it must stay runnable without one")
+	}
+	if !strings.Contains(module, "module.exports = api") {
+		t.Error("quickdiff.js has no CommonJS export, so node --test cannot require it")
+	}
+	// The module holds the region arithmetic and nothing else; application
+	// state here would be a mistake the string tests would happily accept.
+	for _, leaked := range []string{"lastData", "editSession", "addEventListener", "localStorage"} {
+		if strings.Contains(module, leaked) {
+			t.Errorf("quickdiff.js contains application state or wiring (%q); it must stay a pure algorithm", leaked)
+		}
+	}
+
+	for _, want := range []string{
+		"globalThis.AyameQuickDiff",
+		"function applyLocalChangeMark(",
+		"function revertLocalChange(",
+		"localChangeRegions(buffer.original(), buffer.lines())",
+		"refreshLocalChangeMaps();",
+		`mark.addEventListener("click"`,
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js is missing quick-diff wiring %q", want)
+		}
+	}
+	// The render path asks per cell, so the cached regions must be refreshed
+	// before the cells are built rather than once per line.
+	if !strings.Contains(app, "if (editingEnabled()) refreshLocalChangeMaps();") {
+		t.Error("a render does not refresh the local change regions before building cells")
+	}
+	// A handle is applied from the pure regions, not from a second scan of the
+	// buffer in the renderer.
+	if !strings.Contains(app, "applyLocalChangeMark(c, localChangeMaps[side]?.get(lineNo - 1) || null);") {
+		t.Error("cell() does not apply the local change handle from the region cache")
+	}
+	// The keyboard path has to be gated on the mark, or Delete would mean
+	// something on every line.
+	if !strings.Contains(app, `if (matchesShortcut(event, "revertLine") && c.dataset.localChange)`) {
+		t.Error("app.js does not offer a keyboard revert for a marked line")
+	}
+
+	// The comparison's difference and the session's edit have to stay visually
+	// different: a stripe for the former, a glyph handle for the latter.
+	for _, want := range []string{
+		".cell.add > .ln::before",
+		".cell.del > .ln::before",
+		".cell.chg > .ln::before",
+		".gutter-change",
+		".cell.local-change > .ln",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("style.css missing %q", want)
+		}
+	}
+	// The handle is a glyph, so it reads without colour. Its accessible name
+	// comes from the catalog in both languages.
+	if !strings.Contains(app, `modified: "~"`) {
+		t.Error("the modified line handle no longer carries a glyph")
+	}
+	if strings.Count(i18n, "gutterLocalChange:") < 2 {
+		t.Error("gutterLocalChange is not defined in both language tables")
+	}
+	if strings.Count(i18n, "gutterRevert:") < 2 {
+		t.Error("gutterRevert is not defined in both language tables")
+	}
+	if strings.Count(i18n, "editReverted:") < 2 {
+		t.Error("editReverted is not defined in both language tables")
 	}
 }

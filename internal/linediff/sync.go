@@ -80,12 +80,13 @@ func diffWithSyncPoints(ctx context.Context, old, new Lines, opts Options) (Resu
 		return result, err
 	}
 	mergeSyncSegment(&result, tail, oldStart, newStart, opts.MaxHunks)
-	result.OmittedHunks = result.HunkCount - uint64(len(result.Hunks))
+	result.OmittedHunks = result.HunkCount + result.DowngradedHunks - uint64(len(result.Hunks))
 	return result, nil
 }
 
 func mergeSyncSegment(dst *Result, segment Result, oldOffset, newOffset uint64, maxHunks int) {
 	dst.HunkCount += segment.HunkCount
+	dst.DowngradedHunks += segment.DowngradedHunks
 	dst.Added += segment.Added
 	dst.Deleted += segment.Deleted
 	dst.Modified += segment.Modified
@@ -109,6 +110,11 @@ func IgnoreHunks(result *Result, indexes []int) {
 	moveIDs := make(map[uint64]bool)
 	for _, index := range indexes {
 		if index >= 0 && index < len(result.Hunks) {
+			// A downgraded hunk was never part of the essential counts, so
+			// "ignoring" it must not decrement them (#269).
+			if result.Hunks[index].Downgraded {
+				continue
+			}
 			ignored[index] = true
 			if id := result.Hunks[index].MoveID; id != 0 {
 				moveIDs[id] = true

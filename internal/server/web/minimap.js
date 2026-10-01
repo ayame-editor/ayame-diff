@@ -66,6 +66,7 @@
 
   const markerPriorities = Object.freeze({
     ignored: 0,
+    downgraded: 0,
     insert: 1,
     delete: 2,
     replace: 3,
@@ -74,6 +75,7 @@
   });
 
   function minimapMarkerPriority(marker) {
+    if (marker?.downgraded) return markerPriorities.downgraded;
     if (marker?.ignored) return markerPriorities.ignored;
     if (marker?.kind === "conflict") return markerPriorities.conflict;
     if (marker?.moved) return markerPriorities.moved;

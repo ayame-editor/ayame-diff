@@ -58,6 +58,9 @@ func DetectMovesContext(ctx context.Context, old, new Lines, res *Result, opts M
 		}
 		h := &res.Hunks[i]
 		h.MoveID, h.MovePeer = 0, 0
+		if h.Downgraded {
+			continue
+		}
 		if h.Kind != Delete || h.OldLen < opts.MinLines || deleteCandidates >= opts.MaxCandidates {
 			continue
 		}
@@ -74,7 +77,7 @@ func DetectMovesContext(ctx context.Context, old, new Lines, res *Result, opts M
 			}
 		}
 		insert := &res.Hunks[i]
-		if insert.Kind != Insert || insert.NewLen < opts.MinLines || insertCandidates >= opts.MaxCandidates {
+		if insert.Downgraded || insert.Kind != Insert || insert.NewLen < opts.MinLines || insertCandidates >= opts.MaxCandidates {
 			continue
 		}
 		insertCandidates++

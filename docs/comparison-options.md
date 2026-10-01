@@ -71,6 +71,34 @@ ayame-diff text --ignore-eol windows.txt unix.txt
 ayame-diff text --ignore-trailing-eol generated.txt checked-in.txt
 ```
 
+### Single whitespace / line-ending scale in the GUI
+
+The [GUI](gui.md) does not expose the whitespace and line-ending controls above
+as independent checkboxes. Following P4Merge, it presents one ordered scale;
+each step ignores everything the previous step did, so the 12 combinations
+collapse to four meaningful points:
+
+| GUI level | Equivalent CLI / API |
+|---|---|
+| Strict (ignore nothing) | defaults: `--ignore-whitespace none`, no `--ignore-eol` |
+| Ignore line endings | `--ignore-eol` |
+| Ignore line endings and whitespace amount | `--ignore-eol --ignore-whitespace change` |
+| Ignore line endings and all whitespace | `--ignore-eol --ignore-whitespace all` |
+
+`--ignore-case` stays an independent checkbox because case is an orthogonal
+axis.
+
+!!! note
+    The scale deliberately bundles line endings with whitespace so the axis stays
+    monotonic. Two old combinations therefore do not get their own level: ignoring
+    whitespace *without* also ignoring line endings, and ignoring only the final
+    line's terminator (`--ignore-trailing-eol`). Pick "ignore line endings" when a
+    trailing-newline-only difference should not count; it ignores any LF/CRLF
+    difference as well.
+
+The GUI sends the equivalent legacy request fields, so `POST /api/diff` keeps
+accepting `whitespace`, `ignoreEOL`, and `ignoreTrailingEOL` unchanged.
+
 ### `--filter-line`
 
 Remove every match of a Go regular expression from the comparison view. Repeat

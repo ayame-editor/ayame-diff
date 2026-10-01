@@ -13,34 +13,41 @@ import (
 	"sort"
 )
 
-func makeSortedFile(ctx context.Context, partitionPath, workDir, prefix string, chunkBytes int64, mergeFanIn int, maxRecordBytes int64) (string, error) {
+// makeSortedFile sorts one partition, spilling sorted runs to workDir when the
+// partition does not fit the chunk budget. spilled reports whether more than one
+// run was produced, which is the engine's definition of having offloaded to
+// storage: a single run was fully resident, several were merged from disk (#138).
+func makeSortedFile(ctx context.Context, partitionPath, workDir, prefix string, chunkBytes int64, mergeFanIn int, maxRecordBytes int64) (string, bool, error) {
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return "", err
+		return "", false, err
 	}
 	stat, err := os.Stat(partitionPath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if stat.Size() == 0 {
 		path := filepath.Join(workDir, prefix+"-empty.sorted.bin")
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if err := f.Close(); err != nil {
-			return "", err
+			return "", false, err
 		}
-		return path, nil
+		return path, false, nil
 	}
 
 	runs, err := createSortedRuns(ctx, partitionPath, workDir, prefix, chunkBytes, maxRecordBytes)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
+	// Several initial runs is the moment the partition stopped fitting in the
+	// memory budget; merging them later reduces runs but not the spill.
+	spilled := len(runs) > 1
 	pass := 0
 	for len(runs) > 1 {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return "", false, err
 		}
 		next := make([]string, 0, (len(runs)+mergeFanIn-1)/mergeFanIn)
 		for start := 0; start < len(runs); start += mergeFanIn {
@@ -56,11 +63,11 @@ func makeSortedFile(ctx context.Context, partitionPath, workDir, prefix string, 
 			out := filepath.Join(workDir, fmt.Sprintf("%s-merge-%03d-%05d.bin", prefix, pass, len(next)))
 			if err := mergeRunGroup(ctx, group, out, maxRecordBytes); err != nil {
 				_ = os.Remove(out)
-				return "", err
+				return "", false, err
 			}
 			for _, path := range group {
 				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return "", err
+					return "", false, err
 				}
 			}
 			next = append(next, out)
@@ -68,7 +75,7 @@ func makeSortedFile(ctx context.Context, partitionPath, workDir, prefix string, 
 		runs = next
 		pass++
 	}
-	return runs[0], nil
+	return runs[0], spilled, nil
 }
 
 func createSortedRuns(ctx context.Context, inputPath, workDir, prefix string, chunkBytes, maxRecordBytes int64) ([]string, error) {

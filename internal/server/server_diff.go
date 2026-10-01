@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ayame-editor/ayame-diff/internal/diffout"
@@ -20,10 +22,15 @@ import (
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old               string               `json:"old"`
-	New               string               `json:"new"`
-	Mode              string               `json:"mode"` // "text" (default) or "sorted"
-	Encoding          string               `json:"encoding"`
+	Old      string `json:"old"`
+	New      string `json:"new"`
+	Mode     string `json:"mode"` // "text" (default) or "sorted"
+	Encoding string `json:"encoding"`
+	// OldEncoding/NewEncoding override Encoding for one side only, so a
+	// left/right mismatch can be corrected in place without re-reading the
+	// other side under the wrong codec (#278). Empty falls back to Encoding.
+	OldEncoding       string               `json:"oldEncoding,omitempty"`
+	NewEncoding       string               `json:"newEncoding,omitempty"`
 	Window            uint64               `json:"window,omitempty"`
 	MaxHunks          int                  `json:"maxHunks,omitempty"`
 	MaxLines          uint64               `json:"maxLines,omitempty"`
@@ -155,6 +162,10 @@ type hunkOut struct {
 	New      []string `json:"new"`
 	MoveID   uint64   `json:"move_id,omitempty"`
 	MovePeer *uint64  `json:"move_peer,omitempty"`
+	// Downgraded marks a whitespace- or case-only difference that the active
+	// ignore options dismissed. The GUI renders it subdued and keeps it out
+	// of navigation and the difference counts (#269).
+	Downgraded bool `json:"downgraded,omitempty"`
 }
 
 type diffResponse struct {
@@ -170,6 +181,17 @@ type diffResponse struct {
 	MovedLines           uint64    `json:"moved_lines,omitempty"`
 	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
 	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
+	// DowngradedHunks counts whitespace/case-only differences that stayed
+	// visible but were excluded from HunkCount and the line statistics (#269).
+	DowngradedHunks uint64 `json:"downgraded_hunks,omitempty"`
+	// ChangedLines/ChangedShare/LargestHunk describe the change against the
+	// whole file rather than only the retained hunks (#120). ChangedLines is
+	// Added+Deleted+Modified; ChangedShare divides it by the larger side so a
+	// small edit in a big file reads as small. LargestHunk counts the lines of
+	// the largest hunk, including any omitted by maxHunks.
+	ChangedLines uint64  `json:"changed_lines"`
+	ChangedShare float64 `json:"changed_share"`
+	LargestHunk  uint64  `json:"largest_hunk"`
 	// OldEncoding/NewEncoding report the concrete encoding each side was decoded
 	// from (#130). Populated for file inputs — where `encoding: auto` may have
 	// guessed shift_jis/euc-jp/utf-16 — so the UI can show what was detected and
@@ -183,18 +205,28 @@ type diffResponse struct {
 // or forced encoding (linesrc.FileLines). Inline and sorted sources do not.
 type encodingReporter interface{ Encoding() string }
 
-func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+// preparedDiff is the validated, defaulted form of a /api/diff request. The
+// buffered and streaming handlers share it so both apply the same rules.
+type preparedDiff struct {
+	req      diffRequest
+	window   uint64
+	maxHunks int
+	maxLines uint64
+	options  linediff.Options
+}
+
+func prepareDiff(w http.ResponseWriter, r *http.Request) (preparedDiff, bool) {
 	if !requireMethod(w, r, http.MethodPost) {
-		return
+		return preparedDiff{}, false
 	}
 	var req diffRequest
 	if err := decodeDiffJSON(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
+		return preparedDiff{}, false
 	}
 	if err := validateDiffSources(req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return preparedDiff{}, false
 	}
 	window := req.Window
 	if window == 0 {
@@ -208,38 +240,290 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	if maxLines == 0 {
 		maxLines = 200
 	}
+	options, err := requestDiffOptions(req, maxHunks, window)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return preparedDiff{}, false
+	}
+	return preparedDiff{req: req, window: window, maxHunks: maxHunks, maxLines: maxLines, options: options}, true
+}
 
-	oldLines, newLines, closeLines, err := openRequestLines(req)
+// diffStageEmitter receives a genuine pipeline stage transition. elapsed is
+// meaningful only for the "done" state.
+type diffStageEmitter func(stage, state string, elapsed time.Duration)
+
+// runTextDiff performs the buffered text/sorted comparison pipeline, reporting
+// each real phase through emit (nil to stay silent). On success the caller owns
+// closeLines; on error it has already been called.
+func runTextDiff(ctx context.Context, p preparedDiff, emit diffStageEmitter) (oldLines, newLines linediff.Lines, res linediff.Result, closeLines func(), err error) {
+	if emit == nil {
+		emit = func(string, string, time.Duration) {}
+	}
+	readStarted := time.Now()
+	emit("read", "active", 0)
+	oldLines, newLines, closeLines, err = openRequestLines(p.req)
+	if err != nil {
+		closeLines = func() {}
+		return nil, nil, linediff.Result{}, closeLines, err
+	}
+	emit("read", "done", time.Since(readStarted))
+	if err := linediff.ValidateSyncPoints(p.req.SyncPoints, oldLines.Count(), newLines.Count()); err != nil {
+		closeLines()
+		return nil, nil, linediff.Result{}, func() {}, err
+	}
+	compareStarted := time.Now()
+	emit("compare", "active", 0)
+	// The display path shows whitespace/case-only differences as a downgraded
+	// third state rather than dropping them (#269). Patch and merge callers
+	// deliberately leave this off so applyable output never gains a dismissed
+	// difference.
+	p.options.MarkDowngraded = true
+	res, err = linediff.DiffWithContext(ctx, oldLines, newLines, p.options)
+	if err != nil {
+		closeLines()
+		return nil, nil, linediff.Result{}, func() {}, err
+	}
+	emit("compare", "done", time.Since(compareStarted))
+	if p.req.DetectMoves {
+		movesStarted := time.Now()
+		emit("moves", "active", 0)
+		if _, err := linediff.DetectMovesContext(ctx, oldLines, newLines, &res, linediff.MoveOptions{
+			MinLines: p.req.MoveMinLines, MaxCandidates: 10_000,
+		}); err != nil {
+			closeLines()
+			return nil, nil, linediff.Result{}, func() {}, err
+		}
+		emit("moves", "done", time.Since(movesStarted))
+	}
+	linediff.IgnoreHunks(&res, p.req.IgnoredHunks)
+	return oldLines, newLines, res, closeLines, nil
+}
+
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	p, ok := prepareDiff(w, r)
+	if !ok {
+		return
+	}
+	oldLines, newLines, res, closeLines, err := runTextDiff(r.Context(), p, nil)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
 	defer closeLines()
-	if err := linediff.ValidateSyncPoints(req.SyncPoints, oldLines.Count(), newLines.Count()); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, p.maxLines))
+}
+
+// diffStreamPageSize bounds the hunks carried by one streamed result page, so a
+// large comparison paints its first hunks before the rest is serialized and
+// sent — the bounded first page of #297.
+const diffStreamPageSize = 40
+
+// diffStreamEvent is one line of the /api/diff/stream NDJSON reply. One struct
+// covers the small vocabulary (stage, forecast, result, result_page, error) so
+// the wire shape stays easy to read.
+type diffStreamEvent struct {
+	Type      string `json:"type"`
+	Stage     string `json:"stage,omitempty"`
+	State     string `json:"state,omitempty"`
+	Heartbeat bool   `json:"heartbeat,omitempty"`
+	ElapsedMs int64  `json:"elapsed_ms,omitempty"`
+	HunkCount uint64 `json:"hunk_count,omitempty"`
+
+	Page      int           `json:"page,omitempty"`
+	PageCount int           `json:"page_count,omitempty"`
+	Result    *diffResponse `json:"result,omitempty"`
+	Hunks     []hunkOut     `json:"hunks,omitempty"`
+
+	Degraded     bool   `json:"degraded,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	OmittedHunks uint64 `json:"omitted_hunks,omitempty"`
+	MaxHunks     int    `json:"max_hunks,omitempty"`
+	MaxLines     uint64 `json:"max_lines,omitempty"`
+	Truncated    int    `json:"truncated_hunks,omitempty"`
+
+	Code  string `json:"code,omitempty"`
+	Error string `json:"error,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Side  string `json:"side,omitempty"`
+}
+
+// diffEventStream serializes staged progress as NDJSON. Every event is flushed
+// as it is written, which both repaints the browser's progress lane and keeps
+// the connection's write window alive across a multi-minute compare.
+type diffEventStream struct {
+	w     http.ResponseWriter
+	enc   *json.Encoder
+	flush func()
+
+	mu         sync.Mutex
+	stage      string
+	stageStart time.Time
+}
+
+func newDiffEventStream(w http.ResponseWriter) (*diffEventStream, error) {
+	header := w.Header()
+	header.Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	header.Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(w)
+	if err := controller.Flush(); err != nil {
+		return nil, err
+	}
+	return &diffEventStream{
+		w: w, enc: json.NewEncoder(w),
+		flush: func() { _ = controller.Flush() },
+	}, nil
+}
+
+func (s *diffEventStream) send(event diffStreamEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.enc.Encode(event)
+	s.flush()
+}
+
+func (s *diffEventStream) emit(stage, state string, elapsed time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	event := diffStreamEvent{Type: "stage", Stage: stage, State: state}
+	if state == "active" {
+		s.stage = stage
+		s.stageStart = time.Now()
+	} else if s.stage == stage {
+		s.stage = ""
+	}
+	if elapsed > 0 {
+		event.ElapsedMs = elapsed.Milliseconds()
+	}
+	_ = s.enc.Encode(event)
+	s.flush()
+}
+
+func (s *diffEventStream) heartbeat() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stage == "" {
+		return
+	}
+	elapsed := time.Since(s.stageStart).Milliseconds()
+	_ = s.enc.Encode(diffStreamEvent{Type: "stage", Stage: s.stage, State: "active", Heartbeat: true, ElapsedMs: elapsed})
+	s.flush()
+}
+
+func (s *diffEventStream) fail(err error) {
+	code, _ := classifyError(err, http.StatusBadRequest)
+	path, side := errorDetail(err)
+	s.send(diffStreamEvent{Type: "error", Code: code, Error: err.Error(), Path: path, Side: side})
+}
+
+func streamPageCount(hunks int) int {
+	if hunks <= 0 {
+		return 1
+	}
+	return (hunks + diffStreamPageSize - 1) / diffStreamPageSize
+}
+
+// truncationForecast reports whether the result the server is about to send is
+// already cut short, so the browser can warn before the reader meets the gap.
+// It is real engine knowledge: omitted hunks from maxHunks, and hunks whose
+// lines were capped by maxLines.
+type truncationForecast struct {
+	reason    string
+	truncated int
+}
+
+func forecastTruncation(resp diffResponse, maxLines uint64) (truncationForecast, bool) {
+	if resp.OmittedHunks > 0 {
+		return truncationForecast{reason: "hunk_limit"}, true
+	}
+	if maxLines > 0 && len(resp.Hunks) > 0 {
+		truncated := 0
+		for _, hunk := range resp.Hunks {
+			if hunk.OldLen > maxLines || hunk.NewLen > maxLines {
+				truncated++
+			}
+		}
+		if truncated > 0 {
+			return truncationForecast{reason: "line_limit", truncated: truncated}, true
+		}
+	}
+	return truncationForecast{}, false
+}
+
+func (s *diffEventStream) streamResult(resp diffResponse, maxHunks int, maxLines uint64) {
+	if forecast, ok := forecastTruncation(resp, maxLines); ok {
+		s.send(diffStreamEvent{
+			Type: "forecast", Degraded: true, Reason: forecast.reason,
+			OmittedHunks: resp.OmittedHunks, HunkCount: resp.HunkCount,
+			MaxHunks: maxHunks, MaxLines: maxLines, Truncated: forecast.truncated,
+		})
+	}
+	started := time.Now()
+	s.emit("result", "active", 0)
+	pages := streamPageCount(len(resp.Hunks))
+	if pages <= 1 {
+		page := resp
+		s.send(diffStreamEvent{Type: "result", PageCount: 1, Result: &page})
+	} else {
+		first := resp
+		first.Hunks = resp.Hunks[:diffStreamPageSize]
+		s.send(diffStreamEvent{Type: "result", PageCount: pages, Result: &first})
+		for page := 1; page < pages; page++ {
+			start := page * diffStreamPageSize
+			end := min(start+diffStreamPageSize, len(resp.Hunks))
+			s.send(diffStreamEvent{Type: "result_page", Page: page, PageCount: pages, Hunks: resp.Hunks[start:end]})
+		}
+	}
+	s.emit("result", "done", time.Since(started))
+	s.send(diffStreamEvent{Type: "done"})
+}
+
+// handleDiffStream is /api/diff with staged progress and a paged result (#297):
+// it reports each real phase (read / compare / moves / result), heartbeats a
+// long phase so the UI does not look stalled, warns before a truncated result,
+// and sends hunks in bounded pages so reading can start on the first one. The
+// buffered /api/diff is unchanged for callers that do not need this.
+func (s *Server) handleDiffStream(w http.ResponseWriter, r *http.Request) {
+	p, ok := prepareDiff(w, r)
+	if !ok {
+		return
+	}
+	stream, err := newDiffEventStream(w)
+	if err != nil {
+		// The response has already started, so there is no error shape left to
+		// send; ending the reply is the only signal available.
 		return
 	}
 
-	options, err := requestDiffOptions(req, maxHunks, window)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	res, err := linediff.DiffWithContext(r.Context(), oldLines, newLines, options)
-	if err != nil {
-		writeClassifiedError(w, err, http.StatusBadRequest)
-		return
-	}
-	if req.DetectMoves {
-		if _, err := linediff.DetectMovesContext(r.Context(), oldLines, newLines, &res, linediff.MoveOptions{
-			MinLines: req.MoveMinLines, MaxCandidates: 10_000,
-		}); err != nil {
-			writeClassifiedError(w, err, http.StatusBadRequest)
-			return
+	stopHeartbeat := make(chan struct{})
+	var heartbeat sync.WaitGroup
+	heartbeat.Add(1)
+	go func() {
+		defer heartbeat.Done()
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				stream.heartbeat()
+			}
 		}
+	}()
+	// Stop the heartbeat on every path, including a panic unwinding the handler.
+	defer func() {
+		close(stopHeartbeat)
+		heartbeat.Wait()
+	}()
+
+	oldLines, newLines, res, closeLines, diffErr := runTextDiff(r.Context(), p, stream.emit)
+	if diffErr != nil {
+		stream.fail(diffErr)
+		return
 	}
-	linediff.IgnoreHunks(&res, req.IgnoredHunks)
-	writeJSON(w, http.StatusOK, buildResponse(oldLines, newLines, res, maxLines))
+	defer closeLines()
+	stream.streamResult(buildResponse(oldLines, newLines, res, p.maxLines), p.maxHunks, p.maxLines)
 }
 
 // handleDiffContext answers expansion controls without recomputing the diff or
@@ -416,17 +700,26 @@ func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), 
 		return inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse),
 			inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse), func() {}, nil
 	}
-	openSide := func(path string, absent bool) (linediff.Lines, func(), error) {
+	openSide := func(path, hint string, absent bool) (linediff.Lines, func(), error) {
 		if absent {
 			return inlineLines("", req.Mode, req.Numeric, req.Reverse), func() {}, nil
 		}
-		return openMode(path, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+		return openMode(path, req.Mode, hint, req.Numeric, req.Reverse)
 	}
-	oldLines, closeOld, err := openSide(req.Old, req.OldAbsent)
+	// A per-side override lets the UI fix a mis-detected side on its own (#278);
+	// an empty override keeps the shared Encoding (which may itself be "auto").
+	oldHint, newHint := req.Encoding, req.Encoding
+	if req.OldEncoding != "" {
+		oldHint = req.OldEncoding
+	}
+	if req.NewEncoding != "" {
+		newHint = req.NewEncoding
+	}
+	oldLines, closeOld, err := openSide(req.Old, oldHint, req.OldAbsent)
 	if err != nil {
 		return nil, nil, func() {}, leftError(err)
 	}
-	newLines, closeNew, err := openSide(req.New, req.NewAbsent)
+	newLines, closeNew, err := openSide(req.New, newHint, req.NewAbsent)
 	if err != nil {
 		closeOld()
 		return nil, nil, func() {}, rightError(err)
@@ -492,14 +785,15 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 	hunks := make([]hunkOut, len(res.Hunks))
 	for i, h := range res.Hunks {
 		hunks[i] = hunkOut{
-			Kind:     h.Kind.String(),
-			OldStart: h.OldStart,
-			OldLen:   h.OldLen,
-			NewStart: h.NewStart,
-			NewLen:   h.NewLen,
-			Old:      sliceLines(old, h.OldStart, h.OldLen, maxLines),
-			New:      sliceLines(new, h.NewStart, h.NewLen, maxLines),
-			MoveID:   h.MoveID,
+			Kind:       h.Kind.String(),
+			OldStart:   h.OldStart,
+			OldLen:     h.OldLen,
+			NewStart:   h.NewStart,
+			NewLen:     h.NewLen,
+			Old:        sliceLines(old, h.OldStart, h.OldLen, maxLines),
+			New:        sliceLines(new, h.NewStart, h.NewLen, maxLines),
+			MoveID:     h.MoveID,
+			Downgraded: h.Downgraded,
 		}
 		if h.MoveID != 0 {
 			peer := h.MovePeer
@@ -519,6 +813,16 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		MovedLines:           res.MovedLines,
 		MoveDetectionSkipped: res.MoveDetectionSkipped,
 		IgnoredHunks:         res.IgnoredHunks,
+		DowngradedHunks:      res.DowngradedHunks,
+		LargestHunk:          res.LargestHunk,
+	}
+	resp.ChangedLines = res.Added + res.Deleted + res.Modified
+	totalLines := res.OldLines
+	if res.NewLines > totalLines {
+		totalLines = res.NewLines
+	}
+	if totalLines > 0 {
+		resp.ChangedShare = float64(resp.ChangedLines) / float64(totalLines)
 	}
 	if er, ok := old.(encodingReporter); ok {
 		resp.OldEncoding = er.Encoding()
