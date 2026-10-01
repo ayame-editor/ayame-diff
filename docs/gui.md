@@ -175,6 +175,34 @@ comparison or display options keep the buffers and do not ask.
 Editing changes lines; it does not add or remove them, and the comparison
 settings continue to apply as they do while reading.
 
+### Display width and CJK alignment
+
+Columns line up only when a single font renders both the Latin and the CJK on a
+line, because CSS chooses fonts per character. If a Latin-only monospace face is
+listed before any CJK-capable one, a line such as `name 名前` uses two fonts whose
+advance widths need not be exactly 1:2, and the columns drift. The family stack
+therefore leads with faces that cover both scripts — `Noto Sans Mono CJK JP`,
+`Source Han Mono JP`, and the Windows-bundled `MS Gothic` — before the Latin-only
+fallbacks. If none of those is installed, a system cannot align mixed lines on
+its own; installing Noto Sans Mono CJK JP restores it.
+
+Two display settings refine this and share their meaning with the CLI:
+
+- **tab size** (`2`, `4`, or `8`, default `8`) is applied as a CSS `tab-size`
+  token. The CLI does not expand tabs: `internal/textwidth` counts a tab as
+  zero cells and a terminal expands it at its own tab stop, so there is no
+  single CLI tab width to match. The GUI makes the width explicit and defaults
+  to the common terminal value of 8.
+- **wide ○ ※ α** (`East Asian Ambiguous` characters) mirrors
+  `internal/textwidth`'s `Options.EastAsianAmbiguousWide` and the CLI's
+  `--east-asian-ambiguous-wide`. It is off by default, matching terminals that
+  render these as one cell; turn it on when the font renders them full-width.
+
+What is tested is the width/alignment decision both halves share, not the pixel
+result: the GUI's `textwidth.js` is checked against the CLI's `internal/diffout`
+output and `internal/textwidth` for the same input, but the glyph advances the
+browser actually paints still depend on the font installed.
+
 ### Progress and messages
 
 A running comparison writes to its own progress line, and the outcome of an

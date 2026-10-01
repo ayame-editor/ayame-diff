@@ -33,6 +33,7 @@ type diffFlags struct {
 	window                         uint64
 	width                          int
 	word                           bool
+	eastAsianAmbiguousWide         bool
 	normal                         bool
 	patchFormat                    string
 	contextLines                   int
@@ -128,6 +129,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
 	fs.IntVar(&d.width, "width", 160, "total width for --side-by-side")
+	fs.BoolVar(&d.eastAsianAmbiguousWide, "east-asian-ambiguous-wide", false, "count East Asian Ambiguous characters (○, ※, α, …) as two cells in --side-by-side")
 }
 
 // lineLimit resolves --max-line-bytes. A single line is the one thing the
@@ -279,7 +281,8 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 	}
 	opts := diffout.Options{
 		Format: format, MaxLines: d.maxLines, Width: d.width, Word: d.word,
-		Context: contextLines, ContextSet: patch, OldLabel: oldLabel, NewLabel: newLabel,
+		EastAsianAmbiguousWide: d.eastAsianAmbiguousWide,
+		Context:                contextLines, ContextSet: patch, OldLabel: oldLabel, NewLabel: newLabel,
 		OldTime: fileModTime(oldLabel), NewTime: fileModTime(newLabel),
 	}
 	return diffout.Write(stdout, stderr, old, new, res, opts)
