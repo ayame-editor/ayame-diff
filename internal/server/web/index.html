@@ -314,6 +314,19 @@
         <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
         <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
         <span id="mergeUnresolved" aria-live="polite"></span>
+        <div class="merge-unresolved" id="mergeUnresolvedBox" hidden>
+          <span class="merge-unresolved-title" data-i18n="unresolvedListHeading">Unresolved differences</span>
+          <ol class="merge-unresolved-list" id="mergeUnresolvedList"></ol>
+          <button id="mergeGoUnresolved" type="button" data-i18n="goToUnresolved">Go to unresolved</button>
+        </div>
+        <label class="merge-target"><span data-i18n="unresolvedTarget">Unresolved target</span>
+          <select id="mergeUnresolvedTarget">
+            <option value="left" data-i18n="left">Left</option>
+            <option value="right" data-i18n="right">Right</option>
+            <option value="base" data-i18n="sideBase">Base</option>
+            <option value="markers" data-i18n="targetMarkers">Keep conflict markers</option>
+          </select>
+        </label>
         <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
         <button id="simulateMerge" type="button" data-i18n="simulateMerge">Preview impact</button>
@@ -452,6 +465,7 @@
     <script src="confirmed.js"></script>
     <script src="simulate.js"></script>
     <script src="statsview.js"></script>
+    <script src="unresolved.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>

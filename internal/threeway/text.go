@@ -208,15 +208,34 @@ type MergedLine struct {
 // base→left→right order. Missing conflict choices are emitted with standard
 // conflict markers when allowUnresolved is true; otherwise an error is returned.
 func MergeLines(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]string, int, error) {
-	merged, unresolved, err := MergeLinesWithOrigins(base, result, choices, allowUnresolved)
+	lines, unresolved, _, err := MergeLinesTarget(base, result, choices, allowUnresolved, UnresolvedMarkers)
+	return lines, unresolved, err
+}
+
+// Resolution targets for an undecided three-way conflict. The zero value
+// and UnresolvedMarkers both leave standard markers, so the CLI and existing
+// callers keep their behavior (#272).
+const (
+	UnresolvedLeft    = "left"
+	UnresolvedRight   = "right"
+	UnresolvedBase    = "base"
+	UnresolvedMarkers = "markers"
+)
+
+// MergeLinesTarget is MergeLines with a selectable implicit-resolution target.
+// A left/right/base target resolves every undecided conflict to that side; the
+// markers target leaves standard LEFT/BASE/RIGHT markers. It returns the number
+// of conflicted events left undecided and the number of marker blocks written.
+func MergeLinesTarget(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool, target string) ([]string, int, int, error) {
+	merged, unresolved, markers, err := MergeLinesTargetOrigins(base, result, choices, allowUnresolved, target)
 	if err != nil {
-		return nil, unresolved, err
+		return nil, unresolved, markers, err
 	}
 	lines := make([]string, len(merged))
 	for i, line := range merged {
 		lines[i] = line.Text
 	}
-	return lines, unresolved, nil
+	return lines, unresolved, markers, nil
 }
 
 // MergeLinesWithOrigins is MergeLines that also reports where each output line
@@ -224,9 +243,26 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 // versus typed (#257). Every output line carries one origin; the key of a line
 // stays the same when only a conflict choice changes.
 func MergeLinesWithOrigins(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]MergedLine, int, error) {
+	merged, unresolved, _, err := MergeLinesTargetOrigins(base, result, choices, allowUnresolved, UnresolvedMarkers)
+	return merged, unresolved, err
+}
+
+// mergeLinesOrigins composes the merge result line by line, recording each
+// line's origin, and resolves undecided conflicts according to target. It
+// returns the lines, the number of undecided conflicts, and the number of
+// marker blocks written.
+func MergeLinesTargetOrigins(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool, target string) ([]MergedLine, int, int, error) {
+	if target == "" {
+		target = UnresolvedMarkers
+	}
+	switch target {
+	case UnresolvedLeft, UnresolvedRight, UnresolvedBase, UnresolvedMarkers:
+	default:
+		return nil, 0, 0, fmt.Errorf("unresolvedTarget must be left, right, base, or markers")
+	}
 	var output []MergedLine
 	var cursor uint64
-	unresolved := 0
+	unresolved, markers := 0, 0
 	appendBase := func(start, length uint64) {
 		for i := start; i < start+length; i++ {
 			line, ok := base.Line(i)
@@ -253,13 +289,34 @@ func MergeLinesWithOrigins(base linediff.Lines, result Result, choices map[int]s
 			// recognized sides are concatenated in the canonical base→left→right
 			// order regardless of the order the caller listed them (#271).
 			adopted := mergechoice.Parse(choices[event.ID], "base", "left", "right")
-			if len(adopted) == 0 {
-				unresolved++
-				if !allowUnresolved {
-					return nil, unresolved, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
+			if len(adopted) > 0 {
+				for _, side := range adopted {
+					switch side {
+					case "base":
+						appendSide(event.ID, OriginBase, event.Base)
+					case "left":
+						appendSide(event.ID, OriginLeft, event.Left)
+					case "right":
+						appendSide(event.ID, OriginRight, event.Right)
+					}
 				}
+				break
+			}
+			unresolved++
+			if !allowUnresolved {
+				return nil, unresolved, markers, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
+			}
+			switch target {
+			case UnresolvedLeft:
+				appendSide(event.ID, OriginLeft, event.Left)
+			case UnresolvedRight:
+				appendSide(event.ID, OriginRight, event.Right)
+			case UnresolvedBase:
+				appendSide(event.ID, OriginBase, event.Base)
+			default:
 				// Marker lines carry the origin of the section they open or
 				// close, so an unresolved block is still attributable (#257).
+				markers++
 				marker := 0
 				appendMarker := func(origin Origin, text string) {
 					output = append(output, MergedLine{Text: text, Origin: origin, Key: fmt.Sprintf("e%d:unresolved:%d", event.ID, marker)})
@@ -278,23 +335,12 @@ func MergeLinesWithOrigins(base linediff.Lines, result Result, choices map[int]s
 					appendMarker(OriginRight, line)
 				}
 				appendMarker(OriginRight, ">>>>>>> RIGHT")
-				break
-			}
-			for _, side := range adopted {
-				switch side {
-				case "base":
-					appendSide(event.ID, OriginBase, event.Base)
-				case "left":
-					appendSide(event.ID, OriginLeft, event.Left)
-				case "right":
-					appendSide(event.ID, OriginRight, event.Right)
-				}
 			}
 		}
 		cursor = event.BaseStart + event.BaseLen
 	}
 	appendBase(cursor, base.Count()-cursor)
-	return output, unresolved, nil
+	return output, unresolved, markers, nil
 }
 
 // ApplyManual replaces the text of every line whose key appears in overrides

@@ -50,8 +50,9 @@ Duplicate keys are merged per row, not per group: when LEFT and RIGHT edit
 different BASE rows that share a key, both edits apply and the group reports
 `merged` instead of asking for a choice. Only edits that consume the same BASE
 row are conflicts. CSV conflicts without a choice are rejected; after explicit
-`--allow-conflicts`, BASE rows are retained because conflict markers are not
-valid structured records.
+`--allow-conflicts`, undecided conflicts use the selected unresolved target
+(BASE by default, or left/right), because conflict markers are not valid
+structured records.
 
 The reconciled output reproduces the BASE file's character encoding, UTF-8 BOM,
 and line terminator rather than normalizing to BOM-less UTF-8 with LF. `.csv` /
@@ -66,8 +67,11 @@ Shift_JIS, EUC-JP, UTF-16, and ISO-2022-JP keys compare as text.
 Choose **3-way text** or **3-way csv**, then select BASE, LEFT, and RIGHT.
 Results use three panes and show a conflict count. Conflict cards offer
 BASE / LEFT / RIGHT; all-conflict actions, undo/redo, and atomic save reuse the
-two-way merge safety model. Difference navigation works across three-way events;
-`Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses BASE.
+two-way merge safety model. Unresolved conflicts are listed before a save with a
+jump to each, and the **Unresolved target** chooses left, right, BASE, or (for
+three-way text) standard conflict markers. Difference navigation works across
+three-way events; `Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses
+BASE.
 
 A three-way text result can be opened as a per-line preview. Every row carries a
 gutter marker naming its source, following KDiff3's summary column: `B` base,

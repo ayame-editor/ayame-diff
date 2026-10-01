@@ -421,6 +421,100 @@ func TestTextMergeAPIIsAtomicAndPreservesInputs(t *testing.T) {
 	}
 }
 
+// TestTextMergeAPIUnresolvedTarget covers #272: the implicit-resolution target
+// travels through the request body, markers can be left instead of a side, and
+// the response records which hunks were decided implicitly rather than claiming
+// the merge is conflict-free.
+func TestTextMergeAPIUnresolvedTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath, newPath := filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(oldPath, []byte("same\nold\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("same\nnew\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		target, want string
+		markers      int
+	}{
+		{"right", "same\nnew\n", 0},
+		{"markers", "same\n<<<<<<< LEFT\nold\n=======\nnew\n>>>>>>> RIGHT\n", 1},
+	} {
+		output := filepath.Join(dir, tc.target+".txt")
+		req := textMergeRequest{diffRequest: diffRequest{Old: oldPath, New: newPath, Mode: "text", Window: 10}, Output: output, AllowUnresolved: true, UnresolvedTarget: tc.target}
+		body, _ := json.Marshal(req)
+		rec := httptest.NewRecorder()
+		newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/text", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", tc.target, rec.Code, rec.Body.String())
+		}
+		merged, err := os.ReadFile(output)
+		if err != nil || string(merged) != tc.want {
+			t.Fatalf("%s: merged=%q err=%v want=%q", tc.target, merged, err, tc.want)
+		}
+		var resp struct {
+			Unresolved         int   `json:"unresolved"`
+			ConflictsRemaining int   `json:"conflictsRemaining"`
+			ImplicitlyResolved []int `json:"implicitlyResolved"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Unresolved != 1 || resp.ConflictsRemaining != tc.markers || !reflect.DeepEqual(resp.ImplicitlyResolved, []int{0}) {
+			t.Fatalf("%s: response=%s", tc.target, rec.Body.String())
+		}
+	}
+}
+
+// TestCSVMergeAPIUnresolvedTarget covers #272 on the two-way CSV endpoint: the
+// target travels in the body and picks the side for an undecided conflict.
+func TestCSVMergeAPIUnresolvedTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right, output := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	for path, value := range map[string]string{left: "id,name\n1,left\n", right: "id,name\n1,right\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	csvReq := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}}
+	csvReq.Output = output
+	base := csvMergeRequest{csvRequest: csvReq, AllowUnresolved: true}
+	body, _ := json.Marshal(base)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("default status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if !strings.Contains(string(data), "1,left") {
+		t.Fatalf("default target output=%s", data)
+	}
+
+	base.UnresolvedTarget = "right"
+	body, _ = json.Marshal(base)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unresolved_rows":1`) {
+		t.Fatalf("right status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ = os.ReadFile(output)
+	if !strings.Contains(string(data), "1,right") || strings.Contains(string(data), "1,left") {
+		t.Fatalf("right target output=%s", data)
+	}
+
+	base.UnresolvedTarget = "markers"
+	body, _ = json.Marshal(base)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("markers target: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestCSVMergeAPIAdoptsBothSides is the reconcile half of #271: a difference
 // may adopt both sides; a CHANGED pair emits the left row and then the right
 // row, a one-sided difference emits whichever side exists.
@@ -778,6 +872,53 @@ func TestThreeWayCSVCompareAndMergeAPI(t *testing.T) {
 	data, _ := os.ReadFile(output)
 	if !strings.Contains(string(data), "1,l") {
 		t.Fatalf("merged=%s", data)
+	}
+}
+
+// TestThreeWayMergeAPIUnresolvedTarget covers #272 on the three-way endpoint:
+// the implicit target travels in the body, right/base discard markers, and the
+// response reports how many markers were actually written.
+func TestThreeWayMergeAPIUnresolvedTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt")
+	for path, value := range map[string]string{base: "base\ntail\n", left: "left\ntail\n", right: "right\ntail\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	baseReq := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base, AllowUnresolved: true}
+	for _, tc := range []struct {
+		target, want string
+		markers      int
+	}{
+		{"right", "right\ntail\n", 0},
+		{"base", "base\ntail\n", 0},
+		{"markers", "<<<<<<< LEFT\nleft\n||||||| BASE\nbase\n=======\nright\n>>>>>>> RIGHT\ntail\n", 1},
+	} {
+		req := baseReq
+		req.Output, req.UnresolvedTarget = filepath.Join(dir, "merged-"+tc.target+".txt"), tc.target
+		body, _ := json.Marshal(req)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", tc.target, rec.Code, rec.Body.String())
+		}
+		data, _ := os.ReadFile(req.Output)
+		if string(data) != tc.want {
+			t.Fatalf("%s: merged=%q want=%q", tc.target, data, tc.want)
+		}
+		var resp struct {
+			Unresolved      int `json:"unresolved"`
+			ConflictMarkers int `json:"conflictMarkers"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Unresolved != 1 || resp.ConflictMarkers != tc.markers {
+			t.Fatalf("%s: response=%s", tc.target, rec.Body.String())
+		}
 	}
 }
 

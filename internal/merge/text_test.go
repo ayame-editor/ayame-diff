@@ -104,4 +104,54 @@ func TestWriteTextUnresolvedDefaultsLeftWhenAllowed(t *testing.T) {
 	if string(got) != "left\n" || result.Unresolved != 1 {
 		t.Fatalf("got=%q result=%+v", got, result)
 	}
+	if result.ConflictsRemaining != 0 || len(result.ImplicitlyResolved) != 1 || result.ImplicitlyResolved[0] != 0 {
+		t.Fatalf("implicit provenance missing: %+v", result)
+	}
+}
+
+// TestWriteTextUnresolvedTarget selects the implicit target instead of always
+// keeping the left side, and reports the hunks it decided implicitly so the
+// saved file stays traceable (#272).
+func TestWriteTextUnresolvedTarget(t *testing.T) {
+	old := linediff.SplitTextLines("same\nleft\n")
+	new := linediff.SplitTextLines("same\nright\n")
+	diff := linediff.Diff(old, new, 10, 10)
+	if len(diff.Hunks) != 1 {
+		t.Fatalf("want one hunk, got %d", len(diff.Hunks))
+	}
+	cases := []struct {
+		target string
+		want   string
+		remain int
+	}{
+		{UnresolvedRight, "same\nright\n", 0},
+		{UnresolvedMarkers, "same\n<<<<<<< LEFT\nleft\n=======\nright\n>>>>>>> RIGHT\n", 1},
+	}
+	for _, tc := range cases {
+		out := filepath.Join(t.TempDir(), "merged.txt")
+		result, err := WriteText(old, new, diff, TextOptions{Output: out, AllowUnresolved: true, UnresolvedTarget: tc.target})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.target, err)
+		}
+		got, _ := os.ReadFile(out)
+		if string(got) != tc.want {
+			t.Fatalf("%s: got=%q want=%q", tc.target, got, tc.want)
+		}
+		if result.Unresolved != 1 || len(result.ImplicitlyResolved) != 1 || result.ImplicitlyResolved[0] != 0 {
+			t.Fatalf("%s: result=%+v", tc.target, result)
+		}
+		if result.ConflictsRemaining != tc.remain {
+			t.Fatalf("%s: conflictsRemaining=%d want=%d", tc.target, result.ConflictsRemaining, tc.remain)
+		}
+	}
+}
+
+func TestWriteTextRejectsUnknownUnresolvedTarget(t *testing.T) {
+	old := linediff.SplitTextLines("left\n")
+	new := linediff.SplitTextLines("right\n")
+	diff := linediff.Diff(old, new, 10, 10)
+	_, err := WriteText(old, new, diff, TextOptions{Output: filepath.Join(t.TempDir(), "o.txt"), AllowUnresolved: true, UnresolvedTarget: "middle"})
+	if err == nil {
+		t.Fatal("unknown unresolved target accepted")
+	}
 }

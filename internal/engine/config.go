@@ -52,13 +52,16 @@ type Config struct {
 	// of a diff report. Choice keys are stable IDs from JSONL diff records. A
 	// value is a side ("left"/"right") or a comma-joined combination
 	// ("left,right") when a difference adopts both contributions (#271).
-	Reconcile       bool                `json:"-"`
-	MergeChoices    map[string]string   `json:"-"`
-	MergeDefault    string              `json:"-"`
-	AllowUnresolved bool                `json:"-"`
-	OutputDelimiter rune                `json:"-"`
-	Log             io.Writer           `json:"-"`
-	OnProgress      func(ProgressEvent) `json:"-"`
+	Reconcile       bool              `json:"-"`
+	MergeChoices    map[string]string `json:"-"`
+	MergeDefault    string            `json:"-"`
+	AllowUnresolved bool              `json:"-"`
+	// UnresolvedTarget picks which side an undecided reconcile row becomes when
+	// AllowUnresolved permits the write: "left" (default), "right", or "base" (#272).
+	UnresolvedTarget string              `json:"-"`
+	OutputDelimiter  rune                `json:"-"`
+	Log              io.Writer           `json:"-"`
+	OnProgress       func(ProgressEvent) `json:"-"`
 }
 
 // Resource limits are exported so CLI and GUI validation can share the
@@ -214,6 +217,9 @@ func (c Config) resolve() (resolvedConfig, error) {
 	}
 	if r.MergeDefault != "" && r.MergeDefault != "left" && r.MergeDefault != "right" {
 		return resolvedConfig{}, fmt.Errorf("merge default must be left or right")
+	}
+	if r.UnresolvedTarget != "" && r.UnresolvedTarget != "left" && r.UnresolvedTarget != "right" {
+		return resolvedConfig{}, fmt.Errorf("unresolved target must be left or right")
 	}
 	for id, side := range r.MergeChoices {
 		if strings.TrimSpace(id) == "" {

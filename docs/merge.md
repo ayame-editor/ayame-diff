@@ -27,6 +27,18 @@ temporary sibling file. The temporary file is flushed before atomic rename.
 Original LF/CRLF and final-newline state follow the source selected for each
 range. Decoded non-UTF-8 input is saved as UTF-8.
 
+Before a save with unresolved differences, the merge panel lists each one with
+its kind and location, and **Go to unresolved** jumps to the first. An
+**Unresolved target** control chooses what happens when you continue anyway:
+
+- **left** / **right** resolves each remaining difference to that side.
+- **Keep conflict markers** writes standard `<<<<<<< LEFT` / `=======` /
+  `>>>>>>> RIGHT` blocks so a later pass can resolve them.
+
+The save result is honest about which happened: a file written with implicit
+side choices or remaining markers reports that, and does not read as a clean,
+conflict-free merge.
+
 ## CSV / TSV
 
 Each logical keyed difference has a stable content-derived ID. A CHANGED pair
@@ -42,8 +54,9 @@ other names use tab. Quoting is written with the standard CSV rules.
 
 ## Safety rules
 
-- Unresolved differences block saving by default. If the warning is accepted,
-  unresolved items retain the left side.
+- Unresolved differences block saving by default. The merge panel lists them
+  first; accepting the warning saves them using the selected **Unresolved
+  target** (left, right, or conflict markers) instead of always the left side.
 - A new output path is the default and is written atomically.
 - An output path matching either input is rejected unless **overwrite input**
   is enabled and the second destructive confirmation is accepted. **Preview

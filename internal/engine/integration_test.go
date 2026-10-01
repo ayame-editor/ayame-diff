@@ -425,6 +425,31 @@ func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
 	}
 }
 
+func TestRunCSVReconcileUnresolvedTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	mustWriteFile(t, left, "id,name\n1,left\n")
+	mustWriteFile(t, right, "id,name\n1,right\n")
+	for target, want := range map[string]string{"": "left", "left": "left", "right": "right"} {
+		output := filepath.Join(dir, "merged-"+target+".csv")
+		cfg := testConfig(left, right, output)
+		cfg.KeyNames, cfg.Reconcile, cfg.OutputHeader, cfg.OutputDelimiter = []string{"id"}, true, true, ','
+		cfg.AllowUnresolved, cfg.UnresolvedTarget = true, target
+		summary, err := Run(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		if summary.UnresolvedRows != 1 {
+			t.Fatalf("%s: summary=%+v", target, summary)
+		}
+		records := readDelimitedFile(t, output, ',')
+		if len(records) != 2 || records[1][1] != want {
+			t.Fatalf("%s: records=%#v want value %q", target, records, want)
+		}
+	}
+}
+
 // TestRunCSVReconcileAdoptsBothSides is the #271 contract for two-way CSV: a
 // difference may adopt both sides. A CHANGED pair then emits the left row and
 // then the right row; a one-sided difference emits whichever side exists.
