@@ -94,6 +94,7 @@ nav:
   - Project:
       - Packaging and Windows trust: packaging.md
       - Ayame family design: design.md
+      - Competitor UI research: ui-design-research-followup.md
       - Architecture decisions:
           - Overview: adr/README.md
           - "0001: Project name": adr/0001-naming-unification.md
@@ -119,6 +120,7 @@ nav:
       - プロジェクト:
           - パッケージングと Windows の信頼: packaging.ja.md
           - Ayame ファミリーのデザイン: design.ja.md
+          - 競合 UI 調査: ui-design-research-followup.ja.md
           - アーキテクチャ決定記録:
               - 概要: adr/README.ja.md
               - "0001: プロジェクト名": adr/0001-naming-unification.ja.md

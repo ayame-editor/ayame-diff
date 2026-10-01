@@ -81,6 +81,7 @@ type Server struct {
 	shutdown     func()
 	shutdownOnce sync.Once
 	lifecycle    *browserLifecycle
+	mergeOutcome func(output string, unresolved int)
 }
 
 // LifecycleOptions connects authenticated browser lifecycle events to the
@@ -96,6 +97,12 @@ type LifecycleOptions struct {
 	// BrowserCloseGrace allows a reloaded page to acquire a new lease after the
 	// old document releases its lease.
 	BrowserCloseGrace time.Duration
+	// MergeOutcome, when non-nil, is called after a three-way text merge writes
+	// its output, with the output path and the number of unresolved conflicts
+	// in it. It lets a blocking mergetool return whether the merge actually
+	// resolved — and whether anything was saved at all — instead of assuming a
+	// saved file is a resolved one.
+	MergeOutcome func(output string, unresolved int)
 }
 
 // Options configures a Server.
@@ -142,9 +149,10 @@ func NewWithOptions(opts Options) (*Server, error) {
 	s := &Server{
 		version: opts.Version, token: token, allowedHosts: allowed,
 		mux: http.NewServeMux(), drops: make(map[string]*dropSession),
-		compareSem: make(chan struct{}, maxConcurrentComparisons),
-		watchSem:   make(chan struct{}, maxConcurrentWatchRequests),
-		shutdown:   opts.Lifecycle.Shutdown,
+		compareSem:   make(chan struct{}, maxConcurrentComparisons),
+		watchSem:     make(chan struct{}, maxConcurrentWatchRequests),
+		shutdown:     opts.Lifecycle.Shutdown,
+		mergeOutcome: opts.Lifecycle.MergeOutcome,
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(sub)))
 	s.mux.HandleFunc("/api/health", s.handleHealth)
@@ -152,14 +160,19 @@ func NewWithOptions(opts Options) (*Server, error) {
 	// concurrency gate (#170); cheap metadata handlers (health, files,
 	// path-info, drop, project, csv/inspect) do not.
 	s.mux.HandleFunc("/api/diff", s.limited(s.handleDiff))
+	s.mux.HandleFunc("/api/diff/stream", s.limited(s.handleDiffStream))
 	s.mux.HandleFunc("/api/diff/context", s.limited(s.handleDiffContext))
 	s.mux.HandleFunc("/api/patch", s.limited(s.handlePatch))
+	s.mux.HandleFunc("/api/report", s.limited(s.handleReport))
 	s.mux.HandleFunc("/api/merge/text", s.limited(s.handleTextMerge))
 	s.mux.HandleFunc("/api/three-way/text", s.limited(s.handleThreeWayText))
+	s.mux.HandleFunc("/api/three-way/text/preview", s.limited(s.handleThreeWayTextPreview))
 	s.mux.HandleFunc("/api/merge/three-way/text", s.limited(s.handleThreeWayTextMerge))
 	s.mux.HandleFunc("/api/csv/inspect", s.handleCSVInspect)
+	s.mux.HandleFunc("/api/csv/preview", s.limited(s.handleCSVPreview))
 	s.mux.HandleFunc("/api/csv/diff", s.limited(s.handleCSVDiff))
 	s.mux.HandleFunc("/api/csv/export", s.limited(s.handleCSVExport))
+	s.mux.HandleFunc("/api/csv/suggest", s.limited(s.handleCSVSuggest))
 	s.mux.HandleFunc("/api/merge/csv", s.limited(s.handleCSVMerge))
 	s.mux.HandleFunc("/api/three-way/csv", s.limited(s.handleThreeWayCSV))
 	s.mux.HandleFunc("/api/merge/three-way/csv", s.limited(s.handleThreeWayCSVMerge))

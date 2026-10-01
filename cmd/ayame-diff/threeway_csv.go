@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"runtime"
 	"strings"
 
+	"github.com/ayame-editor/ayame-diff/internal/climsg"
 	"github.com/ayame-editor/ayame-diff/internal/engine"
 	"github.com/ayame-editor/ayame-diff/internal/pathutil"
 	"github.com/ayame-editor/ayame-diff/internal/threeway"
@@ -52,12 +52,8 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(fs.Output(), "ayame-diff 3way csv [flags] --base BASE --left LEFT --right RIGHT\n\nExplicit key columns are required.")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() != 0 || base == "" || left == "" || right == "" {
 		fmt.Fprintln(stderr, "error: --base, --left, and --right are required")
@@ -66,7 +62,7 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 	if output != "" {
 		for _, input := range []string{base, left, right} {
 			if pathutil.Equal(output, input) {
-				fmt.Fprintln(stderr, "error: merge output must differ from every input")
+				reportError(stderr, climsg.ErrOutputIsInput)
 				return exitUsage
 			}
 		}
@@ -77,14 +73,14 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 		MemoryText: "512MiB", PartitionBufferText: "64KiB", MergeFanIn: 8, MaxRecordText: "256MiB"}
 	result, err := threeway.CompareCSV(context.Background(), base, left, right, cfg)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 	} else {
@@ -95,7 +91,7 @@ func runThreeWayCSV(args []string, stdout, stderr io.Writer) int {
 	if output != "" {
 		unresolved, err := threeway.WriteCSVMerge(base, output, result, choices, allowConflicts)
 		if err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		fmt.Fprintf(stderr, "merged: %s (conflicts=%d unresolved=%d)\n", output, result.Conflicts, unresolved)

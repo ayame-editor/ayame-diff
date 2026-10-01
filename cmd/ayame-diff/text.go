@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -34,6 +33,7 @@ type diffFlags struct {
 	window                         uint64
 	width                          int
 	word                           bool
+	eastAsianAmbiguousWide         bool
 	normal                         bool
 	patchFormat                    string
 	contextLines                   int
@@ -129,6 +129,7 @@ func (d *diffFlags) register(fs *flag.FlagSet) {
 	fs.Uint64Var(&d.maxLines, "max-lines", 200, "maximum lines shown per hunk side")
 	fs.Uint64Var(&d.window, "window", 128, "resync look-ahead window when lines differ")
 	fs.IntVar(&d.width, "width", 160, "total width for --side-by-side")
+	fs.BoolVar(&d.eastAsianAmbiguousWide, "east-asian-ambiguous-wide", false, "count East Asian Ambiguous characters (○, ※, α, …) as two cells in --side-by-side")
 }
 
 // lineLimit resolves --max-line-bytes. A single line is the one thing the
@@ -280,7 +281,8 @@ func emitDiff(old, new linediff.Lines, d diffFlags, oldLabel, newLabel string, s
 	}
 	opts := diffout.Options{
 		Format: format, MaxLines: d.maxLines, Width: d.width, Word: d.word,
-		Context: contextLines, ContextSet: patch, OldLabel: oldLabel, NewLabel: newLabel,
+		EastAsianAmbiguousWide: d.eastAsianAmbiguousWide,
+		Context:                contextLines, ContextSet: patch, OldLabel: oldLabel, NewLabel: newLabel,
 		OldTime: fileModTime(oldLabel), NewTime: fileModTime(newLabel),
 	}
 	return diffout.Write(stdout, stderr, old, new, res, opts)
@@ -303,42 +305,58 @@ func runText(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(flagOutput(args, stdout, stderr))
 	var d diffFlags
 	d.register(fs)
+	labels := stringFlags()
+	fs.Var(&labels, "label", "pane display name in LEFT RIGHT order; repeatable")
+	fs.Var(&labels, "L", "alias for --label")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `ayame-diff text [flags] LEFT RIGHT
 
 Line-level diff of two text files (plain or .gz), comparing by row order.
 Uses a bounded resync window, so it stays linear and memory-bounded on huge
-inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard.`)
+inputs. LEFT or RIGHT may be - for standard input, or clip: for the OS clipboard.
+Use --label to show a logical name such as HEAD~1:foo.txt in place of a
+temporary path.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := parseDiffArgs(fs, args); err != nil {
-		return reportFlagError(err, stderr)
+	if code, done := parseDiffFlags(fs, args, stdout, stderr); done {
+		return code
+	}
+	if len(labels.values) > 2 {
+		fmt.Fprintln(stderr, "error: text accepts at most two --label values")
+		return exitUsage
+	}
+	oldLabel, newLabel := fs.Arg(0), fs.Arg(1)
+	if len(labels.values) > 0 && labels.values[0] != "" {
+		oldLabel = labels.values[0]
+	}
+	if len(labels.values) > 1 && labels.values[1] != "" {
+		newLabel = labels.values[1]
 	}
 	if _, _, _, err := d.outputFormat(); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	maxLine, err := d.lineLimit()
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer closeOld()
 	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer closeNew()
-	if err := emitDiff(oldSrc, newSrc, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+	if err := emitDiff(oldSrc, newSrc, d, oldLabel, newLabel, stdout, stderr); err != nil {
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK
@@ -375,8 +393,8 @@ point --temp-dir at a real disk when sorting very large files.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := parseDiffArgs(fs, args); err != nil {
-		return reportFlagError(err, stderr)
+	if code, done := parseDiffFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 	memoryBytes, err := engine.ParseByteSize(sortMemory)
 	if err != nil {
@@ -388,7 +406,7 @@ point --temp-dir at a real disk when sorting very large files.`)
 		return exitUsage
 	}
 	if _, _, patch, err := d.outputFormat(); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	} else if patch {
 		fmt.Fprintln(stderr, "error: patch formats require text mode; sorted output cannot be applied to the original file")
@@ -396,19 +414,19 @@ point --temp-dir at a real disk when sorting very large files.`)
 	}
 	maxLine, err := d.lineLimit()
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 
 	oldSrc, closeOld, err := openSource(fs.Arg(0), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer closeOld()
 	newSrc, closeNew, err := openSource(fs.Arg(1), d.encoding, d.pre, maxLine, stderr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer closeNew()
@@ -418,40 +436,21 @@ point --temp-dir at a real disk when sorting very large files.`)
 	opts := linesort.Options{Numeric: numeric, Reverse: reverse, MemoryBytes: memoryBytes, TempDir: tempDir}
 	oldLines, err := linesort.SortSource(oldSrc, opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer oldLines.Close()
 	newLines, err := linesort.SortSource(newSrc, opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer newLines.Close()
 	if err := emitDiff(oldLines, newLines, d, fs.Arg(0), fs.Arg(1), stdout, stderr); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK
-}
-
-// parseDiffArgs parses fs and validates the two positional LEFT RIGHT paths.
-func parseDiffArgs(fs *flag.FlagSet, args []string) error {
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 2 {
-		return fmt.Errorf("%s needs exactly two paths: LEFT RIGHT", fs.Name())
-	}
-	return nil
-}
-
-func reportFlagError(err error, stderr io.Writer) int {
-	if errors.Is(err, flag.ErrHelp) {
-		return exitOK
-	}
-	fmt.Fprintln(stderr, "error:", err)
-	return exitUsage
 }
 
 // maxPipedInputBytes bounds the paths that cannot stream. A file is read

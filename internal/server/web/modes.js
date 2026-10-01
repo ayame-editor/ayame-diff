@@ -10,19 +10,21 @@
 (function (root) {
   "use strict";
 
-  // Every comparison-condition control id in the shared setup pool.
+  // Every comparison-condition control id in the shared setup pool. Whitespace
+  // and line endings are one monotonic scale (#259) rather than three controls.
   const COMPARE_CONDITIONS = [
-    "ignoreCase", "whitespace", "ignoreEOL", "ignoreTrailingEOL", "lineFilters",
+    "ignoreCase", "whitespaceScale", "lineFilters", "alignWhitespace",
   ];
 
   // The subset each mode passes to its request body. Modes absent from this map
   // fall back to the full set: text / sorted spread requestBody(), and 3-way
   // text spreads it via threeWayRequestBody(), so they honor every condition.
+  //
+  // csv / threeway-csv also spread the full set: csvRequestBody() reads
+  // ignoreCase, the whitespace part of the scale, and lineFilters. The scale's
+  // EOL part is structurally irrelevant to record-based CSV, but the single
+  // control stays live because its whitespace part drives real differences.
   const LIVE_BY_MODE = {
-    // csvRequestBody() reads ignoreCase / whitespace / lineFilters but not the
-    // EOL toggles — row-keyed CSV comparison has no line-ending notion.
-    csv: ["ignoreCase", "whitespace", "lineFilters"],
-    "threeway-csv": ["ignoreCase", "whitespace", "lineFilters"],
     // dirRequestBody() reads none of them: folder compare works on names, size,
     // mtime, and byte content, with its own include/exclude globs.
     dir: [],

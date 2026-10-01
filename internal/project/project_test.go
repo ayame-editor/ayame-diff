@@ -48,6 +48,38 @@ func TestDirectoryProjectRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectRoundTripsFilterBuilderTrees(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "filtered.ayamediff.json")
+	want := engine.Config{
+		LeftPath: filepath.Join(dir, "old.csv"), RightPath: filepath.Join(dir, "new.csv"),
+		OutputPath: filepath.Join(dir, "diff.tsv"),
+		RowFilter: &engine.RowFilter{
+			Match:      "all",
+			Conditions: []engine.RowCondition{{Column: "status", Op: "eq", Value: "active"}},
+			Groups:     []engine.RowFilter{{Match: "any", Conditions: []engine.RowCondition{{Column: "amount", Op: "gt", Value: "1000"}}}},
+		},
+		ColumnFilter: &engine.RowFilter{
+			Conditions: []engine.RowCondition{{Op: "starts", Value: "tmp_"}},
+		},
+	}
+	if err := Save(path, Project{Mode: "csv", CSV: want}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CSV.RowFilter == nil || got.CSV.RowFilter.Conditions[0].Column != "status" ||
+		len(got.CSV.RowFilter.Groups) != 1 || got.CSV.RowFilter.Groups[0].Match != "any" {
+		t.Fatalf("row filter did not round trip: %#v", got.CSV.RowFilter)
+	}
+	if got.CSV.ColumnFilter == nil || got.CSV.ColumnFilter.Conditions[0].Value != "tmp_" {
+		t.Fatalf("column filter did not round trip: %#v", got.CSV.ColumnFilter)
+	}
+}
+
 func TestProjectRejectsUnknownVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.json")
 	if err := Save(path, Project{Version: 99}); err == nil {
