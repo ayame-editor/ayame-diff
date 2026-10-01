@@ -2,13 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/ayame-editor/ayame-diff/internal/climsg"
 	"github.com/ayame-editor/ayame-diff/internal/linediff"
 	"github.com/ayame-editor/ayame-diff/internal/linesrc"
 	"github.com/ayame-editor/ayame-diff/internal/pathutil"
@@ -64,12 +64,8 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() != 3 {
 		fmt.Fprintln(stderr, "error: 3way text needs BASE LEFT RIGHT")
@@ -88,7 +84,7 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	if output != "" {
 		for _, input := range fs.Args() {
 			if pathutil.Equal(output, input) {
-				fmt.Fprintln(stderr, "error: merge output must differ from every input")
+				reportError(stderr, climsg.ErrOutputIsInput)
 				return exitUsage
 			}
 		}
@@ -113,7 +109,7 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	defer right.Close()
 	compiled, err := linediff.CompileLineFilters(filters.values)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if whitespace != "none" && whitespace != "change" && whitespace != "all" {
@@ -122,14 +118,14 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 	}
 	result, err := threeway.Compare(base, left, right, linediff.Options{Window: window, IgnoreCase: ignoreCase, Whitespace: linediff.ParseWhitespace(whitespace), LineFilters: compiled})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 	} else {
@@ -142,11 +138,11 @@ identical edits merge automatically; overlapping different edits are conflicts.`
 		profile := threeway.ProfileOf(base)
 		lines, unresolved, err := threeway.MergeLines(base, result, choices, allowConflicts)
 		if err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		if err := threeway.WriteMerged(output, lines, profile); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		unresolvedMerge = unresolved

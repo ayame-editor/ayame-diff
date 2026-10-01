@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 )
 
 // ColumnTolerance applies an absolute numeric tolerance to one CSV column.
@@ -66,14 +68,19 @@ type Config struct {
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
 	// Reconcile emits a complete key-sorted CSV/TSV using MergeChoices instead
-	// of a diff report. Choice keys are stable IDs from JSONL diff records.
-	Reconcile       bool                `json:"-"`
-	MergeChoices    map[string]string   `json:"-"`
-	MergeDefault    string              `json:"-"`
-	AllowUnresolved bool                `json:"-"`
-	OutputDelimiter rune                `json:"-"`
-	Log             io.Writer           `json:"-"`
-	OnProgress      func(ProgressEvent) `json:"-"`
+	// of a diff report. Choice keys are stable IDs from JSONL diff records. A
+	// value is a side ("left"/"right") or a comma-joined combination
+	// ("left,right") when a difference adopts both contributions (#271).
+	Reconcile       bool              `json:"-"`
+	MergeChoices    map[string]string `json:"-"`
+	MergeDefault    string            `json:"-"`
+	AllowUnresolved bool              `json:"-"`
+	// UnresolvedTarget picks which side an undecided reconcile row becomes when
+	// AllowUnresolved permits the write: "left" (default), "right", or "base" (#272).
+	UnresolvedTarget string              `json:"-"`
+	OutputDelimiter  rune                `json:"-"`
+	Log              io.Writer           `json:"-"`
+	OnProgress       func(ProgressEvent) `json:"-"`
 }
 
 // Resource limits are exported so CLI and GUI validation can share the
@@ -118,12 +125,37 @@ type Summary struct {
 	Elapsed        string         `json:"elapsed"`
 	ColumnChanges  []ColumnChange `json:"column_changes,omitempty"`
 	UnresolvedRows uint64         `json:"unresolved_rows,omitempty"`
+	// ChangedRows counts the CHANGED row pairs compared cell by cell. It is the
+	// denominator of ColumnChange.Share: the fraction of changed rows in which
+	// that column differs. Zero for a run without cell-level differences (#120).
+	ChangedRows uint64 `json:"changed_rows,omitempty"`
 }
 
+// ColumnChange is one column's share of the cell-level differences (#120).
 type ColumnChange struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	Count uint64 `json:"count"`
+	// Share is Count divided by Summary.ChangedRows: how concentrated the
+	// changes are in this column. Omitted when there are no changed rows.
+	Share float64 `json:"share,omitempty"`
+	// Numeric summarizes right-minus-left over the changed cells that parse as
+	// numbers on both sides. Nil for a column with no numeric changes.
+	Numeric *ColumnDelta `json:"numeric,omitempty"`
+}
+
+// ColumnDelta summarizes the numeric difference right minus left for one
+// column (#120): Sum/Mean/Min/Max over the delta and how many moved up, down,
+// or were numerically unchanged (for example "1" vs "1.0").
+type ColumnDelta struct {
+	Count     uint64  `json:"count"`
+	Sum       float64 `json:"sum"`
+	Mean      float64 `json:"mean"`
+	Min       float64 `json:"min"`
+	Max       float64 `json:"max"`
+	Increased uint64  `json:"increased"`
+	Decreased uint64  `json:"decreased"`
+	Unchanged uint64  `json:"unchanged"`
 }
 
 // Validate reports whether c can be resolved. It is idempotent and does not
@@ -209,9 +241,17 @@ func (c Config) resolve() (resolvedConfig, error) {
 	if r.MergeDefault != "" && r.MergeDefault != "left" && r.MergeDefault != "right" {
 		return resolvedConfig{}, fmt.Errorf("merge default must be left or right")
 	}
+	if r.UnresolvedTarget != "" && r.UnresolvedTarget != "left" && r.UnresolvedTarget != "right" {
+		return resolvedConfig{}, fmt.Errorf("unresolved target must be left or right")
+	}
 	for id, side := range r.MergeChoices {
-		if strings.TrimSpace(id) == "" || (side != "left" && side != "right") {
-			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q", id, side)
+		if strings.TrimSpace(id) == "" {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q", id)
+		}
+		// A choice is one side or an ordered combination such as "left,right"
+		// once a hunk adopts both contributions (#271).
+		if err := mergechoice.Validate(side, "left", "right"); err != nil {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q: %w", id, side, err)
 		}
 	}
 	if r.Reconcile {
