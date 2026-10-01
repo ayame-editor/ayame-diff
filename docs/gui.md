@@ -452,11 +452,15 @@ optional post-processing pass from dominating huge comparisons.
 lines is set under **Settings → Result display** (default 3); setting it to 0
 keeps only the expandable boundaries. Use the up/down buttons to reveal 20 more
 lines from one edge, click the collapsed-line label to reveal both edges, or
-drag that label toward the edge to expand. Turning **Context** off returns to a
-hunk-only view without re-running the comparison. Context ranges are fetched on
-demand, so opening one boundary does not send the whole unchanged file to the
-browser. In the side-by-side view, context lines remain editable on both sides
-when **Edit** is active.
+drag that label toward the edge to expand. The collapsed label names what it
+hides rather than only how much: the hidden line range plus an excerpt of the
+first hidden line, or a symbol/heading when the file is recognised source. Turning
+**Context** off returns to a hunk-only view without re-running the comparison.
+Context ranges are fetched on demand, so opening one boundary does not send the
+whole unchanged file to the browser; the one-line preview behind the label is
+fetched the same bounded way and is never unfolded into the result. In the
+side-by-side view, context lines remain editable on both sides when **Edit** is
+active.
 
 ### Comparison conditions while reading
 
@@ -520,7 +524,11 @@ right-minus-left and how many values rose, fell, or changed representation only.
 The list scrolls rather than being capped, and exports as CSV or JSON. The
 server caps the browser response at 5,000 logical differences; **Run and export**
 writes the complete TSV (with `_changed_cols`) or JSON Lines result to a local
-path.
+path. Unlike the text view, the CSV table lists differences only and does not
+fold unchanged rows, so there is no collapsed bar to label. When explicit key
+columns were chosen, the pager names the key range on the current page, and if
+the display cap truncates the result the summary also names the key range the
+shown differences cover.
 
 When column names disagree, or a column exists on only one side, **manual
 column mapping** pairs a left column with a right column by hand, can mark a
