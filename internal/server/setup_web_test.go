@@ -66,7 +66,10 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 		}
 	}
 	// Text, CSV, 3-way, the folder tree, and the folder continuous view (#291).
-	if strings.Count(app, "result.append(paneHeads(data))") != 5 {
+	// The text comparison has two entry points — the streaming first paint
+	// (beginStreamRender) and the one-shot re-render (renderResult) — so six
+	// calls cover the five result kinds (#297).
+	if strings.Count(app, "result.append(paneHeads(data))") != 6 {
 		t.Error("every result kind must carry pane headers")
 	}
 	visibility := renderFunctionBody(t, app, "function syncLaunchPathsVisibility(")

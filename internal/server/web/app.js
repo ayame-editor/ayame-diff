@@ -141,6 +141,12 @@ const {
 } = globalThis.AyameContinuous;
 const { hunkActions } = globalThis.AyameHunkActions;
 const { createMessageLog } = globalThis.AyameMessages;
+const {
+  stagePlan: comparisonStagePlan,
+  createProgressTracker,
+  formatElapsed,
+  degradationNotice,
+} = globalThis.AyameProgress;
 // Colour-independent diff signalling (#298): one mapping from a class or hunk
 // kind to the gutter glyph and the accessible kind name.
 const {
@@ -4454,6 +4460,43 @@ function setProgress(msg) {
   el.hidden = false;
 }
 
+// ---- staged progress for long comparisons (#297) ----
+// The status lane reports the phase the server is actually in, its own elapsed
+// time, and a real percentage for the phases that have one. The stage names and
+// the percentage come from progress.js, which node --test exercises directly.
+const STAGE_LABEL_KEYS = {
+  read: "stageRead",
+  compare: "stageCompare",
+  moves: "stageMoves",
+  result: "stageResult",
+  render: "stageRender",
+};
+
+function stageLabel(key) {
+  return t(STAGE_LABEL_KEYS[key] || "comparing");
+}
+
+function renderProgress(snapshot) {
+  if (!snapshot || !snapshot.stage) { setProgress(""); return; }
+  // Show every phase reached so far with its own time, so the slow phase stays
+  // visible after it finishes rather than only while it is running (#297).
+  const parts = [];
+  for (const stage of snapshot.stages) {
+    if (stage.state === "pending") continue;
+    const label = stageLabel(stage.key);
+    if (stage.key === snapshot.stage && snapshot.determinate) {
+      parts.push(t("progressDeterminate", {
+        stage: label, elapsed: formatElapsed(snapshot.stageElapsedMs), done: snapshot.percent,
+      }));
+    } else if (stage.key === snapshot.stage) {
+      parts.push(t("progressStage", { stage: label, elapsed: formatElapsed(snapshot.stageElapsedMs) }));
+    } else if (stage.state === "done") {
+      parts.push(t("progressStageDone", { stage: label, elapsed: formatElapsed(stage.elapsedMs) }));
+    }
+  }
+  setProgress(parts.join(" · "));
+}
+
 // announce writes the one polite live region (#298). Without a central channel
 // every counter was its own live region, so one keypress could queue several
 // announcements. Failures still reach assistive technology through the message
@@ -5642,6 +5685,146 @@ async function compareDirectory() {
   finally { clearInterval(timer); $("cancel").hidden = true; currentAbort = null; }
 }
 
+// ---- streaming a text comparison (#297) ----
+// The comparison is long before it is whole, so /api/diff/stream reports each
+// phase as it happens and sends the hunks in bounded pages. The first page is
+// rendered as soon as it lands; later pages are appended; the unchanged-context
+// regions, which need the full hunk geometry, are interleaved once the stream
+// ends. A small diff arrives as a single page and takes the same path.
+
+// readDiffStream consumes the NDJSON reply, calling onEvent for each line and
+// returning the assembled diff response. Rendering is awaited inside the loop,
+// so pages paint in order.
+async function readDiffStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const data = { hunks: [] };
+  let failure = null;
+
+  const handleLine = async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const event = JSON.parse(trimmed);
+    await onEvent(event, data);
+    if (event.type === "error") failure = event;
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      await handleLine(line);
+    }
+  }
+  if (buffer) await handleLine(buffer);
+
+  if (failure) {
+    throw apiError(
+      { code: failure.code, error: failure.error, path: failure.path, side: failure.side },
+      { status: 0 },
+    );
+  }
+  return data;
+}
+
+// beginStreamRender paints the frame a large diff needs before its hunks: the
+// summary, the pane headers, and an empty result that the pages fill.
+function beginStreamRender(data) {
+  applyDisplayPreferences();
+  renderSummary(data);
+  const result = $("result");
+  result.innerHTML = "";
+  setupNavigation(data);
+  syncExportPatchVisibility();
+  result.append(paneHeads(data));
+  clearUnchangedContext();
+}
+
+// appendStreamHunks renders one page onto the result. start is the global hunk
+// index, so every hunk keeps the id and merge coordinates the finished diff
+// would have given it.
+async function appendStreamHunks(hunks, stream) {
+  if (!hunks.length) return;
+  const start = stream.rendered;
+  const complete = await renderInSlices($("result"), hunks, (hunk, index) => renderHunk(hunk, start + index));
+  if (!complete) return;
+  stream.rendered += hunks.length;
+  // renderInSlices reports its own page-local count; the tracker knows the
+  // whole streamed result, so let it own the lane again after a page.
+  renderProgress(stream.tracker.snapshot());
+}
+
+// applyDiffStreamEvent routes one progress event: stage transitions drive the
+// tracker, a forecast posts to the message lane before the reader meets the
+// truncation, and result pages paint as they arrive.
+async function applyDiffStreamEvent(event, stream, generation) {
+  if (!isCurrentRequest(generation)) return;
+  if (event.type === "stage") {
+    if (event.state === "active") stream.tracker.begin(event.stage);
+    else stream.tracker.finish(event.stage, event.elapsed_ms);
+    return;
+  }
+  if (event.type === "forecast") {
+    stream.tracker.setForecast(event);
+    const notice = degradationNotice(event);
+    if (notice) messageLog.post(t(notice.key, notice.params), "warning");
+    return;
+  }
+  if (event.type === "result" && event.result) {
+    Object.assign(stream.data, event.result);
+    stream.data.hunks = Array.isArray(event.result.hunks) ? [...event.result.hunks] : [];
+    if (event.page_count) stream.tracker.progress(1, event.page_count);
+    if (!stream.started) {
+      stream.started = true;
+      beginStreamRender(stream.data);
+    }
+    await appendStreamHunks(stream.data.hunks, stream);
+    return;
+  }
+  if (event.type === "result_page" && Array.isArray(event.hunks)) {
+    stream.data.hunks.push(...event.hunks);
+    if (event.page_count) stream.tracker.progress((event.page || 0) + 1, event.page_count);
+    await appendStreamHunks(event.hunks, stream);
+  }
+}
+
+// finishStreamRender interleaves the unchanged-context regions now that every
+// hunk is on screen, then runs the same finishing steps as a one-shot render.
+async function finishStreamRender(stream) {
+  const data = stream.data;
+  const result = $("result");
+  stream.tracker.begin("render");
+  if (!data.hunks.length) {
+    const scope = t("textMatchScope", {
+      old: Number(data.old_lines || 0).toLocaleString(),
+      new: Number(data.new_lines || 0).toLocaleString(),
+    });
+    result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
+    stream.tracker.finish("render");
+    return;
+  }
+  prepareUnchangedContext(data);
+  for (let index = 0; index < data.hunks.length; index++) {
+    const node = document.getElementById(`hunk-${index}`);
+    if (node && unchangedRegions[index]) node.before(unchangedRegions[index].node);
+  }
+  if (unchangedRegions[data.hunks.length]) result.append(unchangedRegions[data.hunks.length].node);
+  syncContextVisibility();
+  const contextComplete = await loadInitialContext({ announce: true });
+  if (contextComplete) setStatus("");
+  if (searchOpen()) runSearch();
+  updateMergeUI();
+  observeHunks();
+  buildMinimap(data);
+  updateMinimapViewport();
+  stream.tracker.finish("render");
+}
+
 async function runCompare() {
   // A provisional line render only exists in a text edit session; anything that
   // leaves text mode must drop it rather than strand the banner (#258).
@@ -5672,19 +5855,23 @@ async function runCompare() {
     $("summary").hidden = true;
     showResultSkeleton();
   }
-  const started = Date.now();
-  const tick = () => setStatus(t("comparing") + " " + ((Date.now() - started) / 1000).toFixed(1) + "s", "busy");
-  tick();
-  const timer = setInterval(tick, 100);
+  // The tracker renders the phases the server reports; there is no client-side
+  // elapsed timer pretending to know more than the pipeline does (#297).
+  const tracker = createProgressTracker({ onChange: renderProgress });
+  tracker.start(comparisonStagePlan({ detectMoves: body.detectMoves }));
+  const stream = { data: { hunks: [] }, tracker, rendered: 0, started: false };
   try {
-    const resp = await apiFetch("/api/diff", {
+    const response = await apiFetch("/api/diff/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ac.signal,
     });
-    const data = await resp.json();
-    if (!resp.ok) throw apiError(data, resp);
+    if (!response.ok) {
+      const failure = await response.json().catch(() => ({}));
+      throw apiError(failure, response);
+    }
+    const data = await readDiffStream(response, (event) => applyDiffStreamEvent(event, stream, generation));
     // Drag and drop, folder-entry clicks, and sync-point edits all call
     // compare() directly, so a newer comparison can already be running (#128).
     if (!isCurrentRequest(generation)) return false;
@@ -5698,13 +5885,11 @@ async function runCompare() {
       const source = $("old").value.trim();
       $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.txt";
     }
-    // Stop the elapsed ticker before rendering: renderResult yields between
-    // slices, so the ticker would otherwise keep overwriting its progress.
-    clearInterval(timer);
-    const rendered = await renderResult(data);
+    await finishStreamRender(stream);
+    tracker.stop();
     // A render the user stopped is not a finished comparison: report the
     // cancellation and leave the form open, like an aborted request (#128).
-    if (!rendered && renderGate.cancelled) {
+    if (renderGate.cancelled) {
       setStatus(t("cancelled"), "");
       return false;
     }
@@ -5717,7 +5902,7 @@ async function runCompare() {
     else setStatus(String(err.message || err), "error");
     return false;
   } finally {
-    clearInterval(timer);
+    tracker.stop();
     $("cancel").hidden = true;
     currentAbort = null;
   }
