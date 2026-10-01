@@ -439,6 +439,14 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .summary .note { color: var(--muted); }
 /* A left/right encoding mismatch is a likely cause of garbled output (#130). */
 .summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
+/* The truncation notice carries one action that lifts the cap for the reader,
+   so they never have to pick a number themselves (#261). */
+.summary .note-action {
+  margin: 0; padding: 0.1rem 0.55rem; border: 1px solid var(--border);
+  background: transparent; color: var(--accent); font: inherit;
+  font-size: var(--fs-caption); border-radius: var(--radius-control); cursor: pointer;
+}
+.summary .note-action:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 .diff-nav {
   /* Left-aligned and wrapping. Centring made the controls drift with the width

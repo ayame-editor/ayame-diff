@@ -49,6 +49,7 @@ const {
   missingContextSpans,
   batchContextRanges,
 } = globalThis.AyameUnchanged;
+const { nextMaxHunks } = globalThis.AyameTruncation;
 const {
   continuousEntries,
   windowAround,
@@ -2191,6 +2192,30 @@ function renderHunk(h, index) {
   return box;
 }
 
+// The server says how many hunks it dropped; the reader should not have to turn
+// that into a number. One click derives the next cap from what was omitted,
+// writes it to #maxHunks (which stays reachable for manual control), and runs
+// the comparison again — compare() captures and restores the scroll anchor, so
+// the reader keeps their place (#261).
+function computeMoreButton(res) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "note-action compute-more";
+  button.textContent = t("computeMoreHunks");
+  button.title = t("computeMoreHunksTitle");
+  button.setAttribute("aria-label", t("computeMoreHunksTitle"));
+  button.addEventListener("click", () => {
+    // hunk_count counts every hunk, including the omitted ones, so
+    // hunk_count - omitted is the cap this run actually used.
+    const used = Number(res.hunk_count) - Number(res.omitted_hunks);
+    const next = nextMaxHunks(used, res.omitted_hunks);
+    $("maxHunks").value = String(next);
+    updateDetailsBadges();
+    void compare();
+  });
+  return button;
+}
+
 function renderSummary(res) {
   const el = $("summary");
   el.innerHTML = "";
@@ -2236,7 +2261,7 @@ function renderSummary(res) {
     const n = document.createElement("span");
     n.className = "note";
     n.textContent = t("omitted", fmt(res.omitted_hunks));
-    el.append(n);
+    el.append(n, computeMoreButton(res));
   }
   // Show what `encoding: auto` decoded each file as, and flag a left/right
   // mismatch — the material clue when output looks garbled (#130). Present only
