@@ -132,27 +132,56 @@ function releaseBrowserSession() {
 }
 
 // The message catalog lives in i18n.js; this file keeps the current choice.
-const { CATALOG: I18N, translate, pickLanguage } = globalThis.AyameI18N;
+const { CATALOG: I18N, translate, pickLanguage, languages, languageMeta, localeTag, direction } = globalThis.AyameI18N;
 let lang = pickLanguage(localStorage.getItem("ayame-lang"), navigator.language);
 
 function t(key, arg) {
   return translate(I18N, lang, key, arg);
 }
+
+// Numbers follow the chosen UI language, not the runtime's locale (#144).
+function fmt(value) {
+  return Number(value || 0).toLocaleString(localeTag(lang));
+}
+
 function applyLang(next) {
   lang = next;
   localStorage.setItem("ayame-lang", lang);
   document.documentElement.lang = lang;
+  // A right-to-left language added to the catalog flips the layout here (#144).
+  document.documentElement.dir = direction(lang);
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
 	for (const el of document.querySelectorAll("[data-i18n-placeholder]")) el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
   for (const el of document.querySelectorAll("[data-i18n-title]")) el.title = t(el.getAttribute("data-i18n-title"));
   for (const el of document.querySelectorAll("[data-i18n-aria-label]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria-label")));
+  syncLanguageOptions();
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	refreshContextTranslations();
 	renderRecentComparisons();
 }
+
+// The switcher lists every catalog language under its own name, so a third
+// language is a data-only change (#144).
+function syncLanguageOptions() {
+  const select = $("lang");
+  if (!select) return;
+  const wanted = languages();
+  const existing = Array.from(select.options).map((option) => option.value);
+  if (existing.length !== wanted.length || existing.some((value, index) => value !== wanted[index])) {
+    select.textContent = "";
+    for (const code of wanted) {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = languageMeta(code).name;
+      select.append(option);
+    }
+  }
+  select.value = lang;
+}
+
 
 // ---- editable panes (#255) ----
 //
@@ -540,7 +569,7 @@ async function renderContinuous(data, body) {
   result.innerHTML = "";
   result.append(paneHeads(data));
   if (!entries.length) {
-    result.append(resultStateCard(t("completeMatch"), t("folderMatchScope", { total: data.entries.length.toLocaleString() })));
+    result.append(resultStateCard(t("completeMatch"), t("folderMatchScope", { total: fmt(data.entries.length) })));
     continuousView = { entries: [], sections: [], loaded: new Set(), pending: new Map(), focus: 0, frame: 0 };
     syncContinuousControls();
     updateContinuousCounter();
@@ -727,12 +756,12 @@ function renderContinuousSectionBody(section, data, index) {
   if (!data.hunks?.length) {
     meta.textContent = `${t(entry?.status || "changed")} · ${t("completeMatch")}`;
     bodyElement.append(resultStateCard(t("completeMatch"), t("textMatchScope", {
-      old: Number(data.old_lines || 0).toLocaleString(),
-      new: Number(data.new_lines || 0).toLocaleString(),
+      old: fmt(Number(data.old_lines || 0)),
+      new: fmt(Number(data.new_lines || 0)),
     })));
     return;
   }
-  meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: data.hunks.length.toLocaleString() })}`;
+  meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: fmt(data.hunks.length) })}`;
   for (const [hunkIndex, hunk] of data.hunks.entries()) {
     const node = renderHunk(hunk, hunkIndex);
     // renderHunk names a hunk for the single-file view; here the same number
@@ -825,8 +854,8 @@ function updateContinuousCounter() {
   const counter = $("diffCounter");
   if (!view || !counter) return;
   counter.textContent = t("continuousCounter", {
-    current: (view.entries.length ? view.focus + 1 : 0).toLocaleString(),
-    total: view.entries.length.toLocaleString(),
+    current: fmt((view.entries.length ? view.focus + 1 : 0)),
+    total: fmt(view.entries.length),
   });
 }
 
@@ -1504,14 +1533,14 @@ function contextGapControl(region, gap) {
     button.addEventListener("click", () => void expandContextSpan(region, gap, direction));
     control.append(button);
   };
-  if (canExpandUp) addDirection("up", "↑", t("contextExpandUp", { count: chunk.toLocaleString() }));
+  if (canExpandUp) addDirection("up", "↑", t("contextExpandUp", { count: fmt(chunk) }));
   const label = document.createElement("button");
   label.type = "button";
   label.className = "context-gap-label";
-  label.textContent = t("contextHidden", { count: gap.count.toLocaleString() });
+  label.textContent = t("contextHidden", { count: fmt(gap.count) });
   label.title = canExpandUp && canExpandDown
-    ? t("contextExpandBoth", { count: chunk.toLocaleString() })
-    : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: chunk.toLocaleString() });
+    ? t("contextExpandBoth", { count: fmt(chunk) })
+    : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: fmt(chunk) });
   label.disabled = region.pending;
   const defaultDirection = canExpandUp && canExpandDown ? "both" : (canExpandUp ? "up" : "down");
   let dragStart = null;
@@ -1540,7 +1569,7 @@ function contextGapControl(region, gap) {
     void expandContextSpan(region, gap, defaultDirection);
   });
   control.append(label);
-  if (canExpandDown) addDirection("down", "↓", t("contextExpandDown", { count: chunk.toLocaleString() }));
+  if (canExpandDown) addDirection("down", "↓", t("contextExpandDown", { count: fmt(chunk) }));
   return control;
 }
 
@@ -1577,10 +1606,10 @@ function refreshContextTranslations() {
     region.node.setAttribute("aria-label", t("contextRegion"));
     for (const gap of region.node.querySelectorAll(".context-gap")) {
       const count = Number(gap.dataset.contextCount) || 0;
-      const chunk = Math.min(CONTEXT_EXPAND_CHUNK, count).toLocaleString();
+      const chunk = fmt(Math.min(CONTEXT_EXPAND_CHUNK, count));
       const label = gap.querySelector(".context-gap-label");
       if (label) {
-        label.textContent = t("contextHidden", { count: count.toLocaleString() });
+        label.textContent = t("contextHidden", { count: fmt(count) });
         const hasUp = Boolean(gap.querySelector(".context-expand.up"));
         const hasDown = Boolean(gap.querySelector(".context-expand.down"));
         label.title = hasUp && hasDown
@@ -1837,7 +1866,7 @@ function renderSummary(res) {
     }
     s.className = "stat " + cls + (jumpable ? " stat-jump" : "");
     const count = document.createElement("b");
-    count.textContent = n.toLocaleString();
+    count.textContent = fmt(n);
     s.append(count, ` ${label}`);
     return s;
   };
@@ -1865,7 +1894,7 @@ function renderSummary(res) {
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
-    n.textContent = t("omitted", res.omitted_hunks.toLocaleString());
+    n.textContent = t("omitted", fmt(res.omitted_hunks));
     el.append(n);
   }
   // Show what `encoding: auto` decoded each file as, and flag a left/right
@@ -1956,7 +1985,7 @@ async function renderInSlices(target, items, build) {
     } while (index < items.length && performance.now() - started < RENDER_BUDGET_MS);
     target.append(frag);
     if (index >= items.length) break;
-    setStatus(t("rendering", { done: index.toLocaleString(), total: items.length.toLocaleString() }), "busy");
+    setStatus(t("rendering", { done: fmt(index), total: fmt(items.length) }), "busy");
     await yieldToBrowser();
     if (token !== renderToken) return false;
   }
@@ -2052,7 +2081,7 @@ function paneHeads(data = {}) {
     const encoding = data[`${side}_encoding`] || "";
     const lines = data[`${side}_lines`];
     const details = [path];
-    if (lines != null) details.push(t("lineCount", { count: Number(lines).toLocaleString() }));
+    if (lines != null) details.push(t("lineCount", { count: fmt(Number(lines)) }));
     if (encoding) details.push(`${t("encoding")}: ${encoding}`);
     name.title = details.filter(Boolean).join("\n");
     head.append(label, name);
@@ -2061,7 +2090,7 @@ function paneHeads(data = {}) {
       meta.className = "pane-head-meta";
       meta.textContent = [
         encoding,
-        lines != null ? t("lineCount", { count: Number(lines).toLocaleString() }) : "",
+        lines != null ? t("lineCount", { count: fmt(Number(lines)) }) : "",
       ].filter(Boolean).join(" · ");
       head.append(meta);
     }
@@ -2138,7 +2167,7 @@ async function renderResult(data) {
   result.append(paneHeads(data));
   if (!data.hunks.length) {
     clearUnchangedContext();
-    const scope = t("textMatchScope", { old: data.old_lines.toLocaleString(), new: data.new_lines.toLocaleString() });
+    const scope = t("textMatchScope", { old: fmt(data.old_lines), new: fmt(data.new_lines) });
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
     return;
   }
@@ -2315,8 +2344,8 @@ async function renderThreeWay(data, csvMode) {
   if (data.events.length) setStatus("");
   if (!data.events.length) {
     const scope = csvMode
-      ? t("threeWayCSVMatchScope", { columns: (data.header || []).length.toLocaleString() })
-      : t("threeWayTextMatchScope", { lines: Number(data.base_lines || 0).toLocaleString() });
+      ? t("threeWayCSVMatchScope", { columns: fmt((data.header || []).length) })
+      : t("threeWayTextMatchScope", { lines: fmt(Number(data.base_lines || 0)) });
     result.append(resultStateCard(t(comparisonUsesRules(csvMode) ? "filteredMatch" : "completeMatch"), scope));
   }
   observeHunks(); updateThreeWayMergeUI(); buildMinimap(lastData); updateMinimapViewport();
@@ -2682,7 +2711,7 @@ function renderMessages(entries) {
     const time = document.createElement("time");
     time.className = "message-time";
     time.dateTime = stamp.toISOString();
-    time.textContent = stamp.toLocaleTimeString(lang === "ja" ? "ja-JP" : "en-US");
+    time.textContent = stamp.toLocaleTimeString(localeTag(lang));
 
     const dismiss = document.createElement("button");
     dismiss.type = "button";
@@ -2829,7 +2858,7 @@ async function inspectCSV() {
 function renderCSVSummary(data) {
   const summary = data.summary, el = $("summary");
   el.innerHTML = "";
-  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = Number(value || 0).toLocaleString(); item.append(b, ` ${label}`); el.append(item); };
+  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = fmt(Number(value || 0)); item.append(b, ` ${label}`); el.append(item); };
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
   for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
@@ -2861,7 +2890,7 @@ function renderCSV(data) {
   if (!data.differences.length) {
     if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
     else {
-      const scope = t("csvMatchScope", { rows: Number(data.summary.equal_rows || 0).toLocaleString(), columns: data.header.length.toLocaleString() });
+      const scope = t("csvMatchScope", { rows: fmt(Number(data.summary.equal_rows || 0)), columns: fmt(data.header.length) });
       result.append(resultStateCard(t(comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"), scope));
     }
     return;
@@ -3215,7 +3244,7 @@ async function renderDirectory(data, body, state = {}) {
     const item = document.createElement("span"); item.className = `stat ${cls}`;
     const mark = document.createElement("span"); mark.className = "stat-marker"; mark.textContent = DIR_MARKERS[name];
     mark.setAttribute("aria-hidden", "true");
-    const b = document.createElement("b"); b.textContent = data[name].toLocaleString();
+    const b = document.createElement("b"); b.textContent = fmt(data[name]);
     item.append(mark, " ", b, ` ${t(name)}`); summary.append(item);
   }
   summary.hidden = false;
@@ -3283,8 +3312,8 @@ async function renderDirectory(data, body, state = {}) {
     const badges = document.createElement("span"); badges.className = "dir-badges";
     const total = document.createElement("span");
     total.className = "dir-badge total";
-    total.textContent = node.total.toLocaleString();
-    total.title = t("folderFileCount", { count: node.total.toLocaleString() });
+    total.textContent = fmt(node.total);
+    total.title = t("folderFileCount", { count: fmt(node.total) });
     badges.append(total);
     for (const [status, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"]]) {
       if (!node.counts[status]) continue;
@@ -4973,7 +5002,7 @@ applyViewMode(localStorage.getItem("ayame-view") || "side");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();
-$("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
+$("lang").addEventListener("change", () => applyLang($("lang").value));
 $("stopServer").addEventListener("click", stopServer);
 syncModeOpts();
 syncPatchOpts();

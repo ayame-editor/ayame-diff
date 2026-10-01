@@ -170,8 +170,7 @@
   	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
   	folderName: "名前", folderSize: "サイズ", folderModified: "更新日時", folderSearch: "パス検索", folderSearchPlaceholder: "フォルダ結果を検索", folderFileCount: (v) => `${v.count} ファイル`,
   	filterExpression: "フィルタ式", filterFile: "フィルタファイル", filterSet: "フィルタセット", compareBy: "比較方法", filterPreview: "フィルタをプレビュー", filterPreviewResult: (v) => `左 ${v.old_count} / 右 ${v.new_count} / 合計 ${v.union_count}`,
-      langButton: "日本語 → EN",
-      langSwitchLabel: "言語を英語に切り替え",
+      langSwitchLabel: "表示言語",
     },
     en: {
       mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
@@ -327,13 +326,45 @@
   	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
   	folderName: "Name", folderSize: "Size", folderModified: "Modified", folderSearch: "path search", folderSearchPlaceholder: "Search folder results", folderFileCount: (v) => `${v.count} files`,
   	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `left ${v.old_count} / right ${v.new_count} / union ${v.union_count}`,
-      langButton: "English → 日本語",
-      langSwitchLabel: "Switch language to Japanese",
+      langSwitchLabel: "Display language",
     },
+  };
+
+  // Per-language presentation metadata (#144): the switcher labels every entry
+  // in the language's own name, number and time formatting follow the chosen
+  // locale rather than the runtime's, and the text direction is applied to the
+  // document so a right-to-left language added here is laid out correctly.
+  // Adding a language is a new CATALOG table plus one line here — no app.js
+  // change.
+  const LANGUAGE_META = {
+    ja: { name: "日本語", tag: "ja-JP", dir: "ltr" },
+    en: { name: "English", tag: "en-US", dir: "ltr" },
   };
 
   function languages() {
     return Object.keys(CATALOG);
+  }
+
+  function languageMeta(lang) {
+    return LANGUAGE_META[lang] || { name: lang, tag: lang, dir: "ltr" };
+  }
+
+  // The BCP-47 tag to hand to Intl/toLocaleString for the chosen UI language.
+  function localeTag(lang) {
+    return languageMeta(lang).tag;
+  }
+
+  // "ltr" or "rtl"; applied to documentElement.dir by the UI.
+  function direction(lang) {
+    return languageMeta(lang).dir;
+  }
+
+  // The next language in catalog order, for a switcher that never hardcodes a
+  // pair of languages.
+  function nextLanguage(current) {
+    const all = languages();
+    const index = all.indexOf(current);
+    return all[(index + 1 + all.length) % all.length] || all[0] || FALLBACK_LANGUAGE;
   }
 
   // An unknown key returns itself: a missing translation shows which string is
@@ -356,5 +387,5 @@
     return "en";
   }
 
-  return { CATALOG, FALLBACK_LANGUAGE, languages, translate, pickLanguage };
+  return { CATALOG, FALLBACK_LANGUAGE, languages, languageMeta, localeTag, direction, nextLanguage, translate, pickLanguage };
 });

@@ -352,11 +352,18 @@ func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
 		`event.keyCode === 229`,
 		`["base", "old", "new", "oldText", "newText"]`,
 		`data-i18n-aria-label`,
-		`langButton: "日本語 → EN"`,
-		`langButton: "English → 日本語"`,
+		`syncLanguageOptions()`,
+		`document.documentElement.dir = direction(lang)`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// The switcher is built from the catalog, so a third language needs no
+	// hardcoded pair in the UI (#144).
+	for _, gone := range []string{`lang === "ja" ? "en" : "ja"`, `langButton`} {
+		if strings.Contains(app, gone) {
+			t.Errorf("app.js still hardcodes the language pair: %q", gone)
 		}
 	}
 }
