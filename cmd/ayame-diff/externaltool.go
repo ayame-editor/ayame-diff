@@ -97,8 +97,8 @@ browser GUI opens and this command blocks until its tab closes, so a calling
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		return reportFlagError(err, stderr)
+	if code, stopped := parseFlagsOrExit(fs, args, stdout, stderr); stopped {
+		return code
 	}
 	if fs.NArg() != 2 {
 		fmt.Fprintln(stderr, "error: difftool needs exactly two paths: LEFT RIGHT")
@@ -156,8 +156,8 @@ side logically.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		return reportFlagError(err, stderr)
+	if code, stopped := parseFlagsOrExit(fs, args, stdout, stderr); stopped {
+		return code
 	}
 	if fs.NArg() != 3 {
 		fmt.Fprintln(stderr, "error: mergetool needs three paths: BASE LOCAL REMOTE")

@@ -140,6 +140,11 @@ func TestHandleTextMergeRejections(t *testing.T) {
 	if code := post(`{"inline":true,"oldText":"a\n","newText":"b\n","defaultChoice":"middle"}`); code != http.StatusBadRequest {
 		t.Errorf("invalid defaultChoice: code=%d, want 400", code)
 	}
+	// An implicit-resolution target the endpoint cannot honor is rejected rather
+	// than silently falling back to left (#272).
+	if code := post(`{"inline":true,"oldText":"a\n","newText":"b\n","allowUnresolved":true,"unresolvedTarget":"middle"}`); code != http.StatusBadRequest {
+		t.Errorf("invalid unresolvedTarget: code=%d, want 400", code)
+	}
 }
 
 // TestHandleCSVDiffRejections covers #141: decodeCSVRequest / validateCSVKeys

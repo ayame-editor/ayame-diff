@@ -44,6 +44,25 @@ wrongly. When that happens, name the encoding explicitly.
 The same flag is available on both `text` and `sorted`, and mirrors the
 `encoding` field of the [GUI](gui.md) `/api/diff` request.
 
+## CP932 and Shift_JIS
+
+`shift_jis` in ayame-diff is the Windows code page **CP932**, also written
+Windows-31J or MS932, which is what Excel, Access and most Japanese business
+tools emit. It is a superset of the older JIS X 0208 Shift_JIS: it adds the
+NEC/IBM extension characters and maps a few code points differently. The
+practical difference is the vendor-specific characters (`①`, `㈱`, `～` and the
+like): they decode correctly under `shift_jis`, while a strict JIS X 0208
+decoder would reject them or show a different glyph. For example, the byte pair
+`81 60` is `～` (FULLWIDTH TILDE, U+FF5E) under CP932 but `〜` (WAVE DASH,
+U+301C) under strict JIS.
+
+The two share almost all of their byte ranges, so auto-detection cannot tell
+them apart: both are reported as `shift_jis`, which is the useful choice for
+editing Japanese business files. If you need the strict JIS mapping, convert the
+file first rather than relying on `--encoding`. In a text comparison, the
+[GUI](gui.md) shows the detected encoding in each pane header and lets you
+switch it there, re-running the comparison without losing your scroll position.
+
 ## Examples
 
 Force Shift_JIS when a file is misdetected:

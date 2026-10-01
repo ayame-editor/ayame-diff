@@ -42,6 +42,10 @@ LEFT/RIGHT パス、包含/除外 glob、フィルタ式、比較方法、隠し
     "ToleranceSet": true,
     "HasHeader": true,
     "AlignColumnsByName": true,
+    "ColumnMap": [
+      { "left": 0, "right": 2 },
+      { "left": 1, "right": -1, "ignore": true }
+    ],
     "LeftFormat": "auto",
     "RightFormat": "auto",
     "LeftParser": "auto",
@@ -53,7 +57,14 @@ LEFT/RIGHT パス、包含/除外 glob、フィルタ式、比較方法、隠し
     "PartitionBufferText": "256KiB",
     "MergeFanIn": 32,
     "MaxRecordText": "256MiB",
-    "OutputHeader": true
+    "OutputHeader": true,
+    "RowFilter": {
+      "match": "all",
+      "conditions": [{ "column": "status", "op": "eq", "value": "active" }]
+    },
+    "ColumnFilter": {
+      "conditions": [{ "op": "starts", "value": "tmp_" }]
+    }
   },
   "report": {
     "cell_diff": true,
@@ -62,7 +73,9 @@ LEFT/RIGHT パス、包含/除外 glob、フィルタ式、比較方法、隠し
 }
 ```
 
-`csv` はシリアライズ可能な `engine.Config` です：パス、キー、パーサ/リソース設定、宣言的な無視ルール、数値の許容差、セルレポート設定、および出力設定が保持されます。実行時のライターやコールバックは意図的に除外されています。未知のフィールドやバージョン `1` 以外はクローズドに失敗します。
+`csv` はシリアライズ可能な `engine.Config` です：パス、キー、パーサ/リソース設定、宣言的な無視ルール、数値の許容差、セルレポート設定、出力設定、そして任意のビジュアルフィルタビルダーのツリー（値条件の `RowFilter` と無視列の `ColumnFilter`）が保持されます。実行時のライターやコールバックは意図的に除外されています。未知のフィールドやバージョン `1` 以外はクローズドに失敗します。
+
+`ColumnMap` は手動の左右列対応を保存します：出力列ごとに1エントリを持ち、片側に列が無い場合は `-1`、表示は残して比較から外す場合は `ignore` を指定します。GUI の手動列マッピングから保存され、列名が食い違う比較を繰り返し実行できます。
 
 ## CLI
 

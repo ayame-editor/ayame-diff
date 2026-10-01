@@ -73,12 +73,8 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() > 2 {
 		fmt.Fprintln(stderr, "error: gui accepts at most two paths: LEFT RIGHT")
@@ -101,7 +97,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 func serveGUISession(req guiSessionRequest, deps guiCommandDeps, stderr io.Writer) int {
 	remote, err := remoteBind(req.addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if remote && !req.allowRemote {
@@ -113,7 +109,7 @@ func serveGUISession(req guiSessionRequest, deps guiCommandDeps, stderr io.Write
 	// actually bound, which the default "port 0" only reveals here.
 	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", req.addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer ln.Close()
@@ -128,7 +124,7 @@ func serveGUISession(req guiSessionRequest, deps guiCommandDeps, stderr io.Write
 		MergeOutcome:        req.mergeOutcome,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if remote {
@@ -142,7 +138,7 @@ func serveGUISession(req guiSessionRequest, deps guiCommandDeps, stderr io.Write
 		}
 	}
 	if err := deps.serve(ln, handler, shutdownRequests); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK

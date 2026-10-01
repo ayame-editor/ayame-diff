@@ -509,6 +509,45 @@ go test -race ./...
 go vet ./...
 ```
 
+## 性能
+
+`internal/e2e` は [#279](https://github.com/ayame-editor/ayame-diff/issues/279) の大入力ケースをエンドツーエンドで実行し、各ケースが「完走する」か「明示的な上限エラーで止まる」のどちらかであることを検証します。ハング・OOM・無言の切り捨ては起きません。既定サイズは CI で回る大きさで、`AYAME_BENCH_LARGE=1` で issue に挙げられたサイズになります。
+
+```bash
+# 既定（CI）サイズ
+go test -run '^$' -bench . -benchmem ./internal/e2e
+
+# issue のサイズ: 1000万行 CSV、約1GiB テキスト、10万ファイル、100MiB 単一行
+AYAME_BENCH_LARGE=1 go test -run '^$' -bench . -benchtime=1x ./internal/e2e
+
+# CI のリグレッション判定: 代表ケースが余裕を持った上限内に完走しなければ失敗
+AYAME_E2E_REGRESSION=1 go test ./internal/e2e -run TestEndToEndPerformanceBudget -v
+
+# フロント側ヘルパーの上限（純粋なヘルパーのみ。ブラウザ描画は未計測）
+AYAME_WEB_PERF=1 node --test internal/server/web/test/perf.test.js
+```
+
+AMD Ryzen 3 7330U（Linux、Go 1.26）で `-benchtime=1x` により1回計測した値です。1回の計測はばらつくため、桁の目安としてください。
+
+| ケース | 既定サイズ | 時間 | 大サイズ | 時間 |
+| --- | --- | --- | --- | --- |
+| CSV 4列、1000行ごとに1件変更 | 200,000 行 | 約0.5秒 | 10,000,000 行 | 約30秒 |
+| テキスト、2ファイルを行単位で比較 | 各16MiB | 約0.3秒 | 各1GiB | 約28秒 |
+| フォルダツリー、10ファイルごとに1件変更 | 2,000 ファイル | 約0.3秒 | 100,000 ファイル | 約8秒 |
+| 1行が非常に長いファイル | 4MiB | 約0.1秒 | 100MiB | 約1.2秒 |
+
+100MiB の単一行は `--max-line-bytes` を引き上げて実行しています。既定の 64MiB 上限では明示的に拒否されます。
+
+上限内で比較できない入力は、無言で劣化せず上限を名指しして止まります。
+
+- `--max-line-bytes`（既定 64MiB）を超える1行は、比較開始前のオープン時に拒否されます。
+- `--max-entries`（既定 2,000,000）を超えるフォルダは、ファイル単位の処理前に、実件数と上限を添えて拒否されます。
+- `--max-record-bytes`（既定 256MiB）を超える CSV レコードは、符号化後サイズと設定上限を添えて失敗します。
+
+### 計測していないもの
+
+ブラウザ描画（初回描画、スクロール、条件変更後の再描画）は CI では計測していません。実際のブラウザが必要で、別途 [#154](https://github.com/ayame-editor/ayame-diff/issues/154) で追跡しています。フロント側の上限が計測するのは、`app.js` が動かす DOM 非依存の処理です。具体的には、インラインのワード diff の DP、ミニマップの区間パッキング、大きな差分に対する未変更範囲の計算です。インラインのワード diff は `INLINE_MAX_CHARS` / `INLINE_MAX_TOKENS` を超えると、無制限の DP を実行せず明示的に打ち切ります。
+
 ## 処理方式
 
 1. 左右の形式、ヘッダー、列数、キー選択を検査

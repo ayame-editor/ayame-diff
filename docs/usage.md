@@ -54,6 +54,14 @@ their row order differs, and write the differing rows to a TSV. Left and right
 may use different formats; if the header names match, differing column orders
 are aligned automatically.
 
+The comparison is row-order independent by design: the same rows in a different
+order are equal data, not a difference. The GUI states that verdict in one line
+— "data equal (only column order differs)", "data equal (only row order
+differs)", or "N real data differences" — instead of leaving you to interpret
+the counts. When both sides name the same columns in a different order, it also
+offers to align them by name and compare again in one action, so a mis-ordered
+extraction can be confirmed equal without re-extracting it.
+
 ```bash
 ayame-diff csv --left old.tsv --right new.csv --key id --out diff.tsv
 ```
@@ -168,6 +176,27 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 --diff-exit-code
 ```
 
+### Memory budget and spilling
+
+`--memory` (default `2GiB`) is the resident budget the comparison may use for
+sorting. The GUI requests `512MiB` by default and the server lowers any larger
+request to an `8GiB` cap; a smaller effective budget only makes the engine spill
+more, so the result is unchanged.
+
+When a partition does not fit its share of the budget, the engine sorts it in
+chunks and merges the sorted runs from `--temp-dir`, so a comparison larger than
+RAM still finishes. The run summary reports the budget it resolved as
+`memory_budget_bytes` and whether it spilled as `spilled`; the GUI's CSV summary
+shows the same, for example `memory 512.0MiB / limit 8GiB spilling to /tmp`.
+Spill files live under a per-run directory and are removed after success, after a
+failure, and after cancellation. A running comparison can be cancelled at any
+time — including while it is spilling — and returns promptly.
+
+!!! warning
+    As with `sorted`, point `--temp-dir` at a real filesystem. On many Linux
+    systems `TMPDIR` is RAM-backed, so spilling there consumes memory instead of
+    saving it.
+
 Run `ayame-diff csv --help` for the complete list, including tuning knobs for
 very large inputs (`--memory`, `--partitions`, `--parse-workers`, `--workers`,
 `--merge-fan-in`, `--temp-dir`).
@@ -207,7 +236,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 | Flag | Output |
 |---|---|
 | *(none)* | Unified hunks (default). |
-| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. |
+| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. `--east-asian-ambiguous-wide` counts East Asian Ambiguous characters as two cells to match terminals that render them full-width. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
 | `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
@@ -242,6 +271,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)
 --width N                    total width for --side-by-side (default 160)
+--east-asian-ambiguous-wide  count East Asian Ambiguous characters (○, ※, α) as two cells in --side-by-side
 ```
 
 Patch output is never truncated by `--max-hunks` or `--max-lines`. It preserves
@@ -555,6 +585,23 @@ A usage error and a runtime failure are deliberately distinct, so a script can
 tell "you called it wrong" from "it could not finish". An internal crash is
 reported as `3` with a stack trace on stderr; it never exits `2` and so is never
 mistaken for a usage error.
+
+---
+
+## Error messages { #error-messages }
+
+When a command fails, `ayame-diff` prints a short explanation and a one-line
+remedy on standard error: `error: The file was not found.` followed by
+`hint: Check the path. ...`. The message language follows the locale, in the
+order `LC_ALL`, `LC_MESSAGES`, `LANG`; a value beginning with `ja` selects
+Japanese, and anything else selects English. Common failures — a missing path,
+a permission error, a malformed flag value, malformed JSON, and an output that
+is also an input — are explained in plain language instead of the raw syscall,
+`strconv`, or `encoding/json` text.
+
+Exit codes and machine-readable output (`--json`, `--tsv`, `--summary-json`)
+are unaffected. Set `AYAME_DIFF_DEBUG` to any value to print the raw error text
+beneath the explanation when filing a bug report.
 
 ---
 
