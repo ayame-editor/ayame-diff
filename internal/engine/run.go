@@ -22,38 +22,12 @@ import (
 func Run(ctx context.Context, cfg Config) (Summary, error) {
 	started := time.Now()
 	var summary Summary
-	resolved, err := cfg.resolve()
+	prepared, err := prepareComparisonInputs(cfg)
 	if err != nil {
 		return summary, err
 	}
-	if err := ensureFileDescriptorBudget(resolved); err != nil {
-		return summary, err
-	}
-	if err := validateDistinctOutput(resolved.LeftPath, resolved.RightPath, resolved.OutputPath); err != nil {
-		return summary, err
-	}
-	leftSpec, err := resolveInputSpec(resolved.LeftPath, resolved.LeftFormat, resolved.LeftDelimiter, resolved.LeftParser, "left")
-	if err != nil {
-		return summary, err
-	}
-	rightSpec, err := resolveInputSpec(resolved.RightPath, resolved.RightFormat, resolved.RightDelimiter, resolved.RightParser, "right")
-	if err != nil {
-		return summary, err
-	}
-	leftInfo, err := inspectInput(leftSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
-	if err != nil {
-		return summary, err
-	}
-	rightInfo, err := inspectInput(rightSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
-	if err != nil {
-		return summary, err
-	}
-	resolvedSchema, err := buildSchema(leftInfo, rightInfo, resolved.Config)
-	if err != nil {
-		return summary, err
-	}
-	resolved.Comparison = resolvedSchema.Comparison
-	resolved.ComparisonHeader = append([]string(nil), resolvedSchema.Header...)
+	resolved := prepared.resolved
+	resolvedSchema := prepared.schema
 
 	workRoot, createdByUs, err := createWorkRoot(resolved.Config)
 	if err != nil {
@@ -69,11 +43,11 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		}()
 	}
 
-	leftParts, leftRows, err := partitionInput(ctx, leftSpec, leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-left"))
+	leftParts, leftRows, err := partitionInput(ctx, prepared.leftSpec, prepared.leftInfo, resolvedSchema.LeftMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-left"))
 	if err != nil {
 		return summary, fmt.Errorf("partition left input: %w", err)
 	}
-	rightParts, rightRows, err := partitionInput(ctx, rightSpec, rightInfo, resolvedSchema.RightMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-right"))
+	rightParts, rightRows, err := partitionInput(ctx, prepared.rightSpec, prepared.rightInfo, resolvedSchema.RightMap, resolvedSchema.KeyIndexes, resolvedSchema.KeyIsFullRow, resolved, filepath.Join(workRoot, "partitions-right"))
 	if err != nil {
 		return summary, fmt.Errorf("partition right input: %w", err)
 	}
@@ -118,6 +92,64 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 		return summary.ColumnChanges[i].Index < summary.ColumnChanges[j].Index
 	})
 	return summary, nil
+}
+
+// preparedComparisonInputs is the resolved, inspected form of a Config that
+// both Run and SameRowOrder need. Resolving it is cheap (it reads only the
+// first record of each input) and shared so the two never disagree about the
+// column mapping or normalization.
+type preparedComparisonInputs struct {
+	resolved  resolvedConfig
+	leftSpec  inputSpec
+	rightSpec inputSpec
+	leftInfo  inspectedInput
+	rightInfo inspectedInput
+	schema    schema
+}
+
+func prepareComparisonInputs(cfg Config) (preparedComparisonInputs, error) {
+	var prepared preparedComparisonInputs
+	resolved, err := cfg.resolve()
+	if err != nil {
+		return prepared, err
+	}
+	if err := ensureFileDescriptorBudget(resolved); err != nil {
+		return prepared, err
+	}
+	if err := validateDistinctOutput(resolved.LeftPath, resolved.RightPath, resolved.OutputPath); err != nil {
+		return prepared, err
+	}
+	leftSpec, err := resolveInputSpec(resolved.LeftPath, resolved.LeftFormat, resolved.LeftDelimiter, resolved.LeftParser, "left")
+	if err != nil {
+		return prepared, err
+	}
+	rightSpec, err := resolveInputSpec(resolved.RightPath, resolved.RightFormat, resolved.RightDelimiter, resolved.RightParser, "right")
+	if err != nil {
+		return prepared, err
+	}
+	leftInfo, err := inspectInput(leftSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
+	if err != nil {
+		return prepared, err
+	}
+	rightInfo, err := inspectInput(rightSpec, resolved.HasHeader, resolved.LazyQuotes, resolved.TrimLeadingSpace)
+	if err != nil {
+		return prepared, err
+	}
+	resolvedSchema, err := buildSchema(leftInfo, rightInfo, resolved.Config)
+	if err != nil {
+		return prepared, err
+	}
+	resolved.Comparison = resolvedSchema.Comparison
+	resolved.ComparisonHeader = append([]string(nil), resolvedSchema.Header...)
+	prepared = preparedComparisonInputs{
+		resolved:  resolved,
+		leftSpec:  leftSpec,
+		rightSpec: rightSpec,
+		leftInfo:  leftInfo,
+		rightInfo: rightInfo,
+		schema:    resolvedSchema,
+	}
+	return prepared, nil
 }
 
 type partitionResult struct {
