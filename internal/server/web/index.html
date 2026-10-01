@@ -358,6 +358,10 @@
         <button id="allBase" type="button" data-i18n="allBase">All base</button>
         <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
         <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
+        <!-- BASE is not a permanent fourth column (#282). The result pane
+             already shows what a merge would write, so the ancestor is only
+             pulled in when the reader wants to see where a change came from. -->
+        <button id="toggleBase" type="button" class="base-toggle" data-i18n="showBase" aria-pressed="false" hidden>Base</button>
         <span id="mergeUnresolved" aria-live="polite"></span>
         <div class="merge-unresolved" id="mergeUnresolvedBox" hidden>
           <span class="merge-unresolved-title" data-i18n="unresolvedListHeading">Unresolved differences</span>
@@ -372,8 +376,6 @@
             <option value="markers" data-i18n="targetMarkers">Keep conflict markers</option>
           </select>
         </label>
-        <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
-        <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
         <button id="simulateMerge" type="button" data-i18n="simulateMerge">Preview impact</button>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
@@ -488,6 +490,19 @@
         </menu>
       </form>
     </dialog>
+    <dialog id="mergeSaveDialog" class="app-dialog" aria-labelledby="mergeSaveTitle">
+      <form method="dialog">
+        <h2 id="mergeSaveTitle" data-i18n="saveMerge">Save merge</h2>
+        <p class="details-hint" data-i18n="mergeSaveHint">Choose where the merged result is written.</p>
+        <label class="opt"><span data-i18n="outputPath">output path</span>
+          <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" /></label>
+        <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <menu>
+          <button id="mergeSaveCancel" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+          <button id="mergeSaveOk" value="ok" type="submit" class="primary" data-i18n="saveMerge">Save merge</button>
+        </menu>
+      </form>
+    </dialog>
     <dialog id="shortcutsDialog" class="app-dialog" aria-labelledby="shortcutsTitle">
       <form method="dialog">
         <h2 id="shortcutsTitle" data-i18n="keyboardShortcuts">Keyboard shortcuts</h2>
@@ -590,6 +605,7 @@
     <script src="encoding.js"></script>
     <script src="theme.js"></script>
     <script src="optimistic.js"></script>
+    <script src="threewayview.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

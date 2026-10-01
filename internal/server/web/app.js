@@ -45,6 +45,7 @@ const {
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
+const { resultLines: threeWayResultLines, panes: threeWayPanes } = globalThis.AyameThreeWayView;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const {
   isJapaneseLegacy,
@@ -1340,6 +1341,11 @@ function setMergeMode(on) {
   $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
 }
 let threeWayData = null;
+// BASE is on demand in the three-way view (#282): the common comparison is
+// LEFT | RESULT | RIGHT and this remembers whether the reader asked for the
+// ancestor column. It survives a re-compare so the choice is not lost.
+let threeWayShowBase = false;
+
 // ---- Merge provenance (#257) ----
 // The server resolves the merge and reports each line's origin; the preview
 // only renders it. The manual map carries typed lines by their stable key, so
@@ -3237,6 +3243,7 @@ function updateMergeUI() {
 	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
 	$("allBase").hidden = true;
+	$("toggleBase").hidden = true; // BASE is a three-way-only column (#282)
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
   const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
   // Offer the toggle whenever a text diff can be merged, but keep the adopt
@@ -3254,9 +3261,14 @@ function updateMergeUI() {
 // result has no cap on its event count, so a file with thousands of conflicts
 // meant thousands of full-document scans per click (#154).
 let mergeRowIndex = new Map();
+// The three-way result pane for each event, so a choice rewrites just that
+// pane instead of re-rendering the comparison (#282).
+let mergeResultIndex = new Map();
 
 function resetMergeRowIndex() { mergeRowIndex = new Map(); }
 function indexMergeRow(id, node) { mergeRowIndex.set(String(id), node); }
+function resetMergeResultIndex() { mergeResultIndex = new Map(); }
+function indexMergeResult(id, node) { mergeResultIndex.set(String(id), node); }
 
 function updateCSVMergeUI() {
   $("mergePanel").hidden = false;
@@ -3396,7 +3408,8 @@ async function renderThreeWay(data, csvMode) {
   add(t("conflicts"), data.conflicts, "del"); add(t("left"), data.left_only); add(t("right"), data.right_only); add(t("same"), data.same_change); if (data.merged) add(t("autoMerged"), data.merged, "add"); summary.hidden = false;
   const result = $("result"); result.innerHTML = "";
   result.append(paneHeads(data));
-  resetMergeRowIndex();
+  resetMergeRowIndex(); resetMergeResultIndex();
+  setThreeWayBase(threeWayShowBase);
   lastData = {
     old_lines: data.base_lines || data.events.length,
     new_lines: data.base_lines || data.events.length,
@@ -3431,7 +3444,17 @@ async function renderThreeWay(data, csvMode) {
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
-    for (const [name, values] of (event.kind === "merged" ? [[t("sideBase"), event.base], ["MERGED", event.combined]] : [[t("sideBase"), event.base], [t("sideLeft"), event.left], [t("sideRight"), event.right]])) { const pane = document.createElement("section"); pane.className = "three-pane"; const title = document.createElement("h3"); title.textContent = name; pane.append(title); for (const line of threeLines(values, csvMode)) { const row = document.createElement("div"); row.className = "three-line"; row.textContent = line; pane.append(row); } grid.append(pane); }
+    // LEFT | RESULT | RIGHT, with BASE only when asked for. The result pane
+    // is the merge output: what a save would write for this event (#282).
+    const choice = mergeSelection.sides(event.id).join(",");
+    for (const paneData of threeWayPanes(event, choice, threeWayShowBase)) {
+      const pane = renderThreeWayPane(document.createElement("section"), paneData, csvMode);
+      if (paneData.role === "result") {
+        pane.dataset.choice = choice;
+        indexMergeResult(event.id, pane);
+      }
+      grid.append(pane);
+    }
     box.append(head, grid);
     return box;
   };
@@ -3450,16 +3473,66 @@ async function renderThreeWay(data, csvMode) {
   observeHunks(); updateThreeWayMergeUI(); buildMinimap(lastData); updateMinimapViewport();
   return true;
 }
+// setThreeWayBase shows or hides the ancestor column and keeps the toggle's
+// pressed state in step with it (#282).
+function setThreeWayBase(show) {
+  threeWayShowBase = Boolean(show);
+  $("result").classList.toggle("show-base", threeWayShowBase);
+  $("toggleBase").setAttribute("aria-pressed", threeWayShowBase ? "true" : "false");
+}
+
+function threeWayPaneLabel(role) {
+  if (role === "base") return t("sideBase");
+  if (role === "left") return t("sideLeft");
+  if (role === "right") return t("sideRight");
+  return t("mergeResult");
+}
+
+// One column of a three-way event. The result column is the merge output and
+// is rebuilt in place when a conflict choice changes; the other columns are
+// drawn once at render time.
+function renderThreeWayPane(pane, paneData, csvMode) {
+  pane.className = `three-pane ${paneData.role}`;
+  pane.classList.toggle("unresolved", Boolean(paneData.unresolved));
+  pane.innerHTML = "";
+  const title = document.createElement("h3");
+  title.textContent = threeWayPaneLabel(paneData.role);
+  if (paneData.unresolved) {
+    const badge = document.createElement("span");
+    badge.className = "three-pane-badge";
+    badge.textContent = t("unresolvedBadge");
+    title.append(" ", badge);
+  }
+  pane.append(title);
+  for (const line of threeLines(paneData.lines, csvMode)) {
+    const row = document.createElement("div");
+    row.className = "three-line";
+    row.textContent = line;
+    pane.append(row);
+  }
+  return pane;
+}
+
 function updateThreeWayMergeUI() {
 	$("allBase").hidden = false;
+  $("toggleBase").hidden = !threeWayData;
   $("mergePanel").hidden = !threeWayData;
   syncMergeProvenancePanel();
   if (!threeWayData) return;
   for (const event of threeWayData.events) {
     syncMergeRow(mergeRowIndex.get(String(event.id)), event.id);
+    // Rewrite only the event whose choice changed; a three-way result has no
+    // cap on its event count, so a full pass would be O(events) per click (#154).
+    const side = mergeSelection.sides(event.id).join(",");
+    const pane = mergeResultIndex.get(String(event.id));
+    if (pane && pane.dataset.choice !== side) {
+      pane.dataset.choice = side;
+      renderThreeWayPane(pane, { role: "result", ...threeWayResultLines(event, side) }, threeWayData.csvMode);
+    }
   }
   refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+  $("toggleBase").setAttribute("aria-pressed", threeWayShowBase ? "true" : "false");
   // A choice change rewrites the result, so an open preview has to follow it.
   if (mergeProvenanceOpen()) scheduleMergePreview();
 }
@@ -5407,6 +5480,32 @@ function askConfirm(message, details) {
   });
 }
 
+// The merge result is on screen as a pane, so its destination is a save-time
+// decision, not something to set before anything can be read (#282). This asks
+// for the path only when Save is pressed, and closes first so the overwrite
+// confirmation that follows is not a second dialog opened underneath this one.
+function defaultMergeOutput() {
+  const csv = $("mode").value === "threeway-csv" || $("mode").value === "csv";
+  const source = ($("base").value || $("old").value || "").trim();
+  if (!source) return csv ? "merged.csv" : "merged.txt";
+  return source.replace(/(\.[^./\\]+)?$/, ".merged$1");
+}
+
+function askMergeOutput() {
+  const dialog = $("mergeSaveDialog");
+  if (dialog.open) return Promise.resolve(false);
+  if (!$("mergeOutput").value.trim()) $("mergeOutput").value = defaultMergeOutput();
+  const opener = document.activeElement;
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      if (opener && typeof opener.focus === "function") opener.focus();
+      resolve(dialog.returnValue === "ok" && Boolean($("mergeOutput").value.trim()));
+    }, { once: true });
+    dialog.showModal();
+    $("mergeOutput").focus();
+  });
+}
+
 async function stopServer() {
   if (!await askConfirm(t("stopServerConfirm"))) return;
   const button = $("stopServer");
@@ -6972,11 +7071,17 @@ $("allBase").addEventListener("click", chooseAllMerge("base"));
 $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
-$("saveMerge").addEventListener("click", saveMergeResult);
+$("toggleBase").addEventListener("click", () => setThreeWayBase(!threeWayShowBase));
+$("saveMerge").addEventListener("click", async () => { if (await askMergeOutput()) await saveMergeResult(); });
+$("simulateMerge").addEventListener("click", async () => { if (await askMergeOutput()) await previewMergeImpact(); });
+$("mergeOutput").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) return;
+  event.preventDefault();
+  $("mergeSaveDialog").close("ok");
+});
 // The preview is a demand-driven server call, so it is fetched when opened and
 // refreshed on choice changes, never on load (#257).
 $("mergeProvenance").addEventListener("toggle", () => { if ($("mergeProvenance").open) void refreshMergePreview(); });
-$("simulateMerge").addEventListener("click", () => void previewMergeImpact());
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
   if (!lastData?.hunks?.length) return;

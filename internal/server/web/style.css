@@ -571,9 +571,22 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .hunk.merge-base.merge-left { border-left-color: var(--del-fg); }
 .hunk.merge-base.merge-right { border-right-color: var(--add-fg); }
 .three-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: auto; }
+/* BASE is on demand (#282): the common comparison is LEFT | RESULT | RIGHT,
+   and the ancestor only takes a column when the reader asks for it. */
+.three-grid > .three-pane.base { display: none; }
+.result.show-base .three-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.result.show-base .three-grid > .three-pane.base { display: block; }
 .three-pane { min-width: 0; border-right: 1px solid var(--border); }
 .three-pane:last-child { border-right: 0; }
 .three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: var(--fs-label); }
+.three-pane.base h3 { color: var(--gold); }
+/* The result column is the merge output, so it is tinted as the line that
+   will be written and flagged while a conflict is still unresolved. */
+.three-pane.result { background: color-mix(in srgb, var(--add-fg) 7%, transparent); }
+.three-pane.result.unresolved { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.three-pane.result.unresolved h3 { color: var(--danger); }
+.three-pane-badge { margin-left: 0.35rem; padding: 0.02rem 0.4rem; border-radius: 999px; background: var(--danger); color: var(--on-accent); font-size: var(--fs-caption); }
+.base-toggle[aria-pressed="true"] { background: var(--gold); color: var(--on-accent); }
 .three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); tab-size: var(--tab-size); -moz-tab-size: var(--tab-size); border-top: 1px solid var(--border); }
 /* Per-line provenance (#257). The gutter repeats KDiff3's summary column: the
    adopted side's initial, and `m` for a line the user typed. Manual gets a grey
@@ -1216,9 +1229,12 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   #diffCounter { min-width: 7rem; }
 
   /* Three fixed columns make every pane unreadable at phone width. The event
-     keeps BASE/LEFT/RIGHT order but presents each pane as a full-width block;
-     the sticky path header follows the same order above it (#107). */
+     keeps LEFT | RESULT | RIGHT order but presents each pane as a full-width
+     block; the sticky path header follows the same order above it (#107). */
   .three-grid { grid-template-columns: 1fr; overflow: visible; }
+  /* An on-demand BASE column stacks with the rest rather than forcing four
+     columns into phone width (#282). */
+  .result.show-base .three-grid { grid-template-columns: 1fr; }
   .three-pane { border-right: 0; border-bottom: 1px solid var(--border); }
   .three-pane:last-child { border-bottom: 0; }
   .pane-heads.three { grid-template-columns: 1fr; }
