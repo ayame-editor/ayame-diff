@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 	"github.com/ayame-editor/ayame-diff/internal/textfile"
 )
 
@@ -171,9 +172,11 @@ func lineRange(source linediff.Lines, start, length uint64) []string {
 	return lines
 }
 
-// MergeLines selects automatic non-conflicts plus explicit conflict choices.
-// Missing conflict choices are emitted with standard conflict markers when
-// allowUnresolved is true; otherwise an error is returned.
+// MergeLines selects automatic non-conflicts plus explicit conflict choices. A
+// conflict choice is a comma-joined list of sides ("left", "right", "base", or a
+// combination such as "left,right"), concatenated in the canonical
+// base→left→right order. Missing conflict choices are emitted with standard
+// conflict markers when allowUnresolved is true; otherwise an error is returned.
 func MergeLines(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]string, int, error) {
 	var output []string
 	var cursor uint64
@@ -189,14 +192,11 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 		case Same:
 			selected = event.Left
 		case Conflict:
-			switch choices[event.ID] {
-			case "left":
-				selected = event.Left
-			case "right":
-				selected = event.Right
-			case "base":
-				selected = event.Base
-			default:
+			// A conflict may adopt more than one contribution ("both"): the
+			// recognized sides are concatenated in the canonical base→left→right
+			// order regardless of the order the caller listed them (#271).
+			adopted := mergechoice.Parse(choices[event.ID], "base", "left", "right")
+			if len(adopted) == 0 {
 				unresolved++
 				if !allowUnresolved {
 					return nil, unresolved, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
@@ -208,6 +208,17 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 				selected = append(selected, "=======")
 				selected = append(selected, event.Right...)
 				selected = append(selected, ">>>>>>> RIGHT")
+				break
+			}
+			for _, side := range adopted {
+				switch side {
+				case "base":
+					selected = append(selected, event.Base...)
+				case "left":
+					selected = append(selected, event.Left...)
+				case "right":
+					selected = append(selected, event.Right...)
+				}
 			}
 		}
 		output = append(output, selected...)

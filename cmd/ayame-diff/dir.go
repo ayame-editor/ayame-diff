@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,12 +56,8 @@ Unchanged files are hidden unless --all is given.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if listFilterSets {
 		for _, name := range dircompare.BuiltinFilterSetNames() {
@@ -72,7 +67,7 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	set, embedded, err := dircompare.ResolveFilterSets(filterFile, filterSets.values)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	oldPath, newPath := "", ""
@@ -106,7 +101,7 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	filter, err := dircompare.ParseFilter(filterExpression)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if quick {
@@ -118,7 +113,7 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	method, err := dircompare.ParseCompareMethod(compareBy)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 
@@ -138,12 +133,12 @@ Unchanged files are hidden unless --all is given.`)
 	}
 	entryLimit, err := parsePositiveByteSize("--max-archive-entry-bytes", maxArchiveEntryBytes)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	totalLimit, err := parsePositiveByteSize("--max-archive-bytes", maxArchiveBytes)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if entryLimit > totalLimit {
@@ -156,7 +151,7 @@ Unchanged files are hidden unless --all is given.`)
 		MaxEntries: maxEntries,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 
@@ -165,7 +160,7 @@ Unchanged files are hidden unless --all is given.`)
 		if err := atomicfile.Write(htmlPath, atomicfile.Options{}, func(w io.Writer) error {
 			return dirreport.WriteHTML(w, res, title, all)
 		}); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		writeDirReportSummary(stderr, res, htmlPath)
@@ -173,24 +168,24 @@ Unchanged files are hidden unless --all is given.`)
 		if err := atomicfile.Write(csvPath, atomicfile.Options{}, func(w io.Writer) error {
 			return dirreport.WriteCSV(w, res, all)
 		}); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		writeDirReportSummary(stderr, res, csvPath)
 	} else if jsonOut {
 		if err := writeDirJSON(stdout, res); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 	} else if tsvOut {
 		if err := writeDirTSV(stdout, res, all); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 		fmt.Fprintf(stderr, "%d added, %d removed, %d changed, %d same\n", res.Added, res.Removed, res.Changed, res.Same)
 	} else {
 		if err := writeDirText(stdout, stderr, res, all); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitError
 		}
 	}

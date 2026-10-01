@@ -17,8 +17,10 @@
       mode: "モード", encoding: "文字コード", window: "ウィンドウ",
       maxHunks: "最大ハンク数", maxLines: "ハンクあたり最大行",
       word: "ワードハイライト", numeric: "数値", reverse: "逆順", compare: "比較",
-  	ignoreCase: "大小無視", whitespace: "空白", ignoreEOL: "改行コード無視",
-  	ignoreTrailingEOL: "末尾改行無視", lineFilters: "行フィルタ", activeFilters: "適用中",
+  	ignoreCase: "大小無視", whitespaceScale: "空白・改行",
+  	wsScaleStrict: "厳密（何も無視しない）", wsScaleEOL: "改行コードを無視",
+  	wsScaleEOLChange: "改行コードと空白の量を無視", wsScaleEOLAll: "改行コードとすべての空白を無視",
+  	lineFilters: "行フィルタ", activeFilters: "適用中",
   	lineFiltersPlaceholder: "1行に1つの正規表現",
   	cancel: "キャンセル",
       cancelled: "キャンセルしました", scheme: "配色", wrap: "折り返し",
@@ -36,6 +38,9 @@
     editSaved: (v) => `${v.side}を保存しました: ${v.path}`,
     editDiscardConfirm: (v) => `${v.sides} に未保存の変更があります。編集を終了して破棄しますか？`,
     editStaleConfirm: (v) => `${v.path} は開いたあとにディスク上で変更されています。上書きしますか？`,
+    editReverted: (v) => `${v.side}の編集を取り消しました`,
+    gutterLocalChange: (v) => `${v.line}行目: このセッションで編集`,
+    gutterRevert: "この範囲の編集を元に戻す",
       messageRepeated: (v) => `${v.message}（${v.count}回）`,
       errFileNotFound: "ファイルが見つかりません。パスを確認するか、「…」ボタンで選び直してください。",
       errPermissionDenied: "アクセス権限がありません。ファイルの権限を確認するか、読み取れる場所のファイルを指定してください。",
@@ -62,8 +67,12 @@
       backToFolder: "フォルダ一覧へ戻る",
       setupSettings: "設定", recompare: "再比較",
       syntax: "シンタックスハイライト", showWs: "空白表示", scratch: "テキスト貼り付け",
+      tabSize: "タブ幅", ambiguousWide: "○ ※ α を全角扱い",
       patchFormat: "patch形式", patchContext: "patch文脈行", exportPatch: "patchを書き出す",
       exporting: "patch生成中…", exported: "patchを書き出しました",
+      reportFormat: "レポート形式", reportIncludeContent: "差分の内容を含める",
+      reportSensitiveHint: "レポートは既定では比較した内容を含みません。内容を共有してよい場合にだけ含めてください。",
+      exportReport: "確認レポートを書き出す", reportGenerating: "レポート生成中…", reportExported: "確認レポートを書き出しました",
       diffCounter: (v) => `差分 ${v.current} / ${v.total}（未読 ${v.unread}）`,
       differenceNavigation: "差分ナビゲーション",
       firstDiff: "最初の差分",
@@ -100,8 +109,14 @@
       computeMoreHunks: "もっと計算する",
       computeMoreHunksTitle: "表示上限を自動で引き上げ、この比較を最後まで計算し直します",
       moveDetectionSkipped: "ハンクが省略されたため、移動検出は実施されませんでした。",
+      hunkOldLabel: "旧", hunkNewLabel: "新", hunkEmptyRange: "なし",
+      hunkInsert: "追加", hunkDelete: "削除", hunkChange: "変更",
+      hunkMoved: (v) => `移動 #${v.id} ↔ ${v.peer}`,
       copyValue: "値をコピー", copied: "コピーしました", copyFailed: "コピーできませんでした（選択しました）",
       copyComparisonURL: "リンクをコピー",
+      comparisonTabs: "比較タブ",
+      newTab: "新しいタブ",
+      closeTab: (v) => `タブを閉じる: ${v.label}`,
       shareURLWarning: "コピーするURLにはローカルファイルのパスと比較条件が含まれます。APIトークンは除外されます。パスを共有してよい相手にだけ渡してください。",
       sharedURLCopied: "APIトークンを含まない比較URLをコピーしました。",
       sharedURLCopyFailed: "比較URLをコピーできませんでした。",
@@ -120,6 +135,7 @@
       shortcutChooseSide: "左/右を採用", shortcutChooseBase: "ベースを採用",
       shortcutSearch: "結果内を検索", shortcutSearchStep: "次/前の一致へ",
       shortcutClose: "検索・ダイアログを閉じる", shortcutCompare: "比較を実行",
+      shortcutRevertLine: "フォーカス中の編集行を元に戻す",
       swap: "入れ替え", swapSides: "左と右を入れ替え",
       engineTuning: "エンジン調整", engineTuningHint: "差分の計算量と表示量に効きます（何を差分と見なすかは変わりません）。結果が打ち切られたときは、通知の「もっと計算する」が自動で調整します。",
       csvParsingOptions: "ファイル形式", csvProjectOptions: "保存した比較",
@@ -156,6 +172,8 @@
   	changedColumnsOnly: "変更列だけ表示", outputPath: "出力パス", outputFormat: "出力形式", outputHeader: "ヘッダーを出力",
   		review: "設定レビュー", runExport: "実行して書き出す", chooseFile: "ファイルを選択", open: "開く",
   		browseFile: "ファイルを参照", close: "閉じる", parentFolder: "親フォルダ",
+ 		browserHome: "ホーム", browserHomeTitle: "ホームフォルダへ移動", browserRoot: "ルート", browserRootTitle: "ファイルシステムのルートへ移動",
+ 		browserRecent: "最近使った場所", browserRecentEmpty: "最近使った場所はありません", browserFilter: "絞り込み", browserFilterPlaceholder: "名前で絞り込む", browserEntriesLabel: "ファイルとフォルダ",
   		panePath: (v) => `${v.side} のパス`, lineCount: (v) => `${v.count} 行`,
   	inspectionDone: (v) => `${v.column_count} 列 — 左 ${v.left_format}/${v.left_parser}、右 ${v.right_format}/${v.right_parser}`,
   	csvNoDiff: "CSV 差分はありません。", csvTruncated: "表示上限に達しました。全件は書き出しを使用してください。",
@@ -167,18 +185,20 @@
   	threeWay: "3-way 比較", conflicts: "競合", autoMerged: "自動マージ",
   	undo: "元に戻す", redo: "やり直す", unresolved: (n) => `未解決 ${n}`, overwriteInput: "入力を上書き", saveMerge: "マージ保存",
   	mergeSaved: (v) => `${v} にマージ結果を保存しました`, unresolvedWarning: (n) => `${n} 件が未解決です。未解決箇所は左を残して保存しますか？`, overwriteWarning: "入力ファイルを上書きします。元に戻せません。続行しますか？",
+  	mergeToggleHint: "クリックで採用、再クリックで解除（両方を採用するには両方をオン）",
   	folderSetup: "フォルダ比較", includes: "include glob", excludes: "exclude glob", hiddenFiles: "隠しファイル", quickCompare: "サイズ + mtime を信頼", statusFilter: "状態", symlinkPolicy: "シンボリックリンクはスキップ。.gz は展開内容を比較します。", chooseFolder: "このフォルダを選択",
   	folderName: "名前", folderSize: "サイズ", folderModified: "更新日時", folderSearch: "パス検索", folderSearchPlaceholder: "フォルダ結果を検索", folderFileCount: (v) => `${v.count} ファイル`,
   	filterExpression: "フィルタ式", filterFile: "フィルタファイル", filterSet: "フィルタセット", compareBy: "比較方法", filterPreview: "フィルタをプレビュー", filterPreviewResult: (v) => `左 ${v.old_count} / 右 ${v.new_count} / 合計 ${v.union_count}`,
-      langButton: "日本語 → EN",
-      langSwitchLabel: "言語を英語に切り替え",
+      langSwitchLabel: "表示言語",
     },
     en: {
       mode: "mode", encoding: "encoding", window: "window", maxHunks: "max hunks",
       maxLines: "max lines/hunk", word: "word highlight", numeric: "numeric",
       reverse: "reverse", compare: "Compare",
-  	ignoreCase: "ignore case", whitespace: "whitespace", ignoreEOL: "ignore EOL",
-  	ignoreTrailingEOL: "ignore trailing EOL", lineFilters: "line filters", activeFilters: "active",
+  	ignoreCase: "ignore case", whitespaceScale: "whitespace / EOL",
+  	wsScaleStrict: "strict (ignore nothing)", wsScaleEOL: "ignore line endings",
+  	wsScaleEOLChange: "ignore line endings and whitespace amount", wsScaleEOLAll: "ignore line endings and all whitespace",
+  	lineFilters: "line filters", activeFilters: "active",
   	lineFiltersPlaceholder: "one regular expression per line",
   	cancel: "Cancel",
       cancelled: "Cancelled", scheme: "colors", wrap: "wrap",
@@ -196,6 +216,9 @@
     editSaved: (v) => `Saved ${v.side}: ${v.path}`,
     editDiscardConfirm: (v) => `${v.sides} has unsaved changes. Leave editing and discard them?`,
     editStaleConfirm: (v) => `${v.path} changed on disk after it was opened. Overwrite it?`,
+    editReverted: (v) => `Reverted the edit in ${v.side}`,
+    gutterLocalChange: (v) => `line ${v.line}: edited in this session`,
+    gutterRevert: "Revert this run of edits",
       messageRepeated: (v) => `${v.message} (${v.count}\u00d7)`,
       errFileNotFound: "The file was not found. Check the path, or pick the file again with the … button.",
       errPermissionDenied: "Access was denied. Check the file's permissions, or choose a file you can read.",
@@ -222,8 +245,12 @@
       backToFolder: "Back to the folder list",
       setupSettings: "Settings", recompare: "Re-compare",
       syntax: "syntax highlight", showWs: "show whitespace", scratch: "paste text",
+      tabSize: "tab size", ambiguousWide: "wide ○ ※ α",
       patchFormat: "patch format", patchContext: "patch context", exportPatch: "Export patch",
       exporting: "Exporting patch…", exported: "Patch exported",
+      reportFormat: "report format", reportIncludeContent: "embed compared content",
+      reportSensitiveHint: "Reports leave the compared content out by default. Include it only when the file may be shared with what it contains.",
+      exportReport: "Export report", reportGenerating: "Generating report…", reportExported: "Confirmation report exported",
       diffCounter: (v) => `Difference ${v.current} / ${v.total} (${v.unread} unread)`,
       differenceNavigation: "Difference navigation",
       firstDiff: "First difference",
@@ -257,8 +284,14 @@
       computeMoreHunks: "Compute more",
       computeMoreHunksTitle: "Automatically raise the display limit and recompute this comparison in full",
       moveDetectionSkipped: "Move detection was skipped because hunks were omitted.",
+      hunkOldLabel: "old", hunkNewLabel: "new", hunkEmptyRange: "none",
+      hunkInsert: "insert", hunkDelete: "delete", hunkChange: "change",
+      hunkMoved: (v) => `moved #${v.id} ↔ ${v.peer}`,
       copyValue: "Copy value", copied: "Copied", copyFailed: "Could not copy; the value is selected instead",
       copyComparisonURL: "Copy link",
+      comparisonTabs: "Comparison tabs",
+      newTab: "New tab",
+      closeTab: (v) => `Close tab: ${v.label}`,
       shareURLWarning: "The copied URL contains local file paths and comparison settings. The API token is removed. Share it only with someone who may see those paths.",
       sharedURLCopied: "Copied a comparison URL without the API token.",
       sharedURLCopyFailed: "Could not copy the comparison URL.",
@@ -277,6 +310,7 @@
       shortcutChooseSide: "Choose left / right", shortcutChooseBase: "Choose base",
       shortcutSearch: "Search in results", shortcutSearchStep: "Next / previous match",
       shortcutClose: "Close search or dialog", shortcutCompare: "Run the comparison",
+      shortcutRevertLine: "Revert the focused edited line",
       swap: "Swap", swapSides: "Swap LEFT and RIGHT",
       engineTuning: "Engine tuning", engineTuningHint: "Affects how much of a difference is computed and shown, not what counts as one. When a result is truncated, Compute more in the notice adjusts this automatically.",
       csvParsingOptions: "File format", csvProjectOptions: "Saved comparisons",
@@ -313,6 +347,8 @@
   	changedColumnsOnly: "changed columns only", outputPath: "output path", outputFormat: "output format", outputHeader: "output header",
   		review: "Review settings", runExport: "Run and export", chooseFile: "Choose a file", open: "Open",
   		browseFile: "Browse for a file", close: "Close", parentFolder: "Parent folder",
+ 		browserHome: "Home", browserHomeTitle: "Go to the home folder", browserRoot: "Root", browserRootTitle: "Go to the filesystem root",
+ 		browserRecent: "Recent places", browserRecentEmpty: "No recent places", browserFilter: "Filter", browserFilterPlaceholder: "Filter by name", browserEntriesLabel: "Files and folders",
   		panePath: (v) => `${v.side} path`, lineCount: (v) => `${v.count} lines`,
   	inspectionDone: (v) => `${v.column_count} columns — left ${v.left_format}/${v.left_parser}, right ${v.right_format}/${v.right_parser}`,
   	csvNoDiff: "No CSV differences.", csvTruncated: "Display limit reached. Use export for the complete result.",
@@ -324,16 +360,49 @@
   	threeWay: "3-way comparison", conflicts: "conflicts", autoMerged: "auto-merged",
   	undo: "Undo", redo: "Redo", unresolved: (n) => `${n} unresolved`, overwriteInput: "overwrite input", saveMerge: "Save merge",
   	mergeSaved: (v) => `Merged result saved to ${v}`, unresolvedWarning: (n) => `${n} differences are unresolved. Save them using the left side?`, overwriteWarning: "This will overwrite an input file and cannot be undone. Continue?",
+  	mergeToggleHint: "Click to adopt, click again to clear (turn both on to adopt both)",
   	folderSetup: "Folder comparison", includes: "include globs", excludes: "exclude globs", hiddenFiles: "hidden files", quickCompare: "trust size + mtime", statusFilter: "statuses", symlinkPolicy: "Symbolic links are skipped. .gz files compare decompressed content.", chooseFolder: "Choose this folder",
   	folderName: "Name", folderSize: "Size", folderModified: "Modified", folderSearch: "path search", folderSearchPlaceholder: "Search folder results", folderFileCount: (v) => `${v.count} files`,
   	filterExpression: "filter expression", filterFile: "filter file", filterSet: "filter set", compareBy: "compare by", filterPreview: "Preview filter", filterPreviewResult: (v) => `left ${v.old_count} / right ${v.new_count} / union ${v.union_count}`,
-      langButton: "English → 日本語",
-      langSwitchLabel: "Switch language to Japanese",
+      langSwitchLabel: "Display language",
     },
+  };
+
+  // Per-language presentation metadata (#144): the switcher labels every entry
+  // in the language's own name, number and time formatting follow the chosen
+  // locale rather than the runtime's, and the text direction is applied to the
+  // document so a right-to-left language added here is laid out correctly.
+  // Adding a language is a new CATALOG table plus one line here — no app.js
+  // change.
+  const LANGUAGE_META = {
+    ja: { name: "日本語", tag: "ja-JP", dir: "ltr" },
+    en: { name: "English", tag: "en-US", dir: "ltr" },
   };
 
   function languages() {
     return Object.keys(CATALOG);
+  }
+
+  function languageMeta(lang) {
+    return LANGUAGE_META[lang] || { name: lang, tag: lang, dir: "ltr" };
+  }
+
+  // The BCP-47 tag to hand to Intl/toLocaleString for the chosen UI language.
+  function localeTag(lang) {
+    return languageMeta(lang).tag;
+  }
+
+  // "ltr" or "rtl"; applied to documentElement.dir by the UI.
+  function direction(lang) {
+    return languageMeta(lang).dir;
+  }
+
+  // The next language in catalog order, for a switcher that never hardcodes a
+  // pair of languages.
+  function nextLanguage(current) {
+    const all = languages();
+    const index = all.indexOf(current);
+    return all[(index + 1 + all.length) % all.length] || all[0] || FALLBACK_LANGUAGE;
   }
 
   // An unknown key returns itself: a missing translation shows which string is
@@ -356,5 +425,5 @@
     return "en";
   }
 
-  return { CATALOG, FALLBACK_LANGUAGE, languages, translate, pickLanguage };
+  return { CATALOG, FALLBACK_LANGUAGE, languages, languageMeta, localeTag, direction, nextLanguage, translate, pickLanguage };
 });

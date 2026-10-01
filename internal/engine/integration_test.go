@@ -370,6 +370,56 @@ func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
 	}
 }
 
+// TestRunCSVReconcileAdoptsBothSides is the #271 contract for two-way CSV: a
+// difference may adopt both sides. A CHANGED pair then emits the left row and
+// then the right row; a one-sided difference emits whichever side exists.
+func TestRunCSVReconcileAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	mustWriteFile(t, leftPath, "id,name\n1,left\n2,left-only\n")
+	mustWriteFile(t, rightPath, "id,name\n1,right\n3,right-only\n")
+	diffPath := filepath.Join(dir, "diff.jsonl")
+	cfg := testConfig(leftPath, rightPath, diffPath)
+	cfg.KeyNames, cfg.CellDiff, cfg.OutputFormat = []string{"id"}, true, "jsonl"
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(diffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := make(map[string]string)
+	decoder := json.NewDecoder(file)
+	for {
+		var item jsonRecordDiff
+		if err := decoder.Decode(&item); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+		choices[item.ID] = "right,left" // deliberately reversed; order must not matter
+	}
+	_ = file.Close()
+	mergedPath := filepath.Join(dir, "merged.csv")
+	cfg = testConfig(leftPath, rightPath, mergedPath)
+	cfg.KeyNames, cfg.Reconcile, cfg.MergeChoices, cfg.OutputHeader = []string{"id"}, true, choices, true
+	cfg.OutputDelimiter = ','
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.UnresolvedRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	records := readDelimitedFile(t, mergedPath, ',')
+	want := [][]string{{"id", "name"}, {"1", "left"}, {"1", "right"}, {"2", "left-only"}, {"3", "right-only"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%#v want=%#v", records, want)
+	}
+}
+
 func TestRunCSVReconcileRejectsUnresolvedWithoutCreatingOutput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
