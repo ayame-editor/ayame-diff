@@ -30,6 +30,7 @@
     "searchPrev",
     "close",
     "compare",
+    "revertLine",
   ];
 
   const DEFAULT_BINDINGS = {
@@ -45,6 +46,7 @@
     searchPrev: "Shift+Enter",
     close: "Escape",
     compare: "Ctrl+Enter",
+    revertLine: "Delete",
   };
 
   // "minimal" keeps only the actions a reader needs to move and search; every

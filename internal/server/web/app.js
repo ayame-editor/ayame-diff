@@ -12,9 +12,22 @@ const {
 const {
   HASH_KEY: COMPARISON_HASH_KEY,
   readComparisonState,
+  readTabState,
   buildComparisonURL,
+  buildTabStateURL,
   buildShareURL,
 } = globalThis.AyameURLState;
+const {
+  emptyDoc: emptyTabDoc,
+  activeTab: activeTabOf,
+  addTab: addTabToDoc,
+  removeTab: removeTabFromDoc,
+  activateTab: activateTabInDoc,
+  updateTab: updateTabInDoc,
+  labelFromState: tabLabelFromState,
+  serializeDoc: serializeTabDoc,
+  parseDoc: parseTabDoc,
+} = globalThis.AyameTabs;
 const {
   calculateMinimapSegments,
   calculateMinimapViewport,
@@ -22,13 +35,39 @@ const {
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+const {
+  marker: provenanceMarker,
+  originClass: provenanceOriginClass,
+  labelKey: provenanceLabelKey,
+  breakdown: provenanceBreakdown,
+} = globalThis.AyameMergeProvenance;
+const { localChangeRegions, localChangeIndex, regionAt } = globalThis.AyameQuickDiff;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
+const { equivalenceTitleKey, alignmentProposal } = globalThis.AyameEquivalence;
+const {
+  requestFields: whitespaceRequestFields,
+  whitespaceMode: whitespaceScaleMode,
+  labelKey: whitespaceScaleLabelKey,
+  levelForWhitespace: whitespaceScaleLevel,
+} = globalThis.AyameWhitespaceScale;
 const {
   buildUnchangedRegions,
   initialContextRanges,
   missingContextSpans,
   batchContextRanges,
 } = globalThis.AyameUnchanged;
+const { nextMaxHunks } = globalThis.AyameTruncation;
+const {
+  comparisonIdentity,
+  hunkSignatures,
+  restoreSignatures,
+  unconfirmedIndexes,
+  confirmProgress,
+} = globalThis.AyameConfirmed;
+const {
+  unresolvedItems: computeMergeUnresolved,
+  targetsFor: mergeTargetsFor,
+} = globalThis.AyameUnresolved;
 const {
   ACTION_IDS: KEYMAP_ACTION_IDS,
   DEFAULT_BINDINGS,
@@ -50,6 +89,12 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+const {
+  formatPercent: formatStatsPercent,
+  buildStats,
+  toCSV: statsToCSV,
+  toJSON: statsToJSON,
+} = globalThis.AyameStatsView;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -145,27 +190,57 @@ function releaseBrowserSession() {
 }
 
 // The message catalog lives in i18n.js; this file keeps the current choice.
-const { CATALOG: I18N, translate, pickLanguage } = globalThis.AyameI18N;
+const { CATALOG: I18N, translate, pickLanguage, languages, languageMeta, localeTag, direction } = globalThis.AyameI18N;
 let lang = pickLanguage(localStorage.getItem("ayame-lang"), navigator.language);
 
 function t(key, arg) {
   return translate(I18N, lang, key, arg);
 }
+
+// Numbers follow the chosen UI language, not the runtime's locale (#144).
+function fmt(value) {
+  return Number(value || 0).toLocaleString(localeTag(lang));
+}
+
 function applyLang(next) {
   lang = next;
   localStorage.setItem("ayame-lang", lang);
   document.documentElement.lang = lang;
+  // A right-to-left language added to the catalog flips the layout here (#144).
+  document.documentElement.dir = direction(lang);
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
 	for (const el of document.querySelectorAll("[data-i18n-placeholder]")) el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
   for (const el of document.querySelectorAll("[data-i18n-title]")) el.title = t(el.getAttribute("data-i18n-title"));
   for (const el of document.querySelectorAll("[data-i18n-aria-label]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria-label")));
+  syncLanguageOptions();
   if (lastData) updateCounter();
 	if (csvData && $("mode").value === "csv") renderCSV(csvData);
 	refreshContextTranslations();
 	renderRecentComparisons();
+	renderTabs();
 }
+
+// The switcher lists every catalog language under its own name, so a third
+// language is a data-only change (#144).
+function syncLanguageOptions() {
+  const select = $("lang");
+  if (!select) return;
+  const wanted = languages();
+  const existing = Array.from(select.options).map((option) => option.value);
+  if (existing.length !== wanted.length || existing.some((value, index) => value !== wanted[index])) {
+    select.textContent = "";
+    for (const code of wanted) {
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = languageMeta(code).name;
+      select.append(option);
+    }
+  }
+  select.value = lang;
+}
+
 
 // ---- editable panes (#255) ----
 //
@@ -202,6 +277,9 @@ function syncEditControls() {
   button.hidden = !available;
   button.setAttribute("aria-pressed", editingEnabled() ? "true" : "false");
   button.classList.toggle("active", editingEnabled());
+  // The gutter's comparison stripe belongs to editing mode (#292); reading a
+  // diff must not suddenly grow a stripe it never had.
+  document.body.classList.toggle("editing", editingEnabled());
 }
 
 async function toggleEditMode() {
@@ -424,15 +502,100 @@ function scheduleEditRecompare() {
   }, EDIT_RECOMPARE_DELAY);
 }
 
+// ---- Gutter change bars (#292) ----
+//
+// A pane being edited carries two different signals. The comparison's own
+// difference is the hunk rendering: the cell shading, and the -/+ marker in the
+// unified view. On top of that, a line whose current text differs from the file
+// the buffer loaded carries a distinct gutter handle, so "this was already a
+// difference" and "I typed this" never blur together while confirming data.
+//
+// The per-side regions are cached here and refreshed whenever an edit lands, so
+// a render that asks once per cell does not recompute them once per line.
+let localChangeMaps = { old: new Map(), new: new Map() };
+
+function refreshLocalChangeMaps() {
+  for (const side of ["old", "new"]) {
+    const buffer = editBufferFor(side);
+    localChangeMaps[side] = buffer
+      ? localChangeIndex(buffer.original(), buffer.lines())
+      : new Map();
+  }
+}
+
+// A glyph, not only a colour: the mark has to survive a monochrome screen and
+// colour blindness, and it names what happened to the line.
+const GUTTER_MARKS = { added: "+", removed: "\u2212", modified: "~" };
+
+// applyLocalChangeMark gives one cell its gutter handle. It is a real element
+// so it can be an accessible marker (role, label, tooltip) and a click target,
+// and so it reads apart from the comparison's shading. kind is null when the
+// line matches the baseline, which removes a handle the line used to carry.
+function applyLocalChangeMark(cellElement, kind) {
+  const existing = cellElement.querySelector(".gutter-change");
+  if (!kind) {
+    if (existing) existing.remove();
+    cellElement.classList.remove("local-change");
+    delete cellElement.dataset.localChange;
+    return;
+  }
+  const line = Number(cellElement.dataset.line);
+  const label = t("gutterLocalChange", { line: line + 1 });
+  cellElement.classList.add("local-change");
+  cellElement.dataset.localChange = kind;
+  let mark = existing;
+  if (!mark) {
+    const gutter = cellElement.querySelector(".ln");
+    if (!gutter) return;
+    mark = document.createElement("span");
+    mark.className = "gutter-change";
+    mark.setAttribute("role", "img");
+    // The handle and the click that opens the line editor share the cell, so
+    // this must not bubble or it would start editing instead of reverting.
+    mark.addEventListener("click", (event) => {
+      event.stopPropagation();
+      revertLocalChange(cellElement.dataset.side, Number(cellElement.dataset.line));
+    });
+    gutter.append(mark);
+  }
+  mark.dataset.kind = kind;
+  mark.textContent = GUTTER_MARKS[kind] || GUTTER_MARKS.modified;
+  // The label describes the mark for a screen reader; the tooltip names the
+  // action a pointer can take on the same element.
+  mark.title = t("gutterRevert");
+  mark.setAttribute("aria-label", label);
+}
+
+// Clicking a bar puts back the whole run it spans, not only the line under the
+// pointer. The comparison catches up on the same debounce a keystroke uses, so
+// a revert costs one comparison even when several bars are cleared in a row.
+function revertLocalChange(side, line) {
+  const buffer = editBufferFor(side);
+  if (!buffer || buffer.readOnly() || !Number.isInteger(line)) return false;
+  const region = regionAt(localChangeRegions(buffer.original(), buffer.lines()), line);
+  if (!region) return false;
+  closeLineEditor({ commit: true });
+  const original = buffer.original();
+  let moved = false;
+  for (let index = region.start; index <= region.end && index < buffer.count(); index++) {
+    if (buffer.setLine(index, original[index])) moved = true;
+  }
+  if (!moved) return false;
+  markEditedPanes();
+  scheduleEditRecompare();
+  setStatus(t("editReverted", { side: sideLabel(side) }), "success");
+  return true;
+}
+
 function markEditedPanes() {
   // The file watcher refuses to auto-reload over unsaved work by reading this
   // flag; owning it here is what connects the editor to that guard.
   document.body.dataset.unsavedChanges = editedSides().length ? "true" : "false";
+  refreshLocalChangeMaps();
   for (const side of ["old", "new"]) {
     const buffer = editBufferFor(side);
-    const changed = new Set(buffer ? buffer.changedLines() : []);
     for (const marked of document.querySelectorAll(`#result .cell.selectable-line[data-side="${side}"]`)) {
-      marked.classList.toggle("edited", changed.has(Number(marked.dataset.line)));
+      applyLocalChangeMark(marked, localChangeMaps[side].get(Number(marked.dataset.line)) || null);
     }
     const head = document.querySelector(`.pane-head.${side}`);
     if (!head) continue;
@@ -539,7 +702,7 @@ async function renderContinuous(data, body) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
-  for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle"]) {
+  for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle", "confirmCounter", "prevUnconfirmed", "nextUnconfirmed"]) {
     const node = $(id); if (node) node.hidden = true;
   }
   // Navigation crosses file boundaries here, so the buttons that the tree hides
@@ -553,7 +716,7 @@ async function renderContinuous(data, body) {
   result.innerHTML = "";
   result.append(paneHeads(data));
   if (!entries.length) {
-    result.append(resultStateCard(t("completeMatch"), t("folderMatchScope", { total: data.entries.length.toLocaleString() })));
+    result.append(resultStateCard(t("completeMatch"), t("folderMatchScope", { total: fmt(data.entries.length) })));
     continuousView = { entries: [], sections: [], loaded: new Set(), pending: new Map(), focus: 0, frame: 0 };
     syncContinuousControls();
     updateContinuousCounter();
@@ -563,11 +726,11 @@ async function renderContinuous(data, body) {
   const sections = [];
   continuousView = { entries, sections, loaded: new Set(), pending: new Map(), focus: 0, body, frame: 0 };
 
-  await renderInSlices(result, entries, (entry, index) => {
+  if (!(await renderInSlices(result, entries, (entry, index) => {
     const section = buildContinuousSection(entry, index);
     sections.push(section);
     return section;
-  });
+  }))) return;
 
   syncContinuousControls();
   updateContinuousCounter();
@@ -740,12 +903,12 @@ function renderContinuousSectionBody(section, data, index) {
   if (!data.hunks?.length) {
     meta.textContent = `${t(entry?.status || "changed")} · ${t("completeMatch")}`;
     bodyElement.append(resultStateCard(t("completeMatch"), t("textMatchScope", {
-      old: Number(data.old_lines || 0).toLocaleString(),
-      new: Number(data.new_lines || 0).toLocaleString(),
+      old: fmt(Number(data.old_lines || 0)),
+      new: fmt(Number(data.new_lines || 0)),
     })));
     return;
   }
-  meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: data.hunks.length.toLocaleString() })}`;
+  meta.textContent = `${t(entry?.status || "changed")} · ${t("hunkCount", { count: fmt(data.hunks.length) })}`;
   for (const [hunkIndex, hunk] of data.hunks.entries()) {
     const node = renderHunk(hunk, hunkIndex);
     // renderHunk names a hunk for the single-file view; here the same number
@@ -838,8 +1001,8 @@ function updateContinuousCounter() {
   const counter = $("diffCounter");
   if (!view || !counter) return;
   counter.textContent = t("continuousCounter", {
-    current: (view.entries.length ? view.focus + 1 : 0).toLocaleString(),
-    total: view.entries.length.toLocaleString(),
+    current: fmt((view.entries.length ? view.focus + 1 : 0)),
+    total: fmt(view.entries.length),
   });
 }
 
@@ -877,6 +1040,9 @@ function buildContinuousMinimap() {
 // ---- word-level diff (ported from ayame-editor web/src/search.ts) ----
 // The word diff lives in worddiff.js so it can be tested without a DOM (#139).
 const { inlineWordDiff, inlineTokens, pushPart } = globalThis.AyameWordDiff;
+// The display-width model lives in textwidth.js, mirroring internal/textwidth,
+// so the tab stops the GUI renders match the width the CLI computes (#289).
+const { displayWidth, nextTabStop, normalizeTabSize } = globalThis.AyameTextWidth;
 const {
   DIR_MARKERS,
   DIR_AUTO_EXPAND_LIMIT,
@@ -885,6 +1051,9 @@ const {
   dirEntryStamp,
   directoryEntryRequest,
   filterDirectoryEntries,
+  formatBytes,
+  formatEpochNanos,
+  rememberPlace,
 } = globalThis.AyameDirectory;
 
 // In-flight request controller, so the Cancel button can abort a long compare.
@@ -904,7 +1073,7 @@ let busyOperation = null;
 // operation is in flight. Cancel is deliberately absent: stopping the running
 // operation is the one thing that must stay available.
 const EXCLUSIVE_CONTROLS = [
-  "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge",
+  "compare", "exportPatch", "exportReport", "inspectCSV", "exportCSV", "saveMerge", "simulateMerge",
   "saveProject", "loadProject", "dirPreview", "saveDirProject", "loadDirProject",
   "addSync", "clearSync", "allLeft", "allRight", "allBase", "copyComparisonURL",
 ];
@@ -963,6 +1132,16 @@ let contextRequestID = 0;
 let currentHunk = -1;
 let readHunks = new Set();
 let navObserver = null;
+// Explicit confirmed marks (#288) are a third state beside read and ignored.
+// confirmedSignatures holds one content-derived signature per current hunk and
+// confirmedHunks the signatures the user confirmed; storage is keyed by the
+// comparison identity so the same comparison resumes across sessions. Read-on-
+// scroll stays in readHunks and is never treated as confirmation.
+const CONFIRMED_STORAGE_KEY = "ayame-confirmed";
+const CONFIRMED_COMPARISONS_MAX = 200;
+let confirmedComparison = "";
+let confirmedSignatures = [];
+let confirmedHunks = new Set();
 let syncSelection = { old: null, new: null };
 let syncPoints = [];
 let ignoredHunks = new Set();
@@ -978,7 +1157,12 @@ let directoryData = null, directoryBody = null;
 // the flag accidentally.
 let directoryEntryView = null;
 let directorySearchTimer = 0;
-let mergeChoices = new Map(), mergeDefault = null, mergeUndo = [], mergeRedo = [];
+// Merge selection is a toggle model (#271): each hunk holds the set of
+// contributions it adopts, so clicking a chosen side again clears it and a hunk
+// can adopt both sides. The kind fixes the canonical concatenation order.
+const { createMergeSelection } = globalThis.AyameMergeSelect;
+let mergeSelection = createMergeSelection("text"), mergeUndo = [], mergeRedo = [];
+function resetMergeSelection(kind) { mergeSelection = createMergeSelection(kind); }
 // Merge (adopt-left/right) controls are opt-in: most sessions only read diffs,
 // so the per-hunk adopt buttons and the merge panel stay hidden until the user
 // enters merge mode. setMergeMode syncs the body class the CSS keys off and the
@@ -990,6 +1174,16 @@ function setMergeMode(on) {
   $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
 }
 let threeWayData = null;
+// ---- Merge provenance (#257) ----
+// The server resolves the merge and reports each line's origin; the preview
+// only renders it. The manual map carries typed lines by their stable key, so
+// changing a conflict choice does not silently move an edit to another line.
+let mergePreview = null;
+let mergeManual = new Map();
+let mergePreviewToken = 0;
+let mergePreviewTimer = 0;
+let mergeLineEditor = null;
+let mergeComposing = false;
 
 // ---- External file changes (#251) ----
 // The server long-polls with os.Stat while the browser keeps the authenticated
@@ -1127,7 +1321,7 @@ async function armFileWatchFromCurrentState() {
 const URL_STATE_MODES = new Set(["text", "sorted", "csv", "threeway", "threeway-csv", "dir"]);
 const URL_STATE_CONTROL_IDS = [
   "encoding", "numeric", "reverse",
-  "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters",
+  "ignoreCase", "whitespaceScale", "lineFilters",
   "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
   "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
   "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
@@ -1140,6 +1334,164 @@ const URL_STATE_CONTROL_IDS = [
 let restoringComparisonURL = false;
 let comparisonURLReplaceTimer = 0;
 let comparisonURLRestoreGeneration = 0;
+
+// ---- Multiple comparisons (#281) ----
+// Several comparisons stay open as tabs. The active tab is mirrored into the
+// setup form and the result; before switching away, its comparison state and
+// scroll anchor are stashed, and the target recomputes from its own state. That
+// trades recomputation for bounded memory, which the issue explicitly allows as
+// long as scroll position and edits survive.
+let tabDoc = emptyTabDoc();
+let tabSwitching = false;
+
+function renderTabs() {
+  const nav = $("comparisonTabs");
+  const list = $("tabList");
+  if (!nav || !list) return;
+  nav.hidden = tabDoc.tabs.length === 0;
+  list.innerHTML = "";
+  const active = activeTabOf(tabDoc);
+  for (const tab of tabDoc.tabs) {
+    const selected = tab.id === active?.id;
+    const item = document.createElement("div");
+    item.className = "tab";
+    item.classList.toggle("active", selected);
+    item.dataset.tab = tab.id;
+
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "tab-label";
+    label.setAttribute("role", "tab");
+    label.setAttribute("aria-selected", String(selected));
+    label.tabIndex = selected ? 0 : -1;
+    label.textContent = tab.label;
+    label.title = tab.label;
+    label.addEventListener("click", () => { void switchTab(tab.id); });
+    item.append(label);
+
+    if (tabDoc.tabs.length > 1) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "tab-close";
+      close.setAttribute("aria-label", t("closeTab", { label: tab.label }));
+      close.textContent = "×";
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void closeTab(tab.id);
+      });
+      item.append(close);
+    }
+    list.append(item);
+  }
+  list.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// rememberActiveTab keeps the active tab's stored state and label in step with
+// the form after a successful compare or a condition edit.
+function rememberActiveTab(state) {
+  const active = activeTabOf(tabDoc);
+  const label = tabLabelFromState(state);
+  if (!active) {
+    tabDoc = addTabToDoc(tabDoc, { state, label }, { activate: true });
+  } else {
+    tabDoc = updateTabInDoc(tabDoc, active.id, { state, label });
+  }
+  renderTabs();
+}
+
+// stashActiveTab records what the outgoing tab was showing, including where it
+// was scrolled to, so switching back returns to the same line.
+function stashActiveTab() {
+  const active = activeTabOf(tabDoc);
+  if (!active) return;
+  const patch = { scroll: captureResultScrollAnchor() };
+  const state = captureComparisonState();
+  if (state) {
+    patch.state = state;
+    patch.label = tabLabelFromState(state);
+  }
+  tabDoc = updateTabInDoc(tabDoc, active.id, patch);
+}
+
+async function loadActiveTab() {
+  const active = activeTabOf(tabDoc);
+  if (!active) return;
+  if (!active.state || !validComparisonPaths(active.state)) {
+    updateComparisonURL("replace");
+    renderTabs();
+    return;
+  }
+  restoringComparisonURL = true;
+  try {
+    if (!(await applyComparisonState(active.state))) {
+      setStatus(t("urlStateInvalid"), "warning");
+      return;
+    }
+    await compare({ urlHistory: "none", scrollAnchor: active.scroll || null });
+  } finally {
+    restoringComparisonURL = false;
+  }
+  updateComparisonURL("replace");
+  renderTabs();
+}
+
+async function switchTab(id) {
+  if (tabSwitching) return;
+  const active = activeTabOf(tabDoc);
+  if (!active || active.id === id || !tabDoc.tabs.some((tab) => tab.id === id)) {
+    renderTabs();
+    return;
+  }
+  if (editingEnabled() && !(await guardUnsavedEdits())) return;
+  tabSwitching = true;
+  try {
+    stashActiveTab();
+    tabDoc = activateTabInDoc(tabDoc, id);
+    renderTabs();
+    await loadActiveTab();
+  } finally {
+    tabSwitching = false;
+  }
+}
+
+// openTab duplicates the current comparison: the usual next step is to change
+// one side, so starting from the open state is cheaper than retyping it.
+async function openTab() {
+  if (tabSwitching) return;
+  if (editingEnabled() && !(await guardUnsavedEdits())) return;
+  stashActiveTab();
+  const state = captureComparisonState();
+  const label = state ? tabLabelFromState(state) : t("newTab");
+  tabDoc = addTabToDoc(tabDoc, {
+    state,
+    label,
+    scroll: state ? captureResultScrollAnchor() : null,
+  }, { activate: true });
+  renderTabs();
+  updateComparisonURL("replace");
+}
+
+async function closeTab(id) {
+  if (tabSwitching) return;
+  const active = activeTabOf(tabDoc);
+  if (!active || tabDoc.tabs.length <= 1) return;
+  const closing = tabDoc.tabs.find((tab) => tab.id === id);
+  if (!closing) return;
+  if (id === active.id && editingEnabled() && !(await guardUnsavedEdits())) return;
+  const wasActive = id === active.id;
+  tabDoc = removeTabFromDoc(tabDoc, id);
+  renderTabs();
+  if (!wasActive) {
+    updateComparisonURL("replace");
+    return;
+  }
+  tabSwitching = true;
+  try {
+    await loadActiveTab();
+  } finally {
+    tabSwitching = false;
+  }
+}
 
 function hasComparisonResult() {
   return Boolean(lastData || csvData || threeWayData || directoryData);
@@ -1245,8 +1597,18 @@ function updateComparisonURL(action = "replace") {
   if (restoringComparisonURL || action === "none") return false;
   const state = captureComparisonState();
   if (!state) return false;
+  rememberActiveTab(state);
   try {
-    const next = buildComparisonURL(location.href, state, true);
+    const comparisonURL = buildComparisonURL(location.href, state, true);
+    let next = comparisonURL;
+    try {
+      next = buildTabStateURL(comparisonURL, serializeTabDoc(tabDoc), true);
+    } catch (error) {
+      // The active comparison still fits, but the whole tab set does not: keep
+      // the single-comparison URL rather than lose the comparison too (#281).
+      if (error?.code !== "STATE_TOO_LARGE") throw error;
+      next = buildTabStateURL(comparisonURL, null, true);
+    }
     if (next === location.href) return true;
     const metadata = { ayameComparison: true };
     if (action === "push") history.pushState(metadata, "", next);
@@ -1268,7 +1630,7 @@ function scheduleComparisonURLReplace() {
 }
 
 async function waitForIdleOperation() {
-  if (currentAbort) currentAbort.abort();
+  cancelCurrentOperation();
   while (busyOperation) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -1285,7 +1647,11 @@ async function restoreComparisonFromURL(state) {
       return false;
     }
     if (generation !== comparisonURLRestoreGeneration) return false;
-    return await compare({ urlHistory: "none" });
+    const restored = await compare({ urlHistory: "none" });
+    // A legacy or shared URL carries one comparison and no tab set; give it a
+    // tab so the bar reflects what is on screen (#281).
+    if (restored) rememberActiveTab(state);
+    return restored;
   } finally {
     if (generation === comparisonURLRestoreGeneration) restoringComparisonURL = false;
   }
@@ -1334,11 +1700,16 @@ function syncCopyComparisonURLVisibility() {
 // 801,400 elements — for a display that is off by default, and it was the
 // layout of all those nodes that froze the page (#127). Toggling the option
 // re-renders, which is what applyDisplayPreferences now arranges.
-function appendText(el, text) {
+function appendText(el, text, column) {
+  let col = Number.isFinite(column) ? column : 0;
+  // The column is only consumed to place whitespace markers, so skip the width
+  // walk entirely when they are off. A large diff renders many tokens and the
+  // count would otherwise be paid on every one of them (#127).
   if (!showWhitespace()) {
     el.appendChild(document.createTextNode(text));
-    return;
+    return col;
   }
+  const opts = widthOptions();
   const re = /(\s+)|([^\s]+)/g;
   let m;
   while ((m = re.exec(text))) {
@@ -1350,13 +1721,50 @@ function appendText(el, text) {
       original.textContent = m[1];
       const visible = document.createElement("span");
       visible.className = "ws-visible";
-      visible.textContent = m[1].replace(/ /g, "·").replace(/\t/g, "→");
+      const marked = visibleWhitespace(m[1], col, opts);
+      visible.textContent = marked.text;
+      col = marked.column;
       s.append(original, visible);
       el.appendChild(s);
     } else {
       el.appendChild(document.createTextNode(m[2]));
+      col += displayWidth(m[2], opts);
     }
   }
+  return col;
+}
+
+// visibleWhitespace renders a whitespace run for the "show whitespace" mode.
+// Raw tabs are hidden behind the markers, so the marker itself has to reach the
+// tab stop: "→" plus one "·" per remaining cell. That is what makes tabbed lines
+// stay aligned while whitespace is visible, and it is where the East Asian
+// Ambiguous width choice changes the result (#289).
+function visibleWhitespace(run, column, options) {
+  const tabSize = currentTabSize();
+  let col = column;
+  let out = "";
+  for (const ch of run) {
+    if (ch === "\t") {
+      const stop = nextTabStop(col, tabSize);
+      out += "→" + "·".repeat(Math.max(0, stop - col - 1));
+      col = stop;
+    } else if (ch === " ") {
+      out += "·";
+      col += 1;
+    } else {
+      out += ch;
+      col += displayWidth(ch, options);
+    }
+  }
+  return { text: out, column: col };
+}
+
+function widthOptions() {
+  return { eastAsianAmbiguousWide: Boolean($("ambiguousWide")?.checked) };
+}
+
+function currentTabSize() {
+  return normalizeTabSize($("tabSize")?.value);
 }
 
 function showWhitespace() { return $("showWs").checked; }
@@ -1364,25 +1772,28 @@ function syntaxPath(side) {
   if ($("scratch").checked) return "";
   return side === "old" ? $("old").value : $("new").value;
 }
-function appendSyntax(el, text, path) {
+function appendSyntax(el, text, path, column) {
   const spans = globalThis.AyameSyntax?.highlightSpans(text, path);
-  if (!spans) { appendText(el, text); return; }
+  let col = Number.isFinite(column) ? column : 0;
+  if (!spans) return appendText(el, text, col);
   for (const part of spans) {
-    if (part.kind === "plain") { appendText(el, part.text); continue; }
+    if (part.kind === "plain") { col = appendText(el, part.text, col); continue; }
     const token = document.createElement("span");
     token.className = `syn syn-${part.kind}`;
-    appendText(token, part.text);
+    col = appendText(token, part.text, col);
     el.append(token);
   }
+  return col;
 }
 function textSpan(parts, changedClass, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
   if (!parts) return tx;
+  let col = 0;
   for (const p of parts) {
     const s = document.createElement("span");
     if (p.changed) s.className = changedClass;
-    appendSyntax(s, p.text, path);
+    col = appendSyntax(s, p.text, path, col);
     tx.append(s);
   }
   return tx;
@@ -1391,7 +1802,7 @@ function textSpan(parts, changedClass, path) {
 function plainSpan(text, path) {
   const tx = document.createElement("span");
   tx.className = "tx";
-  appendSyntax(tx, text, path);
+  appendSyntax(tx, text, path, 0);
   return tx;
 }
 function cell(cls, lineNo, node, side) {
@@ -1408,14 +1819,15 @@ function cell(cls, lineNo, node, side) {
   c.append(ln, node);
   if (lineNo != null && side) {
     c.classList.add("selectable-line");
-    // A line the user typed into is marked in the gutter, so which lines are
-    // unsaved is readable without comparing against memory (#256).
-    if (editBufferFor(side)?.changedLines().includes(lineNo - 1)) c.classList.add("edited");
     c.dataset.side = side;
     c.dataset.line = String(lineNo - 1);
     c.dataset.scrollAnchor = side;
     c.dataset.scrollKey = String(lineNo - 1);
     c.dataset.scrollOrder = String(lineNo - 1);
+    // A line that differs from the file the buffer loaded carries the local
+    // change handle (#292), which is a different mark from the comparison's
+    // own shading on the cell.
+    applyLocalChangeMark(c, localChangeMaps[side]?.get(lineNo - 1) || null);
     c.tabIndex = 0;
     c.setAttribute("role", "button");
     c.setAttribute("aria-pressed", "false");
@@ -1427,6 +1839,14 @@ function cell(cls, lineNo, node, side) {
     };
     c.addEventListener("click", activate);
     c.addEventListener("keydown", (event) => {
+      // Delete puts a locally changed line back, so the gutter handle has a
+      // keyboard path (#292). It only acts on a line that carries a mark, and
+      // it goes through the keymap so the chord can be remapped (#285).
+      if (matchesShortcut(event, "revertLine") && c.dataset.localChange) {
+        event.preventDefault();
+        if (revertLocalChange(side, Number(c.dataset.line))) c.focus();
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       activate();
@@ -1514,14 +1934,14 @@ function contextGapControl(region, gap) {
     button.addEventListener("click", () => void expandContextSpan(region, gap, direction));
     control.append(button);
   };
-  if (canExpandUp) addDirection("up", "↑", t("contextExpandUp", { count: chunk.toLocaleString() }));
+  if (canExpandUp) addDirection("up", "↑", t("contextExpandUp", { count: fmt(chunk) }));
   const label = document.createElement("button");
   label.type = "button";
   label.className = "context-gap-label";
-  label.textContent = t("contextHidden", { count: gap.count.toLocaleString() });
+  label.textContent = t("contextHidden", { count: fmt(gap.count) });
   label.title = canExpandUp && canExpandDown
-    ? t("contextExpandBoth", { count: chunk.toLocaleString() })
-    : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: chunk.toLocaleString() });
+    ? t("contextExpandBoth", { count: fmt(chunk) })
+    : t(canExpandUp ? "contextExpandUp" : "contextExpandDown", { count: fmt(chunk) });
   label.disabled = region.pending;
   const defaultDirection = canExpandUp && canExpandDown ? "both" : (canExpandUp ? "up" : "down");
   let dragStart = null;
@@ -1550,7 +1970,7 @@ function contextGapControl(region, gap) {
     void expandContextSpan(region, gap, defaultDirection);
   });
   control.append(label);
-  if (canExpandDown) addDirection("down", "↓", t("contextExpandDown", { count: chunk.toLocaleString() }));
+  if (canExpandDown) addDirection("down", "↓", t("contextExpandDown", { count: fmt(chunk) }));
   return control;
 }
 
@@ -1587,10 +2007,10 @@ function refreshContextTranslations() {
     region.node.setAttribute("aria-label", t("contextRegion"));
     for (const gap of region.node.querySelectorAll(".context-gap")) {
       const count = Number(gap.dataset.contextCount) || 0;
-      const chunk = Math.min(CONTEXT_EXPAND_CHUNK, count).toLocaleString();
+      const chunk = fmt(Math.min(CONTEXT_EXPAND_CHUNK, count));
       const label = gap.querySelector(".context-gap-label");
       if (label) {
-        label.textContent = t("contextHidden", { count: count.toLocaleString() });
+        label.textContent = t("contextHidden", { count: fmt(count) });
         const hasUp = Boolean(gap.querySelector(".context-expand.up"));
         const hasDown = Boolean(gap.querySelector(".context-expand.down"));
         label.title = hasUp && hasDown
@@ -1748,23 +2168,22 @@ function syncContextVisibility() {
   button.hidden = !(Boolean(lastData?.hunks?.length) && (mode === "text" || mode === "sorted") && !continuousActive());
 }
 
-function renderHunk(h, index) {
+function renderHunk(h, index, confirm) {
   const box = document.createElement("div");
   box.className = "hunk";
   box.id = `hunk-${index}`;
   box.dataset.hunk = String(index);
   box.tabIndex = -1;
+  if (confirm?.confirmed) box.classList.add("confirmed");
   if (h.move_id) {
     box.classList.add("moved");
     box.dataset.moveId = String(h.move_id);
   }
   const head = document.createElement("div");
   head.className = "hunk-head";
-  const kind = h.kind.charAt(0).toUpperCase() + h.kind.slice(1);
-  head.textContent = h.move_id
-    ? `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} MOVED #${h.move_id} ↔ ${h.move_peer + 1} @@`
-    : `@@ -${h.old_start + 1},${h.old_len} +${h.new_start + 1},${h.new_len} ${kind} @@`;
-  if (h.move_id) {
+  const { text: headText, moved } = AyameHunkHeader.header(h, t);
+  head.textContent = headText;
+  if (moved) {
     const jump = document.createElement("button");
     jump.type = "button";
     jump.className = "move-jump";
@@ -1791,10 +2210,26 @@ function renderHunk(h, index) {
     ignore.textContent = t("restoreHunk");
   }
   head.append(ignore);
+  if (confirm) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "hunk-confirm";
+    toggle.setAttribute("aria-pressed", confirm.confirmed ? "true" : "false");
+    const label = t(confirm.confirmed ? "unconfirmHunk" : "confirmHunk");
+    toggle.textContent = t(confirm.confirmed ? "confirmed" : "confirmHunk");
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      confirm.onToggle();
+    });
+    head.append(toggle);
+  }
   const mergeActions = document.createElement("span");
   mergeActions.className = "hunk-merge";
   for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
     const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label;
+    button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint");
     button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, side); });
     mergeActions.append(button);
   }
@@ -1831,6 +2266,30 @@ function renderHunk(h, index) {
   return box;
 }
 
+// The server says how many hunks it dropped; the reader should not have to turn
+// that into a number. One click derives the next cap from what was omitted,
+// writes it to #maxHunks (which stays reachable for manual control), and runs
+// the comparison again — compare() captures and restores the scroll anchor, so
+// the reader keeps their place (#261).
+function computeMoreButton(res) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "note-action compute-more";
+  button.textContent = t("computeMoreHunks");
+  button.title = t("computeMoreHunksTitle");
+  button.setAttribute("aria-label", t("computeMoreHunksTitle"));
+  button.addEventListener("click", () => {
+    // hunk_count counts every hunk, including the omitted ones, so
+    // hunk_count - omitted is the cap this run actually used.
+    const used = Number(res.hunk_count) - Number(res.omitted_hunks);
+    const next = nextMaxHunks(used, res.omitted_hunks);
+    $("maxHunks").value = String(next);
+    updateDetailsBadges();
+    void compare();
+  });
+  return button;
+}
+
 function renderSummary(res) {
   const el = $("summary");
   el.innerHTML = "";
@@ -1847,7 +2306,7 @@ function renderSummary(res) {
     }
     s.className = "stat " + cls + (jumpable ? " stat-jump" : "");
     const count = document.createElement("b");
-    count.textContent = n.toLocaleString();
+    count.textContent = fmt(n);
     s.append(count, ` ${label}`);
     return s;
   };
@@ -1875,8 +2334,8 @@ function renderSummary(res) {
   if (res.omitted_hunks) {
     const n = document.createElement("span");
     n.className = "note";
-    n.textContent = t("omitted", res.omitted_hunks.toLocaleString());
-    el.append(n);
+    n.textContent = t("omitted", fmt(res.omitted_hunks));
+    el.append(n, computeMoreButton(res));
   }
   // Show what `encoding: auto` decoded each file as, and flag a left/right
   // mismatch — the material clue when output looks garbled (#130). Present only
@@ -1918,13 +2377,29 @@ function comparisonUsesRules(csvMode = false) {
 // back to the browser, continue. Content appears progressively instead of all
 // at once at the end, and scrolling and typing keep working throughout.
 
-// renderBudgetMs is how long one slice may build before yielding. Comfortably
-// inside a frame, so a slice cannot itself cause a dropped frame.
-const RENDER_BUDGET_MS = 8;
+// The slice budget and the render gate are pure and live in renderqueue.js,
+// where node exercises them (#127, #128). RENDER_BUDGET_MS is how long one
+// slice may build before yielding; the budget is comfortably inside a frame, so
+// a slice cannot itself cause a dropped frame.
+const { createSliceBudget, createRenderGate } = globalThis.AyameRenderQueue;
+const RENDER_BUDGET_MS = globalThis.AyameRenderQueue.DEFAULT_BUDGET_MS;
 
-// renderToken invalidates an in-progress render when a newer one starts, so a
-// superseded render stops appending instead of interleaving with its successor.
-let renderToken = 0;
+// renderGate coalesces renders. A newer render supersedes the one in progress;
+// Cancel stops it outright. The two are distinct so a cancelled comparison is
+// not reported as a finished one.
+const renderGate = createRenderGate();
+
+// cancelRendering stops a render that is already painting. The request has
+// resolved by then, so aborting it does nothing; without this, Cancel during a
+// large render left the result to finish building (#128).
+function cancelRendering() { renderGate.cancel(); }
+
+// cancelCurrentOperation stops whatever is running: the request if one is in
+// flight, and the render if its response has arrived and is being painted.
+function cancelCurrentOperation() {
+  if (currentAbort) currentAbort.abort();
+  cancelRendering();
+}
 
 // yieldToBrowser hands the thread back, resuming on the next macrotask so the
 // browser can paint and process input in between.
@@ -1948,27 +2423,28 @@ function yieldToBrowser() {
 
 // renderInSlices appends items.length nodes to target, yielding between
 // slices. build(item, index) returns the node. Returns false if a newer render
-// superseded this one, in which case the caller must not run its finishing
-// steps.
+// superseded this one or the user cancelled it, in which case the caller must
+// not run its finishing steps.
 async function renderInSlices(target, items, build) {
   // The nodes any search hits pointed at are being replaced.
   clearSearchHits();
-  const token = ++renderToken;
+  const token = renderGate.begin();
+  const budget = createSliceBudget({ budgetMs: RENDER_BUDGET_MS, now: () => performance.now() });
   let index = 0;
   while (index < items.length) {
-    const started = performance.now();
     const frag = document.createDocumentFragment();
     // Always place at least one node, so a single very expensive item cannot
     // stall the loop forever.
     do {
       frag.append(build(items[index], index));
       index++;
-    } while (index < items.length && performance.now() - started < RENDER_BUDGET_MS);
+    } while (index < items.length && !budget.doneOne());
     target.append(frag);
     if (index >= items.length) break;
-    setStatus(t("rendering", { done: index.toLocaleString(), total: items.length.toLocaleString() }), "busy");
+    setStatus(t("rendering", { done: fmt(index), total: fmt(items.length) }), "busy");
     await yieldToBrowser();
-    if (token !== renderToken) return false;
+    if (!renderGate.isCurrent(token)) return false;
+    budget.reset();
   }
   return true;
 }
@@ -2062,7 +2538,7 @@ function paneHeads(data = {}) {
     const encoding = data[`${side}_encoding`] || "";
     const lines = data[`${side}_lines`];
     const details = [path];
-    if (lines != null) details.push(t("lineCount", { count: Number(lines).toLocaleString() }));
+    if (lines != null) details.push(t("lineCount", { count: fmt(Number(lines)) }));
     if (encoding) details.push(`${t("encoding")}: ${encoding}`);
     name.title = details.filter(Boolean).join("\n");
     head.append(label, name);
@@ -2071,7 +2547,7 @@ function paneHeads(data = {}) {
       meta.className = "pane-head-meta";
       meta.textContent = [
         encoding,
-        lines != null ? t("lineCount", { count: Number(lines).toLocaleString() }) : "",
+        lines != null ? t("lineCount", { count: fmt(Number(lines)) }) : "",
       ].filter(Boolean).join(" · ");
       head.append(meta);
     }
@@ -2136,30 +2612,196 @@ function paneHeads(data = {}) {
   return heads;
 }
 
+// ---- Statistics panel (#120) ----
+// The result opens with a breakdown of what changed, beyond the kind totals in
+// the status bar: every changed CSV column with its share and numeric delta, or
+// the whole-file context for a text diff. The exports reuse the summary already
+// in the browser, so downloading an artifact never re-runs the comparison.
+let statsDocument = null;
+
+function statsCell(text, className) {
+  const cell = document.createElement("td");
+  if (className) cell.className = className;
+  cell.textContent = text;
+  return cell;
+}
+
+function statsRow(label, cells) {
+  const row = document.createElement("tr");
+  const head = document.createElement("th");
+  head.scope = "row";
+  head.textContent = label;
+  row.append(head, ...cells);
+  return row;
+}
+
+function statsBarCell(fraction) {
+  const cell = document.createElement("td");
+  cell.className = "stat-bar";
+  const fill = document.createElement("span");
+  fill.className = "stat-bar-fill";
+  const value = Math.max(0, Math.min(1, Number(fraction) || 0));
+  fill.style.width = `${Math.round(value * 100)}%`;
+  cell.append(fill);
+  return cell;
+}
+
+// A delta carries its sign so an increase is distinguishable from a decrease;
+// -0 is normalized to 0 because the sum of opposite deltas can be negative zero.
+function statsDeltaText(value) {
+  const number = Number(value) || 0;
+  const rounded = Math.abs(number) < 1e-9 ? 0 : number;
+  return `${rounded > 0 ? "+" : ""}${Number(rounded.toFixed(6))}`;
+}
+
+function buildStatsTable(kind) {
+  const table = document.createElement("table");
+  table.className = "stats-table";
+  const head = document.createElement("thead");
+  const body = document.createElement("tbody");
+  table.append(head, body);
+  const headerRow = (labels) => {
+    const row = document.createElement("tr");
+    for (const label of labels) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      row.append(th);
+    }
+    return row;
+  };
+  if (kind === "csv") {
+    head.append(headerRow([t("statsColumn"), t("statsChanged"), t("statsShare"), "", t("statsDeltaSum"), t("statsDeltaMean"), t("statsDeltaMax"), t("statsDirection")]));
+    for (const column of statsDocument.columns) {
+      const cells = [
+        statsCell(column.count.toLocaleString()),
+        statsCell(formatStatsPercent(column.share, 1)),
+        statsBarCell(column.bar / 100),
+      ];
+      if (column.numeric) {
+        cells.push(
+          statsCell(statsDeltaText(column.numeric.sum)),
+          statsCell(statsDeltaText(column.numeric.mean)),
+          statsCell(statsDeltaText(column.numeric.max)),
+          statsCell(`${column.numeric.increased} / ${column.numeric.decreased} / ${column.numeric.unchanged}`),
+        );
+      } else {
+        for (let i = 0; i < 4; i++) cells.push(statsCell("—"));
+      }
+      body.append(statsRow(column.name, cells));
+    }
+    return table;
+  }
+  head.append(headerRow([t("statsMetric"), t("statsCount"), t("statsShare"), ""]));
+  const summary = statsDocument.summary;
+  const total = summary.total_lines || 0;
+  const rows = [
+    [t("hunks"), summary.hunk_count, null],
+    [t("added"), summary.added, summary.added],
+    [t("deleted"), summary.deleted, summary.deleted],
+    [t("modified"), summary.modified, summary.modified],
+  ];
+  if (summary.moved_blocks) rows.push([t("moved"), summary.moved_blocks, null]);
+  rows.push([t("statsChangedLines"), summary.changed_lines, summary.changed_lines]);
+  rows.push([t("statsLargestHunk"), summary.largest_hunk, null]);
+  for (const [label, value, counted] of rows) {
+    const share = counted === null || !total ? 0 : counted / total;
+    body.append(statsRow(label, [
+      statsCell(value.toLocaleString()),
+      statsCell(counted === null ? "—" : formatStatsPercent(share, 1)),
+      statsBarCell(share),
+    ]));
+  }
+  return table;
+}
+
+function statsPanel(kind, data) {
+  statsDocument = buildStats(kind, data);
+  const section = document.createElement("section");
+  section.className = "stats-view";
+  section.id = "statsView";
+  const head = document.createElement("header");
+  head.className = "stats-head";
+  const title = document.createElement("strong");
+  title.textContent = t("statisticsTitle");
+  const actions = document.createElement("span");
+  actions.className = "stats-actions";
+  for (const [format, label] of [["csv", t("statsExportCSV")], ["json", t("statsExportJSON")]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stats-export";
+    button.textContent = label;
+    button.addEventListener("click", () => exportStats(format));
+    actions.append(button);
+  }
+  head.append(title, actions);
+  const scroll = document.createElement("div");
+  scroll.className = "stats-scroll";
+  scroll.append(buildStatsTable(kind));
+  section.append(head, scroll);
+  return section;
+}
+
+function statsArtifactName(format) {
+  return `ayame-stats.${format}`;
+}
+
+function exportStats(format) {
+  if (!statsDocument) return;
+  const json = format === "json";
+  const name = statsArtifactName(json ? "json" : "csv");
+  const blob = new Blob([json ? statsToJSON(statsDocument) : statsToCSV(statsDocument)], {
+    type: `${json ? "application/json" : "text/csv"};charset=utf-8`,
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus(t("statsExported", name), "success");
+}
+
 // renderResult draws a diff response once. Display preferences only toggle
-// classes on the completed DOM via applyDisplayPreferences.
+// classes on the completed DOM via applyDisplayPreferences. It returns false
+// when the render was superseded or cancelled before it finished, so the caller
+// does not treat a stopped render as a completed comparison.
 async function renderResult(data) {
   applyDisplayPreferences();
   renderSummary(data);
+  // The cells about to be built ask for their local change mark, so the cached
+  // regions have to describe the buffers as they are now (#292).
+  if (editingEnabled()) refreshLocalChangeMaps();
   const result = $("result");
   result.innerHTML = "";
+  resetMergeRowIndex();
   setupNavigation(data);
+  prepareConfirmations(data.hunks);
+  updateCounter();
   syncExportPatchVisibility();
   result.append(paneHeads(data));
+  result.append(statsPanel("text", data));
   if (!data.hunks.length) {
     clearUnchangedContext();
-    const scope = t("textMatchScope", { old: data.old_lines.toLocaleString(), new: data.new_lines.toLocaleString() });
+    const scope = t("textMatchScope", { old: fmt(data.old_lines), new: fmt(data.new_lines) });
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
-    return;
+    return true;
   }
   prepareUnchangedContext(data);
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => {
     const fragment = document.createDocumentFragment();
-    fragment.append(unchangedRegions[index].node, renderHunk(hunk, index));
+    fragment.append(
+      unchangedRegions[index].node,
+      renderHunk(hunk, index, {
+        confirmed: isConfirmed(index),
+        onToggle: () => toggleConfirmedHunk(index),
+      }),
+    );
     if (index === data.hunks.length - 1) fragment.append(unchangedRegions[index + 1].node);
     return fragment;
   });
-  if (!complete) return;
+  if (!complete) return false;
   syncContextVisibility();
   const contextComplete = await loadInitialContext({ announce: true });
   if (contextComplete) setStatus("");
@@ -2169,16 +2811,167 @@ async function renderResult(data) {
   observeHunks();
   buildMinimap(data);
   updateMinimapViewport();
+  return true;
 }
 
 function mutateMerge(mutator) {
-  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
+  mergeUndo.push(mergeSelection.clone());
   if (mergeUndo.length > 100) mergeUndo.shift();
   mergeRedo = [];
   mutator();
   updateMergeUI();
 }
-function chooseMerge(index, side) { mutateMerge(() => mergeChoices.set(index, side)); }
+// chooseMerge toggles one contribution: clicking a chosen side clears it, so
+// selecting and deselecting are the same gesture (P4Merge-style, #271).
+function chooseMerge(id, side) { mutateMerge(() => mergeSelection.toggle(id, side)); }
+// syncMergeRow paints the adopted sides on one hunk or CSV row: the border
+// classes the CSS keys off and the buttons' aria-pressed state.
+function syncMergeRow(row, id) {
+  if (!row) return;
+  for (const side of mergeSelection.order) {
+    const adopted = mergeSelection.has(id, side);
+    row.classList.toggle(`merge-${side}`, adopted);
+    const button = row.querySelector(`.choose-${side}`);
+    if (button) button.setAttribute("aria-pressed", adopted ? "true" : "false");
+  }
+}
+
+// ---- Unresolved-difference list and implicit-resolution target (#272) ----
+// A save used to confirm once and silently resolve every remaining conflict to
+// the left. These helpers list the unresolved items so the user can jump to
+// them, and read the target a save uses when they still choose to continue.
+
+// mergeKind names the active merge so the target list and the item labels can
+// be chosen without re-reading the mode at every call site.
+function mergeKind() {
+  const mode = $("mode").value;
+  if (mode === "threeway") return "threeway-text";
+  if (mode === "threeway-csv") return "threeway-csv";
+  if (mode === "csv") return "csv";
+  return "text";
+}
+
+function mergeTargetLabel(target) {
+  switch (target) {
+    case "right": return t("right");
+    case "base": return t("sideBase");
+    case "markers": return t("targetMarkersShort");
+    default: return t("left");
+  }
+}
+
+function mergeTargetOptions() { return mergeTargetsFor(mergeKind()); }
+
+function currentUnresolvedTarget() {
+  const value = $("mergeUnresolvedTarget")?.value || "left";
+  return mergeTargetOptions().includes(value) ? value : "left";
+}
+
+function textHunkLabel(hunk, index) {
+  const kind = t(hunk.kind === "insert" ? "added" : hunk.kind === "delete" ? "deleted" : "modified");
+  return `#${index + 1} · ${kind} · ${hunk.new_start + 1}`;
+}
+function csvDifferenceLabel(diff, index) {
+  return `#${index + 1} · ${diff.kind} · ${String(diff.id).slice(0, 8)}`;
+}
+function threeWayEventLabel(event) {
+  const id = String(event.id).slice(0, 10);
+  if (Array.isArray(event.key) && event.key.length) return `#${id} · ${event.key.join(" / ")}`;
+  const at = Number.isFinite(event.base_start) ? ` · ${t("sideBase")} ${event.base_start + 1}` : "";
+  return `#${id} · ${t("conflicts")}${at}`;
+}
+
+// mergeDecidableItems lists the items a save must decide and the total the
+// server will count. Capped text hunks have no row to list; carrying the total
+// keeps the confirmation honest about them.
+function mergeDecidableItems() {
+  const kind = mergeKind();
+  if (kind === "threeway-text" || kind === "threeway-csv") {
+    const events = (threeWayData?.events || []).filter((event) => event.kind === "conflict");
+    return { kind, items: events.map((event) => ({ id: event.id, label: threeWayEventLabel(event) })),
+      total: threeWayData?.conflicts || 0 };
+  }
+  if (kind === "csv") {
+    const diffs = csvData?.differences || [];
+    return { kind, items: diffs.map((diff, index) => ({ id: diff.id, label: csvDifferenceLabel(diff, index) })),
+      total: csvData?.difference_count || diffs.length };
+  }
+  const hunks = lastData?.hunks || [];
+  return { kind, items: hunks.map((hunk, index) => ({ id: index, label: textHunkLabel(hunk, index) })),
+    total: lastData?.hunk_count ?? hunks.length };
+}
+
+function mergeUnresolvedState() {
+  const { kind, items, total } = mergeDecidableItems();
+  const list = [];
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (!mergeSelection.selected(item.id)) list.push({ index, id: item.id, label: item.label });
+  }
+  const count = Math.max(0, total - mergeSelection.size());
+  return { kind, list, count, hidden: Math.max(0, count - list.length) };
+}
+
+function jumpToMergeItem(id) {
+  let node = mergeRowIndex.get(String(id));
+  if (!node || node.isConnected === false) node = document.getElementById(`hunk-${id}`);
+  if (!node) return;
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (typeof node.focus === "function") node.focus({ preventScroll: true });
+}
+
+function renderMergeUnresolved(state) {
+  const box = $("mergeUnresolvedBox"), list = $("mergeUnresolvedList");
+  list.innerHTML = "";
+  box.hidden = state.count === 0;
+  for (const item of state.list) {
+    const entry = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "merge-unresolved-jump";
+    button.textContent = item.label;
+    button.addEventListener("click", () => jumpToMergeItem(item.id));
+    entry.append(button);
+    list.append(entry);
+  }
+  if (state.hidden > 0) {
+    const entry = document.createElement("li");
+    entry.className = "merge-unresolved-more";
+    entry.textContent = t("unresolvedMore", { count: state.hidden });
+    list.append(entry);
+  }
+  const go = $("mergeGoUnresolved");
+  go.disabled = state.list.length === 0;
+  go.onclick = state.list.length ? () => jumpToMergeItem(state.list[0].id) : null;
+}
+
+// The target select offers only what the active endpoint can honor: two-way CSV
+// has no marker form, and only three-way text has BASE.
+function updateUnresolvedTargetOptions() {
+  const select = $("mergeUnresolvedTarget");
+  if (!select) return;
+  const allowed = mergeTargetOptions();
+  for (const option of select.options) option.hidden = !allowed.includes(option.value);
+  if (!allowed.includes(select.value)) select.value = "left";
+}
+
+function refreshMergeUnresolved() {
+  updateUnresolvedTargetOptions();
+  const state = mergeUnresolvedState();
+  $("mergeUnresolved").textContent = t("unresolved", state.count);
+  renderMergeUnresolved(state);
+}
+
+// reportMergeSaved keeps "saved" distinct from "no conflicts remain": a file
+// written with implicit side choices or leftover markers says so, and only a
+// fully decided merge reads as a plain success (#272).
+function reportMergeSaved(data, target, path) {
+  const markers = typeof data?.conflictsRemaining === "number" ? data.conflictsRemaining : (Number(data?.conflictMarkers) || 0);
+  const implicit = Array.isArray(data?.implicitlyResolved) ? data.implicitlyResolved.length : (Number(data?.unresolved) || 0);
+  if (markers > 0) { setStatus(t("mergeSavedWithMarkers", { path, count: markers }), "warning"); return; }
+  if (implicit > 0) { setStatus(t("mergeSavedWithImplicit", { path, count: implicit, target: mergeTargetLabel(target) }), "warning"); return; }
+  setStatus(t("mergeSaved", data.output), "success");
+}
 function updateMergeUI() {
 	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
@@ -2190,11 +2983,8 @@ function updateMergeUI() {
   $("mergeMode").hidden = !mergeable;
   $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
-  lastData.hunks.forEach((_, index) => {
-    const box = $(`hunk-${index}`), side = mergeChoices.get(index);
-    box?.classList.toggle("merge-left", side === "left"); box?.classList.toggle("merge-right", side === "right");
-  });
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, lastData.hunk_count - mergeChoices.size));
+  lastData.hunks.forEach((_, index) => syncMergeRow($(`hunk-${index}`), index));
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 // mergeRowIndex maps a merge id to the row that represents it, filled while
@@ -2209,61 +2999,127 @@ function indexMergeRow(id, node) { mergeRowIndex.set(String(id), node); }
 
 function updateCSVMergeUI() {
   $("mergePanel").hidden = false;
-  const chosen = new Set([...mergeChoices.keys()].map(String));
-  for (const [id, row] of mergeRowIndex) {
-    const side = mergeChoices.get(id);
-    row.classList.toggle("merge-left", side === "left"); row.classList.toggle("merge-right", side === "right");
-  }
-  $("mergeUnresolved").textContent = t("unresolved", mergeDefault ? 0 : Math.max(0, (csvData.difference_count || csvData.differences.length) - chosen.size));
+  for (const [id, row] of mergeRowIndex) syncMergeRow(row, id);
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
 function undoMerge() {
   if (!mergeUndo.length) return;
-  mergeRedo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
-  const state = mergeUndo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  mergeRedo.push(mergeSelection.clone());
+  mergeSelection = mergeUndo.pop(); updateMergeUI();
 }
 function redoMerge() {
   if (!mergeRedo.length) return;
-  mergeUndo.push({ choices: new Map(mergeChoices), defaultChoice: mergeDefault });
-  const state = mergeRedo.pop(); mergeChoices = state.choices; mergeDefault = state.defaultChoice; updateMergeUI();
+  mergeUndo.push(mergeSelection.clone());
+  mergeSelection = mergeRedo.pop(); updateMergeUI();
 }
-async function saveTextMerge() {
+
+// ---- Simulate / Do impact preview (#273) ----
+// Overwriting an input is the one destructive thing this screen does. Before
+// the overwrite is confirmed the user sees what will be written and where, as a
+// list, in the same spirit as KDiff3's "Simulate it / Do it". The simulation is
+// pure (AyameSimulate); only the wording is resolved here.
+function mergeUnresolvedCount(mode) {
+  if (mode === "threeway" || mode === "threeway-csv")
+    return mergeSelection.unresolved(threeWayData?.conflicts || 0);
+  if (mode === "csv")
+    return mergeSelection.unresolved(csvData?.difference_count || csvData?.differences?.length || 0);
+  return mergeSelection.unresolved(lastData?.hunk_count || 0);
+}
+
+function buildMergeImpact(mode, unresolved) {
+  const threeWay = mode === "threeway" || mode === "threeway-csv";
+  return globalThis.AyameSimulate.mergeImpact({
+    mode,
+    output: $("mergeOutput").value.trim(),
+    old: $("old").value.trim(),
+    new: $("new").value.trim(),
+    base: threeWay ? $("base").value.trim() : "",
+    overwrite: $("mergeOverwrite").checked,
+    unresolved,
+  });
+}
+
+function impactRoleLabel(role) {
+  if (role === "base") return t("sideBase");
+  return role === "old" ? t("sideLeft") : t("sideRight");
+}
+
+// Each row is plain data for askConfirm; the dialog renders it as a list.
+function mergeImpactRows(impact) {
+  const rows = [];
+  if (impact.output) rows.push({ kind: "write", text: t("impactWrite", { path: impact.output }) });
+  for (const input of impact.affected)
+    rows.push({ kind: "overwrite", text: t("impactOverwrite", { role: impactRoleLabel(input.role), path: input.path }) });
+  if (impact.unresolved > 0) rows.push({ kind: "info", text: t("unresolved", impact.unresolved) });
+  return rows;
+}
+
+function mergeImpactPrompt(impact) {
+  return impact.affected.length && impact.overwrite ? t("overwriteWarning") : t("impactLead");
+}
+
+// The distinct "Simulate" step: show the list, then let Proceed execute. The
+// save is told the overwrite was already confirmed so it does not ask again.
+async function previewMergeImpact() {
+  const mode = $("mode").value;
+  if (!$("mergeOutput").value.trim()) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
+  const impact = buildMergeImpact(mode, mergeUnresolvedCount(mode));
+  if (!await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact))) return;
+  mergeImpactConfirmed = true;
+  try { await saveMergeResult(); } finally { mergeImpactConfirmed = false; }
+}
+
+async function saveTextMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (lastData?.hunk_count || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) }));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
+  const impact = buildMergeImpact("text", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact));
   if (!confirmOverwrite) return;
-  const body = { ...requestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...requestBody(), output, choices: mergeSelection.toWire(), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
-    setStatus(t("mergeSaved", data.output), "success");
+    reportMergeSaved(data, target, data.output);
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-async function saveCSVMerge() {
+async function saveCSVMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim();
   if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = mergeDefault ? 0 : Math.max(0, (csvData?.difference_count || 0) - new Set([...mergeChoices.keys()].map(String)).size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved));
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) }));
   if (unresolved > 0 && !allowUnresolved) return;
   const overwrite = $("mergeOverwrite").checked;
-  const confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning"));
+  const impact = buildMergeImpact("csv", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact));
   if (!confirmOverwrite) return;
-  const body = { ...csvRequestBody(), output, choices: Object.fromEntries(mergeChoices), defaultChoice: mergeDefault || "", allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...csvRequestBody(), output, choices: mergeSelection.toWire(), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/csv", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
-    setStatus(t("mergeSaved", data.output), "success");
+    reportMergeSaved({ output: data.output, unresolved: data.summary?.unresolved_rows }, target, data.output);
   } catch (err) { setStatus(String(err.message || err), "error"); }
   finally { $("saveMerge").disabled = false; }
 }
-function runSaveMergeResult() { if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(); return $("mode").value === "csv" ? saveCSVMerge() : saveTextMerge(); }
+// mergeImpactConfirmed is set by the Simulate dialog's Proceed so the save it
+// starts does not ask the same question twice. It is consumed exactly once.
+let mergeImpactConfirmed = false;
+
+function runSaveMergeResult() {
+  const previewConfirmed = mergeImpactConfirmed;
+  mergeImpactConfirmed = false;
+  if ($("mode").value === "threeway" || $("mode").value === "threeway-csv") return saveThreeWayMerge(previewConfirmed);
+  return $("mode").value === "csv" ? saveCSVMerge(previewConfirmed) : saveTextMerge(previewConfirmed);
+}
 // A merge writes a file from the current inputs, so it must not run while a
 // comparison for different inputs is still in flight (#128).
 async function saveMergeResult() { return runExclusive("saveMerge", runSaveMergeResult); }
@@ -2310,7 +3166,7 @@ async function renderThreeWay(data, csvMode) {
     const head = document.createElement("header"); head.className = "hunk-head"; head.append(document.createTextNode(`${event.kind} #${String(event.id).slice(0, 10)} · ${csvMode ? event.key.join(" / ") : `${t("sideBase")} ${event.base_start + 1},${event.base_len}`}`));
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
-      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
+      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint"); button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
@@ -2320,27 +3176,217 @@ async function renderThreeWay(data, csvMode) {
   };
   // Sliced like the text path: a three-way result can carry as many events as
   // a diff carries hunks, and this loop appended straight into the live DOM
-  // rather than a fragment, so it was the heavier of the two (#127).
-  if (data.events.length && !(await renderInSlices(result, data.events, buildEvent))) return;
+  // rather than a fragment, so it was the heavier of the two (#127). Returns
+  // false when the render was stopped before it finished.
+  if (data.events.length && !(await renderInSlices(result, data.events, buildEvent))) return false;
   if (data.events.length) setStatus("");
   if (!data.events.length) {
     const scope = csvMode
-      ? t("threeWayCSVMatchScope", { columns: (data.header || []).length.toLocaleString() })
-      : t("threeWayTextMatchScope", { lines: Number(data.base_lines || 0).toLocaleString() });
+      ? t("threeWayCSVMatchScope", { columns: fmt((data.header || []).length) })
+      : t("threeWayTextMatchScope", { lines: fmt(Number(data.base_lines || 0)) });
     result.append(resultStateCard(t(comparisonUsesRules(csvMode) ? "filteredMatch" : "completeMatch"), scope));
   }
   observeHunks(); updateThreeWayMergeUI(); buildMinimap(lastData); updateMinimapViewport();
+  return true;
 }
 function updateThreeWayMergeUI() {
 	$("allBase").hidden = false;
   $("mergePanel").hidden = !threeWayData;
+  syncMergeProvenancePanel();
   if (!threeWayData) return;
   for (const event of threeWayData.events) {
-    const row = mergeRowIndex.get(String(event.id)), side = mergeChoices.get(event.id);
-    for (const value of ["left", "right", "base"]) row?.classList.toggle(`merge-${value}`, side === value);
+    syncMergeRow(mergeRowIndex.get(String(event.id)), event.id);
   }
-  $("mergeUnresolved").textContent = t("unresolved", Math.max(0, threeWayData.conflicts - mergeChoices.size));
+  refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+  // A choice change rewrites the result, so an open preview has to follow it.
+  if (mergeProvenanceOpen()) scheduleMergePreview();
+}
+
+// The preview shows the result the save would write, one line per row, with
+// KDiff3's summary-column marker in the gutter. Manual is `m` and a grey wash,
+// so a typed line is never mistaken for an adopted one (#257).
+function mergeProvenanceOpen() {
+  const panel = $("mergeProvenance");
+  return Boolean(panel && !panel.hidden && panel.open);
+}
+
+function syncMergeProvenancePanel() {
+  const panel = $("mergeProvenance");
+  if (!panel) return;
+  // A CSV row is a record rather than a line and already carries its own
+  // origin, so per-line provenance is a text-mode view (#257).
+  const show = Boolean(threeWayData && !threeWayData.csvMode);
+  panel.hidden = !show;
+  if (!show) resetMergePreview();
+}
+
+function resetMergePreview() {
+  mergePreview = null;
+  mergeManual = new Map();
+  mergePreviewToken++;
+  if (mergePreviewTimer) { clearTimeout(mergePreviewTimer); mergePreviewTimer = 0; }
+  const counts = $("mergeProvenanceCounts");
+  if (counts) counts.textContent = "";
+  const lines = $("mergePreviewLines");
+  if (lines) lines.innerHTML = "";
+}
+
+function scheduleMergePreview() {
+  if (mergePreviewTimer) clearTimeout(mergePreviewTimer);
+  mergePreviewTimer = setTimeout(() => { mergePreviewTimer = 0; void refreshMergePreview(); }, 120);
+}
+
+async function refreshMergePreview() {
+  if (!threeWayData || threeWayData.csvMode || !mergeProvenanceOpen()) return;
+  const token = ++mergePreviewToken;
+  try {
+    const body = {
+      ...threeWayRequestBody(),
+      choices: mergeSelection.toWire(),
+      manual: Object.fromEntries(mergeManual),
+    };
+    const response = await apiFetch("/api/three-way/text/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw apiError(data, response);
+    if (token !== mergePreviewToken || !mergeProvenanceOpen()) return;
+    mergePreview = data;
+    // Drop edits whose input line the current choices no longer produce, so a
+    // stale override cannot come back with a later choice.
+    const keys = new Set((data.lines || []).map((line) => line.key));
+    for (const key of [...mergeManual.keys()]) if (!keys.has(key)) mergeManual.delete(key);
+    renderMergePreview();
+  } catch (err) {
+    if (token === mergePreviewToken) setStatus(String(err.message || err), "error");
+  }
+}
+
+function renderMergePreview() {
+  const container = $("mergePreviewLines");
+  if (!container) return;
+  closeMergeLineEditor({ commit: false });
+  container.innerHTML = "";
+  if (!mergePreview) return;
+  const fragment = document.createDocumentFragment();
+  (mergePreview.lines || []).forEach((line, index) => fragment.append(mergePreviewRow(line, index)));
+  container.append(fragment);
+  updateMergeProvenanceCounts();
+}
+
+function mergePreviewRow(line, index) {
+  const row = document.createElement("div");
+  row.className = `merge-preview-line ${provenanceOriginClass(line.origin)}`;
+  row.dataset.key = String(line.key || "");
+  row.dataset.index = String(index);
+  row.tabIndex = 0;
+  const gutter = document.createElement("span");
+  gutter.className = "merge-origin-marker";
+  const text = document.createElement("span");
+  text.className = "merge-line-text";
+  text.textContent = line.text;
+  row.append(gutter, text);
+  styleMergePreviewRow(row, line.origin);
+  row.addEventListener("click", () => openMergeLineEditor(row, line));
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openMergeLineEditor(row, line); }
+  });
+  return row;
+}
+
+function styleMergePreviewRow(row, origin) {
+  row.classList.remove("origin-base", "origin-left", "origin-right", "origin-manual");
+  row.classList.add(provenanceOriginClass(origin));
+  const marker = row.querySelector(".merge-origin-marker");
+  if (!marker) return;
+  marker.textContent = provenanceMarker(origin);
+  const label = t(provenanceLabelKey(origin));
+  marker.title = label;
+  marker.setAttribute("aria-label", label);
+}
+
+function updateMergeProvenanceCounts() {
+  const el = $("mergeProvenanceCounts");
+  if (!el) return;
+  if (!mergePreview) { el.textContent = ""; return; }
+  const counts = provenanceBreakdown(mergePreview.provenance);
+  el.textContent = t("mergeProvenanceCounts", {
+    adopted: counts.adopted.toLocaleString(),
+    base: counts.base.toLocaleString(),
+    left: counts.left.toLocaleString(),
+    right: counts.right.toLocaleString(),
+    manual: counts.manual.toLocaleString(),
+    unresolved: Number(mergePreview.unresolved || 0).toLocaleString(),
+  });
+}
+
+// A merged line is editable in place. The edit is held in mergeManual under the
+// line's key and sent with the save, so the written file and the report agree
+// on what was typed (#257).
+function openMergeLineEditor(row, line) {
+  if (!line || !row) return;
+  closeMergeLineEditor({ commit: true });
+  const text = row.querySelector(".merge-line-text");
+  if (!text) return;
+  const editor = document.createElement("textarea");
+  editor.className = "line-editor merge-line-editor";
+  editor.rows = 1;
+  editor.spellcheck = false;
+  editor.value = line.text;
+  editor.setAttribute("aria-label", t("mergeEditLine", { line: Number(row.dataset.index) + 1 }));
+  text.hidden = true;
+  row.classList.add("editing");
+  row.append(editor);
+  mergeLineEditor = { element: editor, row, line, before: line.text, beforeOrigin: line.origin };
+  editor.addEventListener("compositionstart", () => { mergeComposing = true; });
+  editor.addEventListener("compositionend", () => { mergeComposing = false; applyMergeLineEdit(); });
+  editor.addEventListener("input", () => { if (!mergeComposing) applyMergeLineEdit(); });
+  editor.addEventListener("click", (event) => event.stopPropagation());
+  editor.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.isComposing || mergeComposing) return;
+    if (event.key === "Escape") { event.preventDefault(); closeMergeLineEditor({ revert: true }); row.focus(); }
+    else if (event.key === "Enter") { event.preventDefault(); closeMergeLineEditor({ commit: true }); row.focus(); }
+  });
+  editor.addEventListener("blur", () => closeMergeLineEditor({ commit: true }));
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function applyMergeLineEdit() {
+  if (!mergeLineEditor) return;
+  const { element, row, line } = mergeLineEditor;
+  mergeManual.set(line.key, element.value);
+  line.text = element.value;
+  line.origin = "manual";
+  const text = row.querySelector(".merge-line-text");
+  if (text) text.textContent = element.value;
+  styleMergePreviewRow(row, "manual");
+}
+
+function closeMergeLineEditor(options = {}) {
+  if (!mergeLineEditor) return;
+  const { element, row, line, before, beforeOrigin } = mergeLineEditor;
+  mergeLineEditor = null;
+  mergeComposing = false;
+  if (options.revert) {
+    line.text = before;
+    line.origin = beforeOrigin;
+    if (beforeOrigin === "manual") mergeManual.set(line.key, before);
+    else mergeManual.delete(line.key);
+  } else if (options.commit && element.value !== before) {
+    line.text = element.value;
+    line.origin = "manual";
+    mergeManual.set(line.key, element.value);
+  } else {
+    line.text = before;
+    line.origin = beforeOrigin;
+  }
+  element.remove();
+  row.classList.remove("editing");
+  styleMergePreviewRow(row, line.origin);
+  const text = row.querySelector(".merge-line-text");
+  if (text) { text.hidden = false; text.textContent = line.text; }
+  updateMergeProvenanceCounts();
 }
 async function compareThreeWay(csvMode) {
   if (!$("base").value.trim() || !$("old").value.trim() || !$("new").value.trim()) { setStatus(t("enterPaths"), "error"); return false; }
@@ -2361,10 +3407,12 @@ async function compareThreeWay(csvMode) {
     const response = await apiFetch(`/api/three-way/${csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
     if (!isCurrentRequest(generation)) return false;
-    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    threeWayData = null; resetMergeSelection(csvMode ? "threeway-csv" : "threeway"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
     clearInterval(timer);
-    await renderThreeWay(data, csvMode);
+    const rendered = await renderThreeWay(data, csvMode);
+    if (!rendered && renderGate.cancelled) { setStatus(t("cancelled"), ""); return false; }
     return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
@@ -2376,15 +3424,29 @@ async function compareThreeWay(csvMode) {
     currentAbort = null;
   }
 }
-async function saveThreeWayMerge() {
+async function saveThreeWayMerge(previewConfirmed) {
   const output = $("mergeOutput").value.trim(); if (!output) { setStatus(t("requiredField", { field: t("outputPath") }), "error"); return; }
-  const unresolved = Math.max(0, (threeWayData?.conflicts || 0) - mergeChoices.size);
-  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", unresolved)); if (unresolved > 0 && !allowUnresolved) return;
-  const overwrite = $("mergeOverwrite").checked, confirmOverwrite = !overwrite || await askConfirm(t("overwriteWarning")); if (!confirmOverwrite) return;
+  const target = currentUnresolvedTarget();
+  const unresolved = mergeUnresolvedState().count;
+  const allowUnresolved = unresolved > 0 && await askConfirm(t("unresolvedWarning", { count: unresolved, target: mergeTargetLabel(target) })); if (unresolved > 0 && !allowUnresolved) return;
+  const overwrite = $("mergeOverwrite").checked;
+  const impact = buildMergeImpact(threeWayData.csvMode ? "threeway-csv" : "threeway", unresolved);
+  const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact)); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
-  const body = { ...base, output, choices: Object.fromEntries(mergeChoices), allowUnresolved, overwrite, confirmOverwrite };
+  const body = { ...base, output, choices: mergeSelection.toWire(), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
+  // Typed result lines travel with the save so the file and the report agree
+  // on what was adopted and what was entered by hand (#257).
+  if (!threeWayData.csvMode && mergeManual.size) body.manual = Object.fromEntries(mergeManual);
   $("saveMerge").disabled = true;
-  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); setStatus(t("mergeSaved", data.output), "success"); }
+  try {
+    const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw apiError(data, response);
+    if (!threeWayData.csvMode && data.provenance) {
+      const counts = provenanceBreakdown(data.provenance);
+      setStatus(t("mergeSavedProvenance", { path: data.output, adopted: counts.adopted.toLocaleString(), manual: counts.manual.toLocaleString() }), "success");
+      if (mergePreview) { mergePreview.provenance = data.provenance; updateMergeProvenanceCounts(); }
+    } else reportMergeSaved(data, target, data.output);
+  }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 
@@ -2398,10 +3460,117 @@ function updateCounter() {
   });
   for (const button of [$("firstDiff"), $("prevDiff"), $("nextDiff"), $("lastDiff")])
     button.disabled = total === 0;
+  // Explicit confirmation is offered only for a rendered text diff: a three-way
+  // or folder result has no signature table, so those controls stay out of the
+  // way. The counter and the unconfirmed-only stepping are separate from the
+  // first/prev/next/last buttons, which keep walking every hunk as before.
+  const confirmable = confirmedSignatures.length > 0;
+  const unconfirmed = confirmable ? unconfirmedHunkIndexes().length : 0;
+  $("confirmCounter").hidden = !confirmable;
+  $("prevUnconfirmed").hidden = !confirmable;
+  $("nextUnconfirmed").hidden = !confirmable;
+  if (confirmable) $("confirmCounter").textContent = t("confirmCounter", confirmProgress(confirmedSignatures, confirmedHunks, active));
+  for (const button of [$("prevUnconfirmed"), $("nextUnconfirmed")]) button.disabled = unconfirmed === 0;
 }
 
 function activeHunkIndexes() {
   return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index) && (!threeWayData || threeWayData.events[index]?.kind === "conflict"));
+}
+
+function isConfirmed(index) {
+  return confirmedSignatures.length > 0 && confirmedHunks.has(confirmedSignatures[index]);
+}
+
+function unconfirmedHunkIndexes() {
+  return activeHunkIndexes().filter((index) => !isConfirmed(index));
+}
+
+// Steps to the nearest unconfirmed hunk in the given direction, wrapping at the
+// ends. A hunk that is currently selected but already confirmed is skipped: the
+// search starts strictly beyond it, not from its position in the pending list.
+function stepUnconfirmed(delta) {
+  const pending = unconfirmedHunkIndexes();
+  if (!pending.length) return;
+  const ordered = delta < 0 ? [...pending].reverse() : pending;
+  const target = ordered.find((index) => (delta < 0 ? index < currentHunk : index > currentHunk));
+  jumpToHunk(target == null ? (delta < 0 ? pending[pending.length - 1] : pending[0]) : target);
+}
+
+function toggleConfirmedHunk(index) {
+  const signature = confirmedSignatures[index];
+  if (!signature) return;
+  const next = !confirmedHunks.has(signature);
+  if (next) confirmedHunks.add(signature); else confirmedHunks.delete(signature);
+  const box = $(`hunk-${index}`);
+  box?.classList.toggle("confirmed", next);
+  const button = box?.querySelector(".hunk-confirm");
+  if (button) {
+    const label = t(next ? "unconfirmHunk" : "confirmHunk");
+    button.setAttribute("aria-pressed", next ? "true" : "false");
+    button.textContent = t(next ? "confirmed" : "confirmHunk");
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+  document.querySelectorAll(`.minimap-marker[data-hunk="${index}"]`).forEach((marker) => marker.classList.toggle("confirmed", next));
+  $("sidebarList").querySelector(`.sidebar-item[data-hunk="${index}"]`)?.classList.toggle("confirmed", next);
+  persistConfirmed();
+  updateCounter();
+}
+
+// ---- Confirmed-mark persistence (#288) ----
+// The signatures are content-derived, so restoring intersects them with the
+// hunks actually being shown: a hunk whose lines changed has a different
+// signature and its confirmation is dropped rather than inherited.
+function readConfirmedStore() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CONFIRMED_STORAGE_KEY) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch (_) { return {}; }
+}
+
+function writeConfirmedStore(store) {
+  try { localStorage.setItem(CONFIRMED_STORAGE_KEY, JSON.stringify(store)); } catch (_) { /* storage full or blocked */ }
+}
+
+function persistConfirmed() {
+  if (!confirmedComparison) return;
+  const store = readConfirmedStore();
+  const kept = confirmedSignatures.filter((signature) => confirmedHunks.has(signature));
+  if (kept.length) store[confirmedComparison] = kept;
+  else delete store[confirmedComparison];
+  const comparisons = Object.keys(store);
+  if (comparisons.length > CONFIRMED_COMPARISONS_MAX) {
+    for (const key of comparisons.slice(0, comparisons.length - CONFIRMED_COMPARISONS_MAX)) delete store[key];
+  }
+  writeConfirmedStore(store);
+}
+
+function currentComparisonIdentity() {
+  const body = requestBody();
+  return comparisonIdentity({
+    mode: body.mode,
+    inline: body.inline,
+    old: body.old,
+    new: body.new,
+    base: $("base")?.value.trim() || "",
+    oldAbsent: body.oldAbsent,
+    newAbsent: body.newAbsent,
+    oldText: body.oldText,
+    newText: body.newText,
+  });
+}
+
+function prepareConfirmations(hunks) {
+  confirmedComparison = currentComparisonIdentity();
+  confirmedSignatures = hunkSignatures(hunks);
+  const stored = readConfirmedStore()[confirmedComparison];
+  confirmedHunks = new Set(Array.isArray(stored) ? restoreSignatures(confirmedSignatures, stored) : []);
+}
+
+function resetConfirmations() {
+  confirmedComparison = "";
+  confirmedSignatures = [];
+  confirmedHunks = new Set();
 }
 
 function stepHunk(delta) {
@@ -2479,6 +3648,7 @@ function buildMinimap(data) {
     marker.type = "button";
     marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}`;
     if (readHunks.has(segment.index)) marker.classList.add("read");
+    if (isConfirmed(segment.index)) marker.classList.add("confirmed");
     if (currentHunk === segment.index) marker.classList.add("current");
     marker.dataset.hunk = String(segment.index);
     marker.dataset.priority = String(segment.priority);
@@ -2525,6 +3695,7 @@ function setupNavigation(data) {
   navObserver = null;
   currentHunk = -1;
   readHunks = new Set();
+  resetConfirmations();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
   $("dirStatusWrap").hidden = true;
@@ -2692,7 +3863,7 @@ function renderMessages(entries) {
     const time = document.createElement("time");
     time.className = "message-time";
     time.dateTime = stamp.toISOString();
-    time.textContent = stamp.toLocaleTimeString(lang === "ja" ? "ja-JP" : "en-US");
+    time.textContent = stamp.toLocaleTimeString(localeTag(lang));
 
     const dismiss = document.createElement("button");
     dismiss.type = "button";
@@ -2755,7 +3926,7 @@ function csvRequestBody() {
     leftParser: $("leftParser").value, rightParser: $("rightParser").value,
     leftDelimiter: $("leftDelimiter").value, rightDelimiter: $("rightDelimiter").value,
     lazyQuotes: $("lazyQuotes").checked, trimLeadingSpace: $("trimLeadingSpace").checked,
-    ignoreCase: $("ignoreCase").checked, whitespace: $("whitespace").value,
+    ignoreCase: $("ignoreCase").checked, whitespace: whitespaceScaleMode($("whitespaceScale").value),
     lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
     ignoreColumnNames: [], ignoreColumnIndexes: [], tolerance: $("tolerance").value === "" ? null : Number($("tolerance").value),
     columnTolerances: [], partitions: Number($("partitions").value), parseWorkers: Number($("parseWorkers").value),
@@ -2839,12 +4010,31 @@ async function inspectCSV() {
 function renderCSVSummary(data) {
   const summary = data.summary, el = $("summary");
   el.innerHTML = "";
-  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = Number(value || 0).toLocaleString(); item.append(b, ` ${label}`); el.append(item); };
+  const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = fmt(Number(value || 0)); item.append(b, ` ${label}`); el.append(item); };
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
-  for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
+  // The counts alone leave the reader to decide whether anything is really
+  // different. State the verdict in one line: real data differences, or none
+  // apart from column/row order (#116).
+  const verdict = data.verdict;
+  if (verdict && !verdict.substantively_equal) {
+    const note = document.createElement("span"); note.className = "note csv-verdict-differences";
+    note.textContent = t("csvDataDifferenceVerdict", { count: Number(verdict.differences || 0).toLocaleString() });
+    el.append(note);
+  }
   if (data.truncated) { const note = document.createElement("span"); note.className = "note"; note.textContent = t("csvTruncated"); el.append(note); }
   el.hidden = false;
+}
+
+// A reordered column set is not an error when both sides name the same
+// columns: show the verdict and a one-click way to align and compare (#116).
+function csvAlignProposalCard(data) {
+  const card = resultStateCard(t("columnsReorderedTitle"), t("columnsReorderedScope"), "partial");
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "csv-align-columns"; button.textContent = t("alignAndCompare");
+  button.onclick = () => { $("alignColumns").checked = true; compareCSV(); };
+  card.append(button);
+  return card;
 }
 
 // csvView holds the parts of the table that survive a page turn. Paging used to
@@ -2853,6 +4043,10 @@ function renderCSVSummary(data) {
 // (#154).
 let csvView = null;
 
+// renderCSV builds one page of the table (CSV_PAGE_SIZE rows), which is bounded
+// by construction, so unlike the text, three-way, folder and continuous paths it
+// does not slice: the remaining rows arrive one page at a time through
+// renderCSVRows, and nothing here blocks on the size of the whole difference.
 function renderCSV(data) {
   csvData = data;
   lastData = null;
@@ -2865,14 +4059,20 @@ function renderCSV(data) {
   // UI here would only toggle classes on nodes that are discarded below; the
   // call after the table is built is the one that matters (#154).
   resetMergeRowIndex();
-  renderCSVSummary(data);
   const result = $("result"); result.innerHTML = "";
   result.append(paneHeads(data));
+  if (alignmentProposal(data.verdict)) {
+    $("summary").hidden = true;
+    result.append(csvAlignProposalCard(data));
+    return;
+  }
+  renderCSVSummary(data);
+  result.append(statsPanel("csv", data));
   if (!data.differences.length) {
     if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
     else {
-      const scope = t("csvMatchScope", { rows: Number(data.summary.equal_rows || 0).toLocaleString(), columns: data.header.length.toLocaleString() });
-      result.append(resultStateCard(t(comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"), scope));
+      const scope = t("csvMatchScope", { rows: fmt(Number(data.summary.equal_rows || 0)), columns: fmt(data.header.length) });
+      result.append(resultStateCard(t(equivalenceTitleKey(data.verdict, comparisonUsesRules(true))), scope));
     }
     return;
   }
@@ -2981,8 +4181,12 @@ function renderCSVRows() {
     const actionCell = document.createElement("th"); actionCell.colSpan = columns.length + 1;
     const label = document.createElement("span"); label.textContent = `${diff.kind} · ${diff.id.slice(0, 8)}`;
     actionCell.append(label);
+    // Both toggles are offered even for a one-sided difference: the present
+    // side keeps the row and the absent side drops it, mirroring the engine's
+    // keep/drop decision. On a CHANGED pair both sides adopt real rows (#271).
     for (const [side, text] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = text;
+      button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint");
       button.onclick = () => chooseMerge(diff.id, side); actionCell.append(button);
     }
     action.append(actionCell); tbody.append(action);
@@ -3019,7 +4223,8 @@ async function compareCSV() {
     const resp = await apiFetch("/api/csv/diff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
     const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
-    threeWayData = null; mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    threeWayData = null; resetMergeSelection("csv"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
@@ -3057,7 +4262,8 @@ function rememberComparison(body) {
 
 async function applyCSVProject(body) {
   $("old").value = body.old || ""; $("new").value = body.new || "";
-  for (const id of ["leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "whitespace", "memory", "tempDir", "partitionBuffer", "maxRecordBytes"]) if (body[id] != null) $(id).value = body[id];
+  for (const id of ["leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "memory", "tempDir", "partitionBuffer", "maxRecordBytes"]) if (body[id] != null) $(id).value = body[id];
+  $("whitespaceScale").value = whitespaceScaleLevel(body.whitespace);
   for (const id of ["hasHeader", "alignColumnsByName", "lazyQuotes", "trimLeadingSpace", "ignoreCase", "keepTemp", "outputHeader"]) {
     const target = id === "alignColumnsByName" ? "alignColumns" : id; if (body[id] != null) $(target).checked = Boolean(body[id]);
   }
@@ -3212,7 +4418,7 @@ async function renderDirectory(data, body, state = {}) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
-  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter", "viewModeWrap", "sidebarToggle"]) {
+  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter", "viewModeWrap", "sidebarToggle", "confirmCounter", "prevUnconfirmed", "nextUnconfirmed"]) {
     const node = $(id); if (node) node.hidden = true;
   }
   syncExportPatchVisibility();
@@ -3225,7 +4431,7 @@ async function renderDirectory(data, body, state = {}) {
     const item = document.createElement("span"); item.className = `stat ${cls}`;
     const mark = document.createElement("span"); mark.className = "stat-marker"; mark.textContent = DIR_MARKERS[name];
     mark.setAttribute("aria-hidden", "true");
-    const b = document.createElement("b"); b.textContent = data[name].toLocaleString();
+    const b = document.createElement("b"); b.textContent = fmt(data[name]);
     item.append(mark, " ", b, ` ${t(name)}`); summary.append(item);
   }
   summary.hidden = false;
@@ -3293,8 +4499,8 @@ async function renderDirectory(data, body, state = {}) {
     const badges = document.createElement("span"); badges.className = "dir-badges";
     const total = document.createElement("span");
     total.className = "dir-badge total";
-    total.textContent = node.total.toLocaleString();
-    total.title = t("folderFileCount", { count: node.total.toLocaleString() });
+    total.textContent = fmt(node.total);
+    total.title = t("folderFileCount", { count: fmt(node.total) });
     badges.append(total);
     for (const [status, cls] of [["added", "add"], ["removed", "del"], ["changed", "chg"]]) {
       if (!node.counts[status]) continue;
@@ -3340,10 +4546,11 @@ async function renderDirectory(data, body, state = {}) {
       ...[...root.dirs.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => ({ dir: n })),
       ...root.files.sort((a, b) => a.name.localeCompare(b.name)).map((f) => ({ file: f })),
     ];
-    if (!(await renderInSlices(tree, top, (item) => (item.dir ? folderRow(item.dir, 0) : fileRow(item.file, 0))))) return;
+    if (!(await renderInSlices(tree, top, (item) => (item.dir ? folderRow(item.dir, 0) : fileRow(item.file, 0))))) return false;
     initDirKeyboard(tree, state.selectedPath);
   }
   setStatus("");
+  return true;
 }
 
 // initDirKeyboard gives the tree the one-tab-stop, arrow-driven model a tree is
@@ -3405,7 +4612,8 @@ async function compareDirectory() {
     const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
     clearInterval(timer);
-    await renderDirectory(data, body);
+    const rendered = await renderDirectory(data, body);
+    if (!rendered && renderGate.cancelled) { setStatus(t("cancelled"), ""); return false; }
     return true;
   }
   catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); return false; }
@@ -3450,7 +4658,8 @@ async function runCompare() {
     lastData = data;
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
-    mergeChoices = new Map(); mergeDefault = null; mergeUndo = []; mergeRedo = [];
+    resetMergeSelection("text"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     setMergeMode(false); // every fresh diff opens in reading mode (#100)
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
@@ -3459,7 +4668,13 @@ async function runCompare() {
     // Stop the elapsed ticker before rendering: renderResult yields between
     // slices, so the ticker would otherwise keep overwriting its progress.
     clearInterval(timer);
-    await renderResult(data);
+    const rendered = await renderResult(data);
+    // A render the user stopped is not a finished comparison: report the
+    // cancellation and leave the form open, like an aborted request (#128).
+    if (!rendered && renderGate.cancelled) {
+      setStatus(t("cancelled"), "");
+      return false;
+    }
     return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
@@ -3479,7 +4694,10 @@ async function runCompare() {
 async function compare(options = {}) {
   if (busyOperation) return false;
   const preparedWatch = options.watch || await prepareFileWatch();
-  const scrollAnchor = captureResultScrollAnchor();
+  // A tab switch supplies its own anchor; otherwise keep the current position.
+  const scrollAnchor = Object.prototype.hasOwnProperty.call(options, "scrollAnchor")
+    ? options.scrollAnchor
+    : captureResultScrollAnchor();
   const result = await runExclusive("compare", runCompare);
   if (result) restoreResultScrollAnchor(scrollAnchor, true);
   // Only fold once something is actually on screen. A failed or cancelled run
@@ -3499,6 +4717,7 @@ async function compare(options = {}) {
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
+async function exportReport() { return runExclusive("exportReport", runExportReport); }
 async function exportCSV() { return runExclusive("exportCSV", runExportCSV); }
 async function saveProject() { return runExclusive("saveProject", runSaveProject); }
 async function loadProject() { return runExclusive("loadProject", runLoadProject); }
@@ -3774,14 +4993,27 @@ function swapSides() {
 // what they are confirming.
 
 // askConfirm resolves true when the user proceeds. It mirrors confirm()'s
-// shape so the call sites stay a single awaited expression.
-function askConfirm(message) {
+// shape so the call sites stay a single awaited expression. An optional list of
+// impact rows (#273) is rendered inside the dialog so a destructive step shows
+// what it will do before Proceed is available.
+function askConfirm(message, details) {
   const dialog = $("confirmDialog");
   // showModal throws on an already-open dialog, which would reject into a
   // caller that has no answer to give. A second question while one is on
   // screen is declined instead, leaving the first one to be answered.
   if (dialog.open) return Promise.resolve(false);
   $("confirmMessage").textContent = message;
+  const list = $("confirmDetails");
+  if (list) {
+    list.textContent = "";
+    for (const item of details || []) {
+      const row = document.createElement("li");
+      row.textContent = typeof item === "string" ? item : item.text;
+      row.className = "impact-" + (item && item.kind ? item.kind : "info");
+      list.append(row);
+    }
+    list.hidden = list.childElementCount === 0;
+  }
   const opener = document.activeElement;
   return new Promise((resolve) => {
     dialog.addEventListener("close", () => {
@@ -3832,6 +5064,7 @@ const SHORTCUT_LABELS = {
   searchPrev: "shortcutSearchPrev",
   close: "shortcutClose",
   compare: "shortcutCompare",
+  revertLine: "shortcutRevertLine",
 };
 const SHORTCUT_ACTIONS = KEYMAP_ACTION_IDS.map((id) => ({ id, labelKey: SHORTCUT_LABELS[id] }));
 const KEYMAP_STORAGE = "ayame-keybindings";
@@ -4111,10 +5344,8 @@ function requestBody() {
     numeric: $("numeric").checked,
     reverse: $("reverse").checked,
     ignoreCase: $("ignoreCase").checked,
-	ignoreEOL: $("ignoreEOL").checked,
-	ignoreTrailingEOL: $("ignoreTrailingEOL").checked,
+	...whitespaceRequestFields($("whitespaceScale").value),
 	lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-    whitespace: $("whitespace").value,
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
     syncPoints: syncPoints.map((point) => ({ ...point })),
@@ -4124,9 +5355,8 @@ function requestBody() {
 function activeFilters() {
 	const filters = [];
 	if ($("ignoreCase").checked) filters.push(t("ignoreCase"));
-	if ($("whitespace").value !== "none") filters.push(`${t("whitespace")}: ${$("whitespace").value}`);
-	if ($("ignoreEOL").checked) filters.push(t("ignoreEOL"));
-	if ($("ignoreTrailingEOL").checked) filters.push(t("ignoreTrailingEOL"));
+	const whitespaceLevel = $("whitespaceScale").value;
+	if (whitespaceLevel !== "strict") filters.push(`${t("whitespaceScale")}: ${t(whitespaceScaleLabelKey(whitespaceLevel))}`);
 	for (const pattern of $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))
 	  filters.push(`/${pattern}/`);
 	return filters;
@@ -4160,20 +5390,64 @@ async function runExportPatch() {
       const data = await resp.json().catch(() => ({}));
       throw apiError(data, resp);
     }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "ayame.patch";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(await resp.blob(), "ayame.patch");
     setStatus(t("exported"), "success");
   } catch (err) {
     setStatus(String(err.message || err), "error");
   } finally {
     $("exportPatch").disabled = false;
+  }
+}
+
+// downloadBlob hands a server-built attachment to the browser without leaving
+// an object URL behind.
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// The confirmation report records what was compared, under which conditions,
+// what was ignored or read, and the state needed to rerun it (#296). Confirmed
+// hunks (#288) are not part of this build; the server says so in the report
+// rather than guessing, so the UI sends only the state it actually has.
+async function runExportReport() {
+  const body = requestBody();
+  if (!validateInputs(body)) return;
+  const format = $("reportFormat").value;
+  body.format = format;
+  body.includeContent = $("reportIncludeContent").checked;
+  body.ignoredHunks = [...ignoredHunks].sort((a, b) => a - b);
+  body.readHunks = [...readHunks].sort((a, b) => a - b);
+  const state = captureComparisonState();
+  if (state) {
+    body.comparisonState = state;
+    try { body.reproduceURL = buildShareURL(location.href, state); } catch (_) { /* URL state too large for a link; the state still travels */ }
+  }
+  const extensions = { html: "html", markdown: "md", json: "json" };
+  $("exportReport").disabled = true;
+  setStatus(t("reportGenerating"), "busy");
+  try {
+    const resp = await apiFetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw apiError(data, resp);
+    }
+    downloadBlob(await resp.blob(), `ayame-report.${extensions[format] || "json"}`);
+    setStatus(t("reportExported"), "success");
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+  } finally {
+    $("exportReport").disabled = false;
   }
 }
 
@@ -4220,15 +5494,22 @@ function syncMoveMinLines() {
 	if (node) node.disabled = !$("detectMoves").checked;
 }
 
-// The patch format controls are only meaningful next to Export patch, so they
-// follow its visibility rather than sitting in the setup form (#86).
+// The patch and report controls live inside the Export menu, so the whole menu
+// disappears when neither export is available rather than leaving an empty
+// menu title in the bar.
 function syncPatchSettingsVisibility() {
-  // The patch controls now live inside the Export menu, so the whole menu
-  // disappears when there is nothing to export rather than leaving an empty
-  // menu title in the bar.
+  const patchVisible = !$("exportPatch").hidden;
+  // Patch format/context only mean something next to Export patch; with the
+  // report sharing the menu they must not linger for sorted mode (#296).
+  for (const id of ["patchFormat", "patchContext"]) {
+    const holder = $(id)?.closest("label");
+    if (holder) holder.hidden = !patchVisible;
+  }
+  const reportElement = $("exportReport");
+  const reportVisible = Boolean(reportElement && !reportElement.hidden);
   const menuExport = $("menuExport");
   if (menuExport) {
-    menuExport.hidden = $("exportPatch").hidden;
+    menuExport.hidden = !(patchVisible || reportVisible);
     if (menuExport.hidden) menuExport.open = false;
   }
 }
@@ -4246,8 +5527,15 @@ function syncViewModeVisibility() {
 }
 
 function syncExportPatchVisibility() {
-  const currentRequest = $("mode").value === "text" ? JSON.stringify(requestBody()) : null;
-  $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
+  // A patch applies only to text mode, but the confirmation report also covers
+  // sorted mode, so they have separate visibility over the same freshness check.
+  const mode = $("mode").value;
+  const comparable = mode === "text" || mode === "sorted";
+  const currentRequest = comparable ? JSON.stringify(requestBody()) : null;
+  const fresh = Boolean(lastData && lastComparedRequest && currentRequest === lastComparedRequest);
+  $("exportPatch").hidden = !(fresh && mode === "text");
+  const report = $("exportReport");
+  if (report) report.hidden = !fresh;
   syncPatchSettingsVisibility();
   syncViewModeVisibility();
   syncContextVisibility();
@@ -4293,19 +5581,111 @@ function applyColumnFilter() {
 async function loadBrowser(path) {
   const resp = await apiFetch(`/api/files?path=${encodeURIComponent(path || "")}`), data = await resp.json();
   if (!resp.ok) throw apiError(data, resp);
-  $("browserPath").value = data.Path || data.path; $("browserUp").dataset.path = data.Parent || data.parent;
+  const current = data.Path || data.path;
+  $("browserPath").value = current; $("browserUp").dataset.path = data.Parent || data.parent;
+  browserEntries = (data.Entries || data.entries || []).slice();
+  $("browserFilter").value = "";
+  const places = rememberPlace(readBrowserPlaces(), current);
+  writeBrowserPlaces(places);
+  renderBrowserRecent(places);
+  renderBrowserEntries();
+}
+
+// ---- File browser: keyboard traversal, filtering, recent places (#103) ----
+//
+// The browser is the main route for someone who does not type paths, so it has
+// to be usable without a mouse and without clicking "up" repeatedly. Entries are
+// a roving-tabindex list: one tab stop, arrows to move, Enter to open, Backspace
+// to go to the parent. Home, the filesystem root and recently opened places are
+// one click away.
+let browserEntries = [];
+let browserFocus = -1;
+
+const BROWSER_PLACES_KEY = "ayame-browser-places";
+
+function readBrowserPlaces() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BROWSER_PLACES_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeBrowserPlaces(places) {
+  try { localStorage.setItem(BROWSER_PLACES_KEY, JSON.stringify(places)); } catch (err) { /* storage may be unavailable */ }
+}
+
+function renderBrowserRecent(places) {
+  const select = $("browserRecent");
+  if (!select) return;
+  select.textContent = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = places.length ? t("browserRecent") : t("browserRecentEmpty");
+  select.append(first);
+  for (const path of places) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    select.append(option);
+  }
+}
+
+function browserVisibleEntries() {
+  const needle = $("browserFilter").value.trim().toLocaleLowerCase();
+  if (!needle) return browserEntries;
+  return browserEntries.filter((item) => String(item.Name || item.name || "").toLocaleLowerCase().includes(needle));
+}
+
+function renderBrowserEntries() {
   const entries = $("browserEntries"); entries.innerHTML = "";
-  for (const item of (data.Entries || data.entries || [])) {
+  const items = browserVisibleEntries();
+  for (const item of items) {
     const button = document.createElement("button"); button.type = "button"; button.className = item.directory ? "directory" : "file";
-    button.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
+    button.setAttribute("role", "option");
     const itemPath = item.Path || item.path;
+    const label = document.createElement("span"); label.className = "browser-entry-name";
+    label.textContent = `${item.directory ? "📁" : "📄"} ${item.Name || item.name}`;
+    button.append(label);
+    if (!item.directory) {
+      const meta = document.createElement("span"); meta.className = "browser-entry-meta";
+      const size = formatBytes(Number(item.Size ?? item.size));
+      const stamp = formatEpochNanos(item.Modified || item.modified);
+      meta.textContent = [size, stamp].filter(Boolean).join(" · ");
+      button.append(meta);
+    }
+    button.dataset.browserPath = itemPath;
     button.addEventListener("click", async () => {
       if (item.directory) await loadBrowser(itemPath);
       else await selectBrowserPath(itemPath);
     });
     entries.append(button);
   }
+  browserFocus = items.length ? 0 : -1;
+  syncBrowserFocus(false);
 }
+
+// A roving tabindex keeps one tab stop in the list while the arrows move a
+// visible focus, so Tab leaves the browser instead of walking every entry.
+function syncBrowserFocus(move = true) {
+  const rows = [...$("browserEntries").children];
+  rows.forEach((row, index) => { row.tabIndex = index === browserFocus ? 0 : -1; });
+  if (move && rows[browserFocus]) rows[browserFocus].focus();
+}
+
+function stepBrowserFocus(delta) {
+  const rows = [...$("browserEntries").children];
+  if (!rows.length) return;
+  browserFocus = Math.max(0, Math.min(rows.length - 1, browserFocus + delta));
+  syncBrowserFocus();
+}
+
+async function browserGoParent() {
+  const parent = $("browserUp").dataset.path;
+  if (parent) await loadBrowser(parent);
+}
+
 
 async function selectBrowserPath(path) {
   if (!browserTarget) return;
@@ -4397,6 +5777,7 @@ function markSidebarCurrent() {
     const index = Number(button.dataset.hunk);
     button.classList.toggle("current", index === currentHunk);
     button.classList.toggle("read", readHunks.has(index));
+    button.classList.toggle("confirmed", isConfirmed(index));
     button.classList.toggle("ignored", ignoredHunks.has(index));
   }
 }
@@ -4513,6 +5894,20 @@ function applyWrap(on) {
   document.querySelector(".csv-table")?.classList.toggle("wrap-cells", on);
   restoreResultScrollAnchor(scrollAnchor);
   refreshMinimapGeometry();
+}
+// Display width settings (#289). The tab size is a CSS token so raw tabs render
+// at the chosen width; the East Asian Ambiguous choice feeds the width model
+// used for whitespace markers. Both are read by the CLI's internal/textwidth
+// too, so the two halves agree on what a line occupies.
+function applyTabSize(size) {
+  const value = normalizeTabSize(size);
+  document.documentElement.style.setProperty("--tab-size", String(value));
+  localStorage.setItem("ayame-tab-size", String(value));
+  $("tabSize").value = String(value);
+}
+function applyAmbiguousWide(on) {
+  localStorage.setItem("ayame-ambiguous-wide", on ? "1" : "0");
+  $("ambiguousWide").checked = on;
 }
 // applyViewMode switches between side-by-side and the unified, git-style single
 // column (#115). Nothing is re-rendered: a changed row already carries both
@@ -4634,6 +6029,7 @@ document.addEventListener("drop", async (event) => {
 });
 
 $("compare").addEventListener("click", compare);
+$("newTab").addEventListener("click", openTab);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
 $("backToFolder").addEventListener("click", returnToFolder);
@@ -4698,12 +6094,13 @@ document.addEventListener("keydown", (event) => {
   for (const menu of document.querySelectorAll(".menubar .menu[open]")) menu.open = false;
 });
 $("exportPatch").addEventListener("click", exportPatch);
+$("exportReport").addEventListener("click", exportReport);
 $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
 $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
-$("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
+$("cancel").addEventListener("click", cancelCurrentOperation);
 // The refusal has to put the control back itself. The event object is not a
 // reliable handle by the time the dialog resolves, so the element is looked up
 // again rather than read off the event.
@@ -4768,6 +6165,30 @@ $("dirPreview").addEventListener("click", previewDirectoryFilter);
 $("saveDirProject").addEventListener("click", saveDirectoryProject);
 $("loadDirProject").addEventListener("click", loadDirectoryProject);
 $("browserPath").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); } });
+
+// The browser's keyboard model (#103). Entries are reached with the arrows,
+// opened with Enter, and the parent with Backspace, so a path is reachable
+// without a pointer. The filter narrows the list as it is typed.
+$("browserFilter").addEventListener("input", () => renderBrowserEntries());
+$("browserEntries").addEventListener("keydown", (event) => {
+  const rows = [...$("browserEntries").children];
+  if (event.key === "ArrowDown") { stepBrowserFocus(1); event.preventDefault(); }
+  else if (event.key === "ArrowUp") { stepBrowserFocus(-1); event.preventDefault(); }
+  else if (event.key === "Home") { browserFocus = rows.length ? 0 : -1; syncBrowserFocus(); event.preventDefault(); }
+  else if (event.key === "End") { browserFocus = rows.length - 1; syncBrowserFocus(); event.preventDefault(); }
+  else if (event.key === "Backspace") {
+    // Backspace on a focused entry means "up", the same as the parent button.
+    browserGoParent().catch((err) => setStatus(String(err.message || err), "error"));
+    event.preventDefault();
+  }
+});
+$("browserHome").addEventListener("click", async () => { try { await loadBrowser("~"); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserRoot").addEventListener("click", async () => { try { await loadBrowser("/"); } catch (err) { setStatus(String(err.message || err), "error"); } });
+$("browserRecent").addEventListener("change", async () => {
+  const path = $("browserRecent").value;
+  if (!path) return;
+  try { await loadBrowser(path); } catch (err) { setStatus(String(err.message || err), "error"); }
+});
 function compareFromKeyboard(event) {
   if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
   if (event.currentTarget.tagName === "TEXTAREA" && !event.ctrlKey && !event.metaKey) return;
@@ -4794,16 +6215,36 @@ $("lastDiff").addEventListener("click", () => {
   if (continuousActive()) { void continuousStep(1, { edge: "last" }); return; }
   const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]);
 });
+$("prevUnconfirmed").addEventListener("click", () => stepUnconfirmed(-1));
+$("nextUnconfirmed").addEventListener("click", () => stepUnconfirmed(1));
 $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
-$("allLeft").addEventListener("click", () => mutateMerge(() => { mergeDefault = "left"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "left")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "left")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "left")); }));
-$("allRight").addEventListener("click", () => mutateMerge(() => { mergeDefault = "right"; if (threeWayData) threeWayData.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "right")); else if (csvData && $("mode").value === "csv") csvData.differences.forEach((item) => mergeChoices.set(item.id, "right")); else lastData?.hunks.forEach((_, index) => mergeChoices.set(index, "right")); }));
-$("allBase").addEventListener("click", () => mutateMerge(() => { mergeDefault = "base"; threeWayData?.events.filter((item) => item.kind === "conflict").forEach((item) => mergeChoices.set(item.id, "base")); }));
+// The units "All left / All right / All base" apply to: every hunk of the
+// active comparison, conflicts only for three-way.
+function mergeUnitIds() {
+  if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) return threeWayData.events.filter((item) => item.kind === "conflict").map((item) => item.id);
+  if ($("mode").value === "csv" && csvData) return csvData.differences.map((item) => item.id);
+  return (lastData?.hunks || []).map((_, index) => index);
+}
+function chooseAllMerge(side) {
+  return () => {
+    if (!mergeSelection.order.includes(side)) return;
+    const ids = mergeUnitIds();
+    mutateMerge(() => { for (const id of ids) mergeSelection.choose(id, side); });
+  };
+}
+$("allLeft").addEventListener("click", chooseAllMerge("left"));
+$("allRight").addEventListener("click", chooseAllMerge("right"));
+$("allBase").addEventListener("click", chooseAllMerge("base"));
 $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updateMergeUI(); });
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);
+// The preview is a demand-driven server call, so it is fetched when opened and
+// refreshed on choice changes, never on load (#257).
+$("mergeProvenance").addEventListener("toggle", () => { if ($("mergeProvenance").open) void refreshMergePreview(); });
+$("simulateMerge").addEventListener("click", () => void previewMergeImpact());
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
   if (!lastData?.hunks?.length) return;
@@ -5008,6 +6449,14 @@ $("showWs").addEventListener("change", () => {
   localStorage.setItem("ayame-showws", $("showWs").checked ? "1" : "0");
   rerenderForDisplayChange();
 });
+$("tabSize").addEventListener("change", () => {
+  applyTabSize($("tabSize").value);
+  rerenderForDisplayChange();
+});
+$("ambiguousWide").addEventListener("change", () => {
+  applyAmbiguousWide($("ambiguousWide").checked);
+  rerenderForDisplayChange();
+});
 $("syntax").addEventListener("change", () => {
   localStorage.setItem("ayame-syntax", $("syntax").checked ? "1" : "0");
   const scrollAnchor = captureResultScrollAnchor();
@@ -5045,10 +6494,12 @@ applyScheme(localStorage.getItem("ayame-scheme") || "default");
 applyTheme(localStorage.getItem("ayame-theme") || "system");
 applyWrap(localStorage.getItem("ayame-wrap") !== "0");
 applyViewMode(localStorage.getItem("ayame-view") || "side");
+applyTabSize(localStorage.getItem("ayame-tab-size") || 8);
+applyAmbiguousWide(localStorage.getItem("ayame-ambiguous-wide") === "1");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
 applyDisplayPreferences();
-$("lang").addEventListener("click", () => applyLang(lang === "ja" ? "en" : "ja"));
+$("lang").addEventListener("change", () => applyLang($("lang").value));
 $("stopServer").addEventListener("click", stopServer);
 syncModeOpts();
 syncPatchOpts();
@@ -5056,6 +6507,8 @@ applyLang(lang);
 startBrowserSession();
 
 const launch = new URLSearchParams(location.search);
+const launchTabs = parseTabDoc(readTabState(location.href));
+if (launchTabs) { tabDoc = launchTabs; renderTabs(); }
 const launchState = readComparisonState(location.href);
 if (comparisonURLHasState()) {
   if (launchState) {
@@ -5085,10 +6538,14 @@ if (comparisonURLHasState()) {
 window.addEventListener("popstate", () => {
   clearTimeout(comparisonURLReplaceTimer);
   comparisonURLReplaceTimer = 0;
+  // Each history entry carries its own tab set, so Back returns to the tabs
+  // that belonged with that comparison (#281).
+  const entryTabs = parseTabDoc(readTabState(location.href));
+  if (entryTabs) { tabDoc = entryTabs; renderTabs(); }
   const state = readComparisonState(location.href);
   if (!state) {
     comparisonURLRestoreGeneration++;
-    if (currentAbort) currentAbort.abort();
+    cancelCurrentOperation();
     if (comparisonURLHasState()) setStatus(t("urlStateInvalid"), "warning");
     else location.reload();
     return;
