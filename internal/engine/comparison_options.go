@@ -221,7 +221,7 @@ func (c comparisonConfig) equivalentPrepared(left, right preparedComparison) boo
 			tolerance, enabled = c.tolerances[index], true
 		}
 		if !enabled || !left.numericOK[index] || !right.numericOK[index] ||
-			math.Abs(left.numbers[index]-right.numbers[index]) > tolerance {
+			!withinTolerance(left.numbers[index], right.numbers[index], tolerance) {
 			return false
 		}
 	}
@@ -239,10 +239,27 @@ func (c comparisonConfig) changedIndexesPrepared(left, right preparedComparison)
 			tolerance, enabled = c.tolerances[index], true
 		}
 		if enabled && left.numericOK[index] && right.numericOK[index] &&
-			math.Abs(left.numbers[index]-right.numbers[index]) <= tolerance {
+			withinTolerance(left.numbers[index], right.numbers[index], tolerance) {
 			continue
 		}
 		changed = append(changed, index)
 	}
 	return changed
+}
+
+// withinTolerance reports whether two parsed numbers are within an absolute
+// tolerance, treating the bound as inclusive. Two decimal strings are parsed
+// independently, so an exactly 0.01 difference can arrive as
+// 0.010000000000001563 and fail a 0.01 limit; the relative slack makes the
+// configured bound behave as documented rather than one ulp short (#121).
+func withinTolerance(left, right, tolerance float64) bool {
+	difference := math.Abs(left - right)
+	if difference <= tolerance {
+		return true
+	}
+	if tolerance == 0 {
+		return false
+	}
+	scale := math.Max(1, math.Max(math.Abs(left), math.Abs(right)))
+	return difference-tolerance <= scale*1e-12
 }

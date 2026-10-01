@@ -224,6 +224,16 @@
         <button id="externalKeep" type="button" data-i18n="externalKeep">Keep current edits</button>
       </section>
 
+      <!-- "How do I make it match?" (#121). Only shown for a CSV result, and
+           only after the reasoning in suggest.js has candidates to evaluate. -->
+      <section class="suggestions" id="suggestions" aria-live="polite" hidden>
+        <div class="suggestions-head">
+          <strong data-i18n="suggestionsTitle">How to match</strong>
+          <span id="suggestionsIntro"></span>
+        </div>
+        <div class="suggestion-cards" id="suggestionCards"></div>
+      </section>
+
 
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff" aria-describedby="diffCounter"><span aria-hidden="true">⇤</span></button>
@@ -638,6 +648,7 @@
     <script src="theme.js"></script>
     <script src="optimistic.js"></script>
     <script src="threewayview.js"></script>
+    <script src="suggest.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

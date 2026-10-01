@@ -56,6 +56,13 @@ const {
 } = globalThis.AyameMinimap;
 const { isDowngraded, navigableIndexes, essentialIndex, essentialIndexes } = globalThis.AyameDowngrade;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
+const {
+  differenceCount,
+  estimateCauses,
+  buildProposals,
+  applyProposals,
+  MAX_CANDIDATES: MAX_SUGGEST_CANDIDATES,
+} = globalThis.AyameSuggest;
 const { resultLines: threeWayResultLines, panes: threeWayPanes } = globalThis.AyameThreeWayView;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const {
@@ -895,6 +902,7 @@ function teardownContinuousView() {
 
 async function renderContinuous(data, body) {
   teardownContinuousView();
+  hideSuggestions();
   const filtered = filterDirectoryEntries(data.entries, $("dirStatus").value, $("dirSearch").value);
   const entries = continuousEntries(filtered);
 
@@ -3282,6 +3290,7 @@ async function renderResult(data) {
   // The authoritative result replaces the optimistic one wholesale; the
   // provisional banner and marks are inside #result and go with it (#258).
   clearProvisional();
+  hideSuggestions();
   applyDisplayPreferences();
   renderSummary(data);
   // The cells about to be built ask for their local change mark, so the cached
@@ -3667,6 +3676,7 @@ function threeWayRequestBody() { return { ...requestBody(), base: $("base").valu
 function threeLines(value, csvMode) { return csvMode ? (value || []).map((row) => row.join("\t")) : (value || []); }
 async function renderThreeWay(data, csvMode) {
   threeWayData = { ...data, csvMode }; csvData = null;
+  hideSuggestions();
   lastComparedRequest = null;
   clearUnchangedContext();
   const summary = $("summary"); summary.innerHTML = "";
@@ -4797,6 +4807,151 @@ async function inspectCSV() {
   finally { $("inspectCSV").disabled = false; }
 }
 
+// ---- "How do I make it match?" suggestions (#121) ----
+//
+// The reasoning that decides *what* to propose lives in suggest.js, which is
+// pure and node-tested. This half only draws the cards and, on Apply, writes the
+// proposed options into the setup form and re-runs the comparison. The server
+// runs each candidate once (bounded) so the card can show the real residual.
+let suggestionToken = 0;
+
+function hideSuggestions() {
+  const panel = $("suggestions");
+  if (!panel) return;
+  suggestionToken++;
+  panel.hidden = true;
+  const cards = $("suggestionCards");
+  if (cards) cards.textContent = "";
+}
+
+function suggestionCauseKey(cause) {
+  return "cause" + cause.charAt(0).toUpperCase() + cause.slice(1);
+}
+
+function suggestionActionLabel(proposal) {
+  if (proposal.cause === "columnOrder") return t("suggestAlignByName");
+  if (proposal.id === "whitespace") return t("suggestWhitespace", { count: proposal.count });
+  if (proposal.id === "ignoreCase") return t("suggestIgnoreCase", { count: proposal.count });
+  if (proposal.id === "tolerance:*") return t("suggestGlobalTolerance", { value: proposal.value });
+  if (proposal.id.startsWith("tolerance:")) return t("suggestTolerance", { column: proposal.column?.name ?? proposal.column?.index, value: proposal.value });
+  if (proposal.id.startsWith("ignore:")) return t("suggestIgnoreColumn", { column: proposal.column?.name ?? proposal.column?.index });
+  return proposal.id;
+}
+
+function activeNormalizations(body) {
+  const items = [];
+  if (body.whitespace && body.whitespace !== "none") items.push(`${t("whitespace")}: ${body.whitespace}`);
+  if (body.ignoreCase) items.push(t("ignoreCase"));
+  if (body.tolerance != null) items.push(`${t("tolerance")}: ${body.tolerance}`);
+  for (const item of body.columnTolerances || []) items.push(`${item.name ?? item.index}=${item.value}`);
+  for (const name of body.ignoreColumnNames || []) items.push(`${t("ignoreColumns")}: ${name}`);
+  for (const index of body.ignoreColumnIndexes || []) items.push(`${t("ignoreColumns")}: ${index}`);
+  return items;
+}
+
+function renderSuggestionCards(proposals, baseCount, residuals, loading) {
+  const cards = $("suggestionCards");
+  if (!cards) return;
+  for (const existing of cards.querySelectorAll(".suggestion-card")) existing.remove();
+  for (const proposal of proposals) {
+    const card = document.createElement("div"); card.className = "suggestion-card";
+    const cause = document.createElement("div"); cause.className = "suggestion-cause"; cause.textContent = t(suggestionCauseKey(proposal.cause));
+    const action = document.createElement("div"); action.className = "suggestion-action"; action.textContent = suggestionActionLabel(proposal);
+    const residual = document.createElement("div"); residual.className = "suggestion-residual";
+    const button = document.createElement("button"); button.type = "button"; button.className = "suggestion-apply"; button.textContent = t("suggestApply");
+    const result = residuals.get(proposal.id);
+    if (loading) {
+      residual.textContent = t("suggestionsChecking");
+      button.disabled = true;
+    } else if (!result || result.error) {
+      residual.textContent = t("suggestUnavailable");
+      button.disabled = true;
+    } else if (result.difference_count === 0) {
+      residual.textContent = t("suggestResolves");
+      residual.classList.add("suggestion-resolves");
+    } else {
+      residual.textContent = t("suggestLeaves", { residual: result.difference_count, base: baseCount });
+    }
+    button.onclick = () => { void applySuggestion(proposal); };
+    card.append(cause, action, residual, button);
+    cards.append(card);
+  }
+}
+
+async function refreshSuggestions() {
+  const panel = $("suggestions");
+  if (!panel) return;
+  if ($("mode").value !== "csv" || !csvData) { hideSuggestions(); return; }
+  const base = csvRequestBody();
+  if (base._validationError || !base.old || !base.new) { hideSuggestions(); return; }
+  const baseCount = differenceCount(csvData.summary);
+  const causes = estimateCauses(csvData, base);
+  const proposals = buildProposals(csvData, base);
+  const active = activeNormalizations(base);
+  panel.hidden = false;
+  $("suggestionsIntro").textContent = t("suggestionsBase", { count: baseCount });
+  const cards = $("suggestionCards");
+  cards.textContent = "";
+  if (causes.length) {
+    const note = document.createElement("p"); note.className = "suggestion-causes";
+    note.textContent = t("suggestDetected", { list: causes.map((cause) => `${t(suggestionCauseKey(cause.cause))}×${cause.count}`).join(", ") });
+    cards.append(note);
+  }
+  if (active.length) {
+    const note = document.createElement("p"); note.className = "suggestion-active";
+    note.textContent = t("suggestActive", { list: active.join(", ") });
+    cards.append(note);
+  }
+  if (!proposals.length) {
+    const note = document.createElement("p"); note.className = "suggestion-none";
+    note.textContent = t("suggestionsNone");
+    cards.append(note);
+    return;
+  }
+  const token = ++suggestionToken;
+  renderSuggestionCards(proposals, baseCount, new Map(), true);
+  const candidates = proposals.slice(0, MAX_SUGGEST_CANDIDATES).map((proposal) => ({ id: proposal.id, request: applyProposals(base, [proposal]) }));
+  try {
+    const resp = await apiFetch("/api/csv/suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidates }) });
+    const data = await resp.json();
+    if (!resp.ok) throw apiError(data, resp);
+    if (token !== suggestionToken) return;
+    renderSuggestionCards(proposals, baseCount, new Map((data.results || []).map((item) => [item.id, item])), false);
+  } catch (err) {
+    if (token !== suggestionToken) return;
+    $("suggestionsIntro").textContent = t("suggestFailed", { message: String(err.message || err) });
+  }
+}
+
+// applySuggestionPatch writes a proposal's options into the setup controls.
+// The next Save project then persists exactly this normalization set (#121).
+function applySuggestionPatch(patch) {
+  if (patch.alignColumnsByName) $("alignColumns").checked = true;
+  if (patch.whitespace) $("whitespace").value = patch.whitespace;
+  if (patch.ignoreCase) $("ignoreCase").checked = true;
+  if (patch.tolerance != null) $("tolerance").value = String(patch.tolerance);
+  if (patch.columnTolerances) {
+    const specs = splitList($("columnTolerances").value);
+    for (const item of patch.columnTolerances) {
+      const spec = `${item.name != null ? item.name : item.index}=${item.value}`;
+      if (!specs.includes(spec)) specs.push(spec);
+    }
+    $("columnTolerances").value = specs.join(", ");
+  }
+  for (const [key, target] of [["ignoreColumnNames", "ignoreColumns"], ["ignoreColumnIndexes", "ignoreColumns"]]) {
+    if (!patch[key]) continue;
+    const values = splitList($(target).value);
+    for (const value of patch[key]) if (!values.includes(String(value))) values.push(String(value));
+    $(target).value = values.join(", ");
+  }
+}
+
+async function applySuggestion(proposal) {
+  applySuggestionPatch(proposal.patch);
+  setStatus(t("suggestApplied"), "success");
+  await compare();
+}
+
 // The key span of the differences that made it into the response. The CSV table
 // shows differences only and never folds unchanged rows, so there is no collapsed
 // bar to label; when the display cap omits part of the result, naming the key
@@ -4872,6 +5027,7 @@ function renderCSV(data) {
   lastData = null;
   lastComparedRequest = null;
   clearUnchangedContext();
+  void refreshSuggestions();
   csvView = null;
   syncExportPatchVisibility();
   minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
@@ -5272,6 +5428,7 @@ async function renderDirectory(data, body, state = {}) {
   directoryData = data; directoryBody = body;
   folderReturn = null; syncFolderReturn();
   directoryEntryView = null;
+  hideSuggestions();
   teardownContinuousView();
   syncContinuousControls();
   csvData = null; lastData = null; lastComparedRequest = null; minimapHasMarkers = false; $("minimap").hidden = true; $("syncPanel").hidden = true;
