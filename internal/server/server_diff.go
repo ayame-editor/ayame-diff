@@ -20,10 +20,15 @@ import (
 
 // diffRequest is the POST body for /api/diff.
 type diffRequest struct {
-	Old               string               `json:"old"`
-	New               string               `json:"new"`
-	Mode              string               `json:"mode"` // "text" (default) or "sorted"
-	Encoding          string               `json:"encoding"`
+	Old      string `json:"old"`
+	New      string `json:"new"`
+	Mode     string `json:"mode"` // "text" (default) or "sorted"
+	Encoding string `json:"encoding"`
+	// OldEncoding/NewEncoding override Encoding for one side only, so a
+	// left/right mismatch can be corrected in place without re-reading the
+	// other side under the wrong codec (#278). Empty falls back to Encoding.
+	OldEncoding       string               `json:"oldEncoding,omitempty"`
+	NewEncoding       string               `json:"newEncoding,omitempty"`
 	Window            uint64               `json:"window,omitempty"`
 	MaxHunks          int                  `json:"maxHunks,omitempty"`
 	MaxLines          uint64               `json:"maxLines,omitempty"`
@@ -423,17 +428,26 @@ func openRequestLines(req diffRequest) (linediff.Lines, linediff.Lines, func(), 
 		return inlineLines(req.OldText, req.Mode, req.Numeric, req.Reverse),
 			inlineLines(req.NewText, req.Mode, req.Numeric, req.Reverse), func() {}, nil
 	}
-	openSide := func(path string, absent bool) (linediff.Lines, func(), error) {
+	openSide := func(path, hint string, absent bool) (linediff.Lines, func(), error) {
 		if absent {
 			return inlineLines("", req.Mode, req.Numeric, req.Reverse), func() {}, nil
 		}
-		return openMode(path, req.Mode, req.Encoding, req.Numeric, req.Reverse)
+		return openMode(path, req.Mode, hint, req.Numeric, req.Reverse)
 	}
-	oldLines, closeOld, err := openSide(req.Old, req.OldAbsent)
+	// A per-side override lets the UI fix a mis-detected side on its own (#278);
+	// an empty override keeps the shared Encoding (which may itself be "auto").
+	oldHint, newHint := req.Encoding, req.Encoding
+	if req.OldEncoding != "" {
+		oldHint = req.OldEncoding
+	}
+	if req.NewEncoding != "" {
+		newHint = req.NewEncoding
+	}
+	oldLines, closeOld, err := openSide(req.Old, oldHint, req.OldAbsent)
 	if err != nil {
 		return nil, nil, func() {}, leftError(err)
 	}
-	newLines, closeNew, err := openSide(req.New, req.NewAbsent)
+	newLines, closeNew, err := openSide(req.New, newHint, req.NewAbsent)
 	if err != nil {
 		closeOld()
 		return nil, nil, func() {}, rightError(err)

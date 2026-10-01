@@ -36,6 +36,12 @@ const {
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const {
+  isJapaneseLegacy,
+  encodingMismatch,
+  encodingCandidates,
+  encodingPickerValue,
+} = globalThis.AyameEncoding;
+const {
   marker: provenanceMarker,
   originClass: provenanceOriginClass,
   labelKey: provenanceLabelKey,
@@ -304,7 +310,10 @@ async function enterEditMode(options = {}) {
       const response = await apiFetch("/api/file/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: paths[side], encoding: $("encoding").value }),
+        body: JSON.stringify({
+          path: paths[side],
+          encoding: encodingOverrideFor(side, paths[side]) || $("encoding").value,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw apiError(data, response);
@@ -2344,11 +2353,17 @@ function renderSummary(res) {
   // mismatch — the material clue when output looks garbled (#130). Present only
   // for file inputs; inline text carries no detected encoding.
   if (res.old_encoding || res.new_encoding) {
-    const mismatch = res.old_encoding && res.new_encoding && res.old_encoding !== res.new_encoding;
+    const mismatch = encodingMismatch(res.old_encoding, res.new_encoding);
     const enc = document.createElement("span");
     enc.className = mismatch ? "note encoding-mismatch" : "note";
     enc.textContent = t("encodingDetected", { old: res.old_encoding || "—", new: res.new_encoding || "—" });
     if (mismatch) enc.textContent += ` — ${t("encodingMismatch")}`;
+    // No confidence is available from the engine. Say that plainly and point at
+    // the pane-header candidates rather than implying a certainty we do not have
+    // (#278).
+    if ([res.old_encoding, res.new_encoding].some(isJapaneseLegacy)) {
+      enc.textContent += ` — ${t("encodingNoConfidence")}`;
+    }
     el.append(enc);
   }
   el.hidden = false;
@@ -2500,6 +2515,25 @@ async function commitPanePath(input, side, comparedPath) {
   await compare();
 }
 
+// Per-side encoding corrections (#278). Detection is per side, so a fix must be
+// too: each entry remembers the encoding chosen for one concrete path, which
+// keeps a correction attached to the file it was made for even after a path
+// edit or a swap. An absent entry, or one for a different path, means "auto".
+let encodingOverrides = { old: null, new: null };
+
+function encodingOverrideFor(side, path) {
+  const entry = encodingOverrides[side];
+  return entry && entry.path === path ? entry.encoding : "";
+}
+
+function setEncodingOverride(side, path, encoding) {
+  encodingOverrides[side] = { path, encoding };
+}
+
+function clearEncodingOverrides() {
+  encodingOverrides = { old: null, new: null };
+}
+
 // paneHeads keeps every input identified and editable at any scroll position.
 // Text, CSV, and folder comparisons have two sides; 3-way comparisons add BASE.
 // The full path, line count, and detected encoding remain available as a
@@ -2513,6 +2547,9 @@ function paneHeads(data = {}) {
     ? [["base", t("sideBase")], ["old", t("sideLeft")], ["new", t("sideRight")]]
     : [["old", t("sideLeft")], ["new", t("sideRight")]];
   heads.classList.toggle("three", threeWay);
+  // One left/right comparison for the whole header so each side can mark a
+  // mismatch with the other (#130, #278).
+  const mismatch = encodingMismatch(data.old_encoding, data.new_encoding);
   for (const [side, labelText] of specs) {
     const path = $(side).value;
     const head = document.createElement("div");
@@ -2548,11 +2585,46 @@ function paneHeads(data = {}) {
     if (encoding || lines != null) {
       const meta = document.createElement("span");
       meta.className = "pane-head-meta";
+      if (encoding && mismatch) {
+        meta.classList.add("encoding-mismatch");
+        meta.title = t("encodingMismatch");
+      }
       meta.textContent = [
         encoding,
         lines != null ? t("lineCount", { count: fmt(Number(lines)) }) : "",
       ].filter(Boolean).join(" · ");
       head.append(meta);
+    }
+    // A file on disk can be decoded wrongly; this picker re-reads one side with
+    // a different codec and re-runs the comparison, which keeps the scroll
+    // anchor (#278). Offered only where a detected encoding exists — a file text
+    // diff — so scratch text and structured results (which report none) do not
+    // grow a control that would do nothing.
+    if (encoding && !scratch && (side === "old" || side === "new")) {
+      const picker = document.createElement("select");
+      picker.className = "pane-head-encoding";
+      picker.title = t("encodingSwitchTitle");
+      picker.setAttribute("aria-label", t("encodingSwitch", { side: labelText }));
+      const selected = encodingPickerValue(encodingOverrideFor(side, path));
+      // The alternatives the engine cannot rank: auto (re-detect) plus every
+      // concrete codec other than the guessed one. Keep the user's own choice
+      // in the list even after it becomes the detected one.
+      const values = ["auto", ...encodingCandidates(encoding)];
+      if (!values.includes(selected)) values.splice(1, 0, selected);
+      for (const value of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        // "auto" keeps detecting; naming the current guess only in its label
+        // keeps it readable on narrow layouts, where the meta is hidden.
+        option.textContent = value === "auto" ? t("encodingAutoDetected", { encoding }) : value;
+        picker.append(option);
+      }
+      picker.value = selected;
+      picker.addEventListener("change", () => {
+        setEncodingOverride(side, path, picker.value);
+        void compare();
+      });
+      head.append(picker);
     }
     // While editing, the header is where the pane's state and its save live:
     // a marker for unsaved lines, a save button for this side alone (Meld saves
@@ -5342,6 +5414,10 @@ function requestBody() {
     newText: editing ? editBufferFor("new").text() : $("newText").value,
     mode: $("mode").value,
     encoding: $("encoding").value,
+    // A per-side correction made from the result header (#278). Scratch text
+    // and the in-pane edit buffer are already Unicode, so it does not apply.
+    oldEncoding: scratch || editing ? "" : encodingOverrideFor("old", old),
+    newEncoding: scratch || editing ? "" : encodingOverrideFor("new", newPath),
     window: Number($("window").value) || 128,
     maxHunks: Number($("maxHunks").value) || 200,
     maxLines: Number($("maxLines").value) || 200,
@@ -6102,6 +6178,9 @@ document.addEventListener("drop", async (event) => {
 });
 
 $("compare").addEventListener("click", compare);
+// Changing the shared encoding retires any per-side corrections made from a
+// result header, so the next run starts from the shared setting again (#278).
+$("encoding").addEventListener("change", clearEncodingOverrides);
 $("newTab").addEventListener("click", openTab);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
