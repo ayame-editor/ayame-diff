@@ -9,6 +9,7 @@ import (
 
 	"github.com/ayame-editor/ayame-diff/internal/linediff"
 	"github.com/ayame-editor/ayame-diff/internal/merge"
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 	"github.com/ayame-editor/ayame-diff/internal/pathutil"
 	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
@@ -60,14 +61,25 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
 	}
-	choices := make(map[int]merge.Side, len(req.Choices))
+	choices := make(map[int][]merge.Side, len(req.Choices))
 	for key, value := range req.Choices {
 		index, parseErr := strconv.Atoi(key)
-		if parseErr != nil || index < 0 || index >= len(result.Hunks) || (value != string(merge.Left) && value != string(merge.Right)) {
+		if parseErr != nil || index < 0 || index >= len(result.Hunks) {
 			writeError(w, http.StatusBadRequest, "invalid merge choice "+key+"="+value)
 			return
 		}
-		choices[index] = merge.Side(value)
+		// A value is one side or an ordered combination ("left,right") so a
+		// hunk can adopt both contributions (#271).
+		if err := mergechoice.Validate(value, string(merge.Left), string(merge.Right)); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid merge choice "+key+"="+value)
+			return
+		}
+		sides := mergechoice.Parse(value, string(merge.Left), string(merge.Right))
+		ordered := make([]merge.Side, 0, len(sides))
+		for _, side := range sides {
+			ordered = append(ordered, merge.Side(side))
+		}
+		choices[index] = ordered
 	}
 	if req.DefaultChoice != "" {
 		if req.DefaultChoice != string(merge.Left) && req.DefaultChoice != string(merge.Right) {
@@ -76,7 +88,7 @@ func (s *Server) handleTextMerge(w http.ResponseWriter, r *http.Request) {
 		}
 		for index := range result.Hunks {
 			if _, set := choices[index]; !set {
-				choices[index] = merge.Side(req.DefaultChoice)
+				choices[index] = []merge.Side{merge.Side(req.DefaultChoice)}
 			}
 		}
 	}
@@ -201,7 +213,7 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 	choices := make(map[int]string, len(req.Choices))
 	for idText, side := range req.Choices {
 		id, parseErr := strconv.Atoi(idText)
-		if parseErr != nil || id < 0 || (side != "left" && side != "right" && side != "base") {
+		if parseErr != nil || id < 0 || mergechoice.Validate(side, "base", "left", "right") != nil {
 			writeError(w, http.StatusBadRequest, "invalid conflict choice")
 			return
 		}

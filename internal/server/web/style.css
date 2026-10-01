@@ -444,6 +444,10 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .hunk.merge-left .choose-left, .hunk.merge-right .choose-right { background: var(--accent); color: var(--on-accent); }
 .hunk.merge-base { border-color: var(--gold); }
 .hunk.merge-base .choose-base { background: var(--gold); color: var(--on-accent); }
+/* A hunk can adopt base together with a side now (#271); keep the side border
+   colors readable instead of letting merge-base's border-color win. */
+.hunk.merge-base.merge-left { border-left-color: var(--del-fg); }
+.hunk.merge-base.merge-right { border-right-color: var(--add-fg); }
 .three-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: auto; }
 .three-pane { min-width: 0; border-right: 1px solid var(--border); }
 .three-pane:last-child { border-right: 0; }
