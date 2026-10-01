@@ -15,6 +15,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, the
 ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
 ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
+ayame-diff difftool [flags] LEFT RIGHT                # be a VCS two-file difftool target
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # be a VCS three-way mergetool target
 ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the GUI, optionally prefilled
 ayame-diff update [--check]                            # check for or install the latest release
@@ -51,6 +53,14 @@ Compare two CSV/TSV files (including `.csv.gz` and `.tsv.gz`) by key, even when
 their row order differs, and write the differing rows to a TSV. Left and right
 may use different formats; if the header names match, differing column orders
 are aligned automatically.
+
+The comparison is row-order independent by design: the same rows in a different
+order are equal data, not a difference. The GUI states that verdict in one line
+— "data equal (only column order differs)", "data equal (only row order
+differs)", or "N real data differences" — instead of leaving you to interpret
+the counts. When both sides name the same columns in a different order, it also
+offers to align them by name and compare again in one action, so a mis-ordered
+extraction can be confirmed equal without re-extracting it.
 
 ```bash
 ayame-diff csv --left old.tsv --right new.csv --key id --out diff.tsv
@@ -166,6 +176,27 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 --diff-exit-code
 ```
 
+### Memory budget and spilling
+
+`--memory` (default `2GiB`) is the resident budget the comparison may use for
+sorting. The GUI requests `512MiB` by default and the server lowers any larger
+request to an `8GiB` cap; a smaller effective budget only makes the engine spill
+more, so the result is unchanged.
+
+When a partition does not fit its share of the budget, the engine sorts it in
+chunks and merges the sorted runs from `--temp-dir`, so a comparison larger than
+RAM still finishes. The run summary reports the budget it resolved as
+`memory_budget_bytes` and whether it spilled as `spilled`; the GUI's CSV summary
+shows the same, for example `memory 512.0MiB / limit 8GiB spilling to /tmp`.
+Spill files live under a per-run directory and are removed after success, after a
+failure, and after cancellation. A running comparison can be cancelled at any
+time — including while it is spilling — and returns promptly.
+
+!!! warning
+    As with `sorted`, point `--temp-dir` at a real filesystem. On many Linux
+    systems `TMPDIR` is RAM-backed, so spilling there consumes memory instead of
+    saving it.
+
 Run `ayame-diff csv --help` for the complete list, including tuning knobs for
 very large inputs (`--memory`, `--partitions`, `--parse-workers`, `--workers`,
 `--merge-fan-in`, `--temp-dir`).
@@ -205,7 +236,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 | Flag | Output |
 |---|---|
 | *(none)* | Unified hunks (default). |
-| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. |
+| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. `--east-asian-ambiguous-wide` counts East Asian Ambiguous characters as two cells to match terminals that render them full-width. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
 | `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
@@ -240,6 +271,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)
 --width N                    total width for --side-by-side (default 160)
+--east-asian-ambiguous-wide  count East Asian Ambiguous characters (○, ※, α) as two cells in --side-by-side
 ```
 
 Patch output is never truncated by `--max-hunks` or `--max-lines`. It preserves
@@ -420,6 +452,53 @@ region list was truncated.
 
 ---
 
+## `difftool` / `mergetool` — be the tool a VCS calls { #difftool-mergetool }
+
+`ayame-diff` does not read a repository, but a VCS or IDE can call it as an
+external diff or merge program (ADR 0004). These two commands exist for that
+direction and add what a called tool needs: Git's positional order, logical
+labels, a blocking GUI lifetime, and an exit code that says whether a merge
+actually resolved. See [File-manager and quick launch](shell-integration.md) for
+registering them with Git, SVN, and IDE external-tool settings.
+
+```bash
+# Two-file difftool (Git $LOCAL / $REMOTE)
+ayame-diff difftool "$LOCAL" "$REMOTE"
+ayame-diff difftool --label "HEAD~1:foo.txt" --label "HEAD:foo.txt" "$LOCAL" "$REMOTE"
+
+# Three-way mergetool: BASE LOCAL REMOTE, output to $MERGED
+ayame-diff mergetool --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+ayame-diff mergetool --order local-base-remote --output "$MERGED" "$LOCAL" "$BASE" "$REMOTE"
+
+# Browser GUI: blocks until its tab closes, so the caller waits
+ayame-diff difftool --wait "$LOCAL" "$REMOTE"
+ayame-diff mergetool --gui --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+```
+
+`--label` is repeatable and follows the positional order: two labels name LEFT
+and RIGHT for `difftool`, three name BASE, LOCAL, and REMOTE for `mergetool`. It
+replaces the temporary path Git shows with a name a reader recognizes. Labels
+appear in patch headers, in the `difftool` banner, and in the GUI pane headings.
+
+`--gui` opens the comparison in the browser; `--wait` does the same and is the
+explicit opt-in blocking form (it implies `--gui`). The process blocks until the
+browser tab closes, the user stops the server, or Ctrl+C arrives, so
+`git difftool` waits for the comparison instead of returning immediately.
+
+For `mergetool`, the exit code is 0 only when `--output` is written with no
+unresolved conflicts. It is 1 when a saved output still contains conflict
+markers, and 130 when the GUI session ended without saving anything (aborted).
+A caller therefore never mistakes "the file was saved" for "the conflicts are
+resolved". Terminal mode uses the merge engine's exact unresolved count; GUI
+mode receives the save's own unresolved count from the server.
+
+Each invocation starts and stops its own short-lived server. `git difftool`
+runs one file at a time, so sessions stay sequential; there is no cross-invocation
+server reuse. Set `git config --global difftool.prompt false` to skip the
+per-file prompt, and prefer a terminal `difftool` when you only need text output.
+
+---
+
 ## `update` — update a standalone installation { #update }
 
 `update` checks the latest GitHub release, downloads the archive for the current
@@ -492,10 +571,37 @@ With `3way text --merge-exit-code --output PATH`:
 - `1` — output written with standard unresolved-conflict markers
 - `2` / `3` — usage or runtime/write error, as above
 
+With `mergetool`:
+
+- `0` — `--output` written with no unresolved conflicts
+- `1` — a saved `--output` still contains unresolved conflict markers
+- `130` — the GUI session ended without saving (aborted)
+- `2` / `3` — usage or runtime/write error, as above
+
+`difftool` reports `0` for a completed comparison (and never claims a merge
+outcome, since there is none).
+
 A usage error and a runtime failure are deliberately distinct, so a script can
 tell "you called it wrong" from "it could not finish". An internal crash is
 reported as `3` with a stack trace on stderr; it never exits `2` and so is never
 mistaken for a usage error.
+
+---
+
+## Error messages { #error-messages }
+
+When a command fails, `ayame-diff` prints a short explanation and a one-line
+remedy on standard error: `error: The file was not found.` followed by
+`hint: Check the path. ...`. The message language follows the locale, in the
+order `LC_ALL`, `LC_MESSAGES`, `LANG`; a value beginning with `ja` selects
+Japanese, and anything else selects English. Common failures — a missing path,
+a permission error, a malformed flag value, malformed JSON, and an output that
+is also an input — are explained in plain language instead of the raw syscall,
+`strconv`, or `encoding/json` text.
+
+Exit codes and machine-readable output (`--json`, `--tsv`, `--summary-json`)
+are unaffected. Set `AYAME_DIFF_DEBUG` to any value to print the raw error text
+beneath the explanation when filing a bug report.
 
 ---
 

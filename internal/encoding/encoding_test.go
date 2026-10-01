@@ -238,3 +238,62 @@ func TestEncoderRejectsUnrepresentable(t *testing.T) {
 		t.Fatal("encoding an unrepresentable rune to Shift_JIS did not error")
 	}
 }
+
+// TestDetectCP932BusinessCSV covers #278's typical Japanese business data: an
+// Excel-style CP932 CSV that uses vendor characters. x/text's ShiftJIS codec is
+// actually CP932/Windows-31J, so ① and ㈱ round-trip instead of being reported
+// unrepresentable.
+func TestDetectCP932BusinessCSV(t *testing.T) {
+	t.Parallel()
+	const csv = "商品コード,商品名,数量\nA-001,①りんご,10\nA-002,㈱テスト,3\n"
+	raw := encodeTo(t, csv, japanese.ShiftJIS)
+	if got := Detect(raw, Auto); got != ShiftJIS {
+		t.Fatalf("Detect(CP932 CSV) = %q, want %q", got, ShiftJIS)
+	}
+	if got := decodeAll(t, raw, Detect(raw, Auto)); got != csv {
+		t.Errorf("CP932 CSV round-trip = %q, want %q", got, csv)
+	}
+}
+
+// TestCP932VendorCharactersDocumentJISMapping documents the CP932 vs Shift_JIS
+// difference (#278): byte 0x81 0x60 decodes to U+FF5E FULLWIDTH TILDE (the
+// Windows/CP932 mapping), not U+301C WAVE DASH (the strict JIS X 0208 mapping).
+// The same byte is why two tools can disagree over one file.
+func TestCP932VendorCharactersDocumentJISMapping(t *testing.T) {
+	t.Parallel()
+	raw := []byte{0x81, 0x60}
+	if got := Detect(raw, ShiftJIS); got != ShiftJIS {
+		t.Fatalf("Detect = %q, want %q", got, ShiftJIS)
+	}
+	if got := decodeAll(t, raw, ShiftJIS); got != "\uFF5E" {
+		t.Errorf("0x8160 decoded to %q, want U+FF5E (CP932 fullwidth tilde)", got)
+	}
+}
+
+// TestDetectUTF8BOMBusinessCSV covers #278: an Excel UTF-8 CSV leads with a BOM
+// that must win over both the UTF-8 heuristic and a conflicting hint.
+func TestDetectUTF8BOMBusinessCSV(t *testing.T) {
+	t.Parallel()
+	bom := append([]byte{0xEF, 0xBB, 0xBF}, []byte("商品コード,商品名\nA-001,りんご\n")...)
+	if got := Detect(bom, Auto); got != UTF8 {
+		t.Fatalf("Detect(UTF-8 BOM CSV) = %q, want utf-8", got)
+	}
+	if got := Detect(bom, ShiftJIS); got != UTF8 {
+		t.Fatalf("Detect(UTF-8 BOM CSV, shift_jis hint) = %q, want utf-8", got)
+	}
+}
+
+// TestDetectISO2022JPBusinessSample covers #278: an ISO-2022-JP email-style
+// sample that mixes ASCII field names with Japanese values is still recognized
+// despite being valid UTF-8, and round-trips.
+func TestDetectISO2022JPBusinessSample(t *testing.T) {
+	t.Parallel()
+	const sample = "件名: 見積書の送付について\n担当: 田中\n金額: 1000円\n"
+	raw := encodeTo(t, sample, japanese.ISO2022JP)
+	if got := Detect(raw, Auto); got != ISO2022JP {
+		t.Fatalf("Detect(ISO-2022-JP sample) = %q, want %q", got, ISO2022JP)
+	}
+	if got := decodeAll(t, raw, Detect(raw, Auto)); got != sample {
+		t.Errorf("ISO-2022-JP round-trip = %q, want %q", got, sample)
+	}
+}

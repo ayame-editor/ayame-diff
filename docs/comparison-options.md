@@ -51,6 +51,14 @@ the corresponding modes.
     `change` and `all` normalize only for the comparison. The printed lines are
     the untouched originals.
 
+By default a normalization decides both which lines are *matched* and which
+matched pairs count as a *difference*, so ignoring whitespace also hides
+whitespace-only changes. The GUI (and the `/api/diff` `alignWhitespace` field)
+can separate the two: a whitespace-insensitive match that still reports the
+content difference at its original position, so a re-indented file stays
+aligned instead of the whitespace-only lines vanishing. See
+[the GUI guide](gui.md#manual-alignment-and-ignored-differences).
+
 ### Line endings
 
 EOLs are significant in `text` mode by default. `--ignore-eol` ignores every
@@ -62,6 +70,34 @@ structurally ignored there.
 ayame-diff text --ignore-eol windows.txt unix.txt
 ayame-diff text --ignore-trailing-eol generated.txt checked-in.txt
 ```
+
+### Single whitespace / line-ending scale in the GUI
+
+The [GUI](gui.md) does not expose the whitespace and line-ending controls above
+as independent checkboxes. Following P4Merge, it presents one ordered scale;
+each step ignores everything the previous step did, so the 12 combinations
+collapse to four meaningful points:
+
+| GUI level | Equivalent CLI / API |
+|---|---|
+| Strict (ignore nothing) | defaults: `--ignore-whitespace none`, no `--ignore-eol` |
+| Ignore line endings | `--ignore-eol` |
+| Ignore line endings and whitespace amount | `--ignore-eol --ignore-whitespace change` |
+| Ignore line endings and all whitespace | `--ignore-eol --ignore-whitespace all` |
+
+`--ignore-case` stays an independent checkbox because case is an orthogonal
+axis.
+
+!!! note
+    The scale deliberately bundles line endings with whitespace so the axis stays
+    monotonic. Two old combinations therefore do not get their own level: ignoring
+    whitespace *without* also ignoring line endings, and ignoring only the final
+    line's terminator (`--ignore-trailing-eol`). Pick "ignore line endings" when a
+    trailing-newline-only difference should not count; it ignores any LF/CRLF
+    difference as well.
+
+The GUI sends the equivalent legacy request fields, so `POST /api/diff` keeps
+accepting `whitespace`, `ignoreEOL`, and `ignoreTrailingEOL` unchanged.
 
 ### `--filter-line`
 

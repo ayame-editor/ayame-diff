@@ -83,6 +83,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # Sort then line diff
 ayame-diff dir    [flags] LEFT RIGHT                      # Recursive folder/archive (zip, tar.gz) comparison
 ayame-diff bin    [flags] LEFT RIGHT                      # Binary/hex diff
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT three-way comparison
+ayame-diff difftool [flags] LEFT RIGHT                # Be a VCS two-file difftool target
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # Be a VCS three-way mergetool target
 ayame-diff serve  [--addr host:port] [--allow-remote]  # Browser GUI (local web)
 ayame-diff gui    [--addr host:port] [--allow-remote] [--no-open]
 ayame-diff shell-install                               # Register file-manager integration

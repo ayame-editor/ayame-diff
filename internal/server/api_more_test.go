@@ -169,8 +169,9 @@ func TestDiffEncoding(t *testing.T) {
 }
 
 // TestDiffIgnoreOptions verifies that case-only and whitespace-only differences
-// collapse to zero hunks once the corresponding request option is set, while the
-// same inputs differ without it.
+// stop being differences once the corresponding request option is set, while
+// the same inputs differ without it. Since #269 they are still returned, but
+// flagged downgraded rather than dropped.
 func TestDiffIgnoreOptions(t *testing.T) {
 	t.Parallel()
 	h := newTestServer(t)
@@ -227,11 +228,63 @@ func TestDiffIgnoreOptions(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 			}
-			if resp.HunkCount != 0 || len(resp.Hunks) != 0 {
-				t.Fatalf("expected 0 hunks with %s, got count=%d len=%d",
+			if resp.HunkCount != 0 {
+				t.Fatalf("expected 0 differences with %s, got count=%d len=%d",
 					c.name, resp.HunkCount, len(resp.Hunks))
 			}
+			// The dismissed pair stays visible as a downgraded hunk (#269).
+			if resp.DowngradedHunks == 0 || resp.DowngradedHunks != uint64(len(resp.Hunks)) {
+				t.Fatalf("expected downgraded hunks with %s, got count=%d len=%d",
+					c.name, resp.DowngradedHunks, len(resp.Hunks))
+			}
+			for _, hunk := range resp.Hunks {
+				if !hunk.Downgraded {
+					t.Fatalf("hunk not marked downgraded with %s: %+v", c.name, hunk)
+				}
+			}
 		})
+	}
+}
+
+// TestDiffAlignWhitespace verifies the #270 split at the API boundary: with
+// alignWhitespace set, a re-indented file keeps its line positions and the
+// whitespace difference is still reported, while whitespace-only comparison
+// (the existing option) hides it. It also rejects an unknown alignWhitespace.
+func TestDiffAlignWhitespace(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t)
+	dir := t.TempDir()
+	oldP := writeFile(t, dir, "old.txt", []byte("  alpha\n  beta\n  gamma\n"))
+	newP := writeFile(t, dir, "new.txt", []byte("alpha\nbeta\nGAMMA\n"))
+
+	// Existing behaviour: ignore whitespace for the diff and the re-indentation
+	// disappears along with the aligned content change's neighbours.
+	_, ignored := postDiff(t, h, diffRequest{Mode: "text", Old: oldP, New: newP, Whitespace: "change"})
+	if ignored.HunkCount != 1 || ignored.Modified != 1 {
+		t.Fatalf("whitespace=change = %+v", ignored)
+	}
+
+	// Alignment-only ignoring keeps positions and shows every difference.
+	rec, aligned := postDiff(t, h, diffRequest{Mode: "text", Old: oldP, New: newP, AlignWhitespace: "change"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if aligned.HunkCount != 2 || aligned.Modified != 3 {
+		t.Fatalf("alignWhitespace=change = %+v", aligned)
+	}
+	first := aligned.Hunks[0]
+	if first.Kind != "replace" || first.OldStart != 0 || first.OldLen != 2 || first.NewStart != 0 || first.NewLen != 2 {
+		t.Fatalf("aligned prefix hunk = %+v", first)
+	}
+	// The rendered lines are the originals, not the normalized comparison view.
+	if len(first.Old) != 2 || first.Old[0] != "  alpha" || first.New[0] != "alpha" {
+		t.Fatalf("original text not preserved: %+v", first)
+	}
+
+	// Unknown values are rejected before any diff runs.
+	bad, _ := postDiff(t, h, diffRequest{Mode: "text", Old: oldP, New: newP, AlignWhitespace: "sometimes"})
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid alignWhitespace status = %d body=%s", bad.Code, bad.Body.String())
 	}
 }
 

@@ -44,6 +44,8 @@ GNU互換のエイリアス `--ignore-space-change` と `--ignore-all-space` は
 !!! note
     `change` と `all` は比較時のみ正規化します。出力される行は元のままです。
 
+デフォルトでは、正規化は「どの行を*一致*とみなすか」と「一致した組を*差分*とみなすか」の両方を決めるため、空白を無視すると空白のみの差分も隠れます。GUI（および`/api/diff`の`alignWhitespace`フィールド）ではこの2つを分離できます。空白を無視するのは位置合わせのためだけになり、内容の差分は元の位置に表示されるため、再インデントされたファイルでも位置が合ったまま、空白のみの行が消えることはありません。詳しくは[GUIガイド](gui.md#手動による整列と無視差分)を参照してください。
+
 ### 行末（改行コード）
 
 `text`モードでは、デフォルトで行末（EOL）は重要です。`--ignore-eol` はLF/CRLFの違いを無視し、`--ignore-trailing-eol` は最後の行に終端文字があるかどうかだけを無視します。CSVの解析はレコード単位で行われるため、これらの違いは構造的に無視されます。
@@ -52,6 +54,24 @@ GNU互換のエイリアス `--ignore-space-change` と `--ignore-all-space` は
 ayame-diff text --ignore-eol windows.txt unix.txt
 ayame-diff text --ignore-trailing-eol generated.txt checked-in.txt
 ```
+
+### GUI の空白・改行の単一スケール
+
+[GUI](gui.md) では、上記の空白・改行コードのコントロールを独立したチェックボックスとしては公開していません。P4Merge に倣い、1本の順序付きスケールとして提示します。各段階は前の段階が無視するものをすべて無視するため、12通りの組み合わせは4つの意味のある点に集約されます。
+
+| GUI の段階 | 相当する CLI / API |
+|---|---|
+| 厳密（何も無視しない） | 既定: `--ignore-whitespace none`、`--ignore-eol` なし |
+| 改行コードを無視 | `--ignore-eol` |
+| 改行コードと空白の量を無視 | `--ignore-eol --ignore-whitespace change` |
+| 改行コードとすべての空白を無視 | `--ignore-eol --ignore-whitespace all` |
+
+`--ignore-case` は直交する軸なので、独立したチェックボックスのままです。
+
+!!! note
+    このスケールは軸を単調に保つため、改行コードと空白を意図的にまとめています。そのため、次の2つの旧来の組み合わせには専用の段階がありません。行末を無視せずに空白だけを無視する組み合わせと、最後の行の終端文字だけを無視する組み合わせ（`--ignore-trailing-eol`）です。末尾改行の違いだけを無視したい場合は「改行コードを無視」を選んでください。LF/CRLF の違いも併せて無視されます。
+
+GUI は相当する旧来のリクエストフィールドを送信するため、`POST /api/diff` は `whitespace`、`ignoreEOL`、`ignoreTrailingEOL` をこれまでどおり受け付けます。
 
 ### `--filter-line`
 

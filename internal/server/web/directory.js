@@ -65,6 +65,23 @@
     return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
   }
 
+  // The file-browser API reports modification time as nanoseconds since the
+  // epoch in a string, the same shape the watch API uses (#103). Convert it to
+  // the readable stamp formatStamp produces.
+  function formatEpochNanos(value) {
+    const nanos = Number(value);
+    if (!Number.isFinite(nanos) || nanos <= 0) return "";
+    return formatStamp(new Date(nanos / 1e6).toISOString());
+  }
+
+  // The file browser's recently-opened places (#103): newest first, no
+  // duplicates, bounded. Pure, so the policy is testable without localStorage.
+  function rememberPlace(places, path, limit = 8) {
+    const list = Array.isArray(places) ? places.filter((item) => typeof item === "string" && item) : [];
+    if (!path) return list;
+    return [path, ...list.filter((item) => item !== path)].slice(0, Math.max(1, limit));
+  }
+
   function dirEntrySize(entry) {
     if (entry.status === "removed") return formatBytes(entry.old_size);
     if (entry.status === "changed" && entry.old_size !== entry.new_size) {
@@ -122,6 +139,8 @@
     buildDirTree,
     formatBytes,
     formatStamp,
+    formatEpochNanos,
+    rememberPlace,
     dirEntrySize,
     dirEntryStamp,
     directoryEntryRequest,

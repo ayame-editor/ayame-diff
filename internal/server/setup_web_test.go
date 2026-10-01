@@ -24,8 +24,9 @@ func TestSwapSidesExists(t *testing.T) {
 	if !strings.Contains(body, "csvInspection = null") {
 		t.Error("swapSides leaves the CSV inspection describing the old pairing")
 	}
-	// It must not start a comparison that was never requested.
-	if !strings.Contains(body, "if (lastData || csvData || threeWayData || directoryData) compare()") {
+	// It must not start a comparison that was never requested. Swapping is the
+	// same comparison reversed, so it keeps the conditions (#260).
+	if !strings.Contains(body, "if (lastData || csvData || threeWayData || directoryData) compare({ keepConditions: true })") {
 		t.Error("swapSides re-runs unconditionally, or never re-runs")
 	}
 	header := renderFunctionBody(t, app, "function paneHeads(")
@@ -65,7 +66,10 @@ func TestPaneHeadersOwnPathChanges(t *testing.T) {
 		}
 	}
 	// Text, CSV, 3-way, the folder tree, and the folder continuous view (#291).
-	if strings.Count(app, "result.append(paneHeads(data))") != 5 {
+	// The text comparison has two entry points — the streaming first paint
+	// (beginStreamRender) and the one-shot re-render (renderResult) — so six
+	// calls cover the five result kinds (#297).
+	if strings.Count(app, "result.append(paneHeads(data))") != 6 {
 		t.Error("every result kind must carry pane headers")
 	}
 	visibility := renderFunctionBody(t, app, "function syncLaunchPathsVisibility(")
@@ -111,9 +115,11 @@ func TestVisibleSideTerminologyIsConsistent(t *testing.T) {
 	for _, want := range []string{
 		`sideBase: "ベース", sideLeft: "左", sideRight: "右"`,
 		`sideBase: "BASE", sideLeft: "LEFT", sideRight: "RIGHT"`,
-		`[t("sideBase"), event.base]`,
-		`[t("sideLeft"), event.left]`,
-		`[t("sideRight"), event.right]`,
+		// The three-way panes label themselves from the role, so the visible
+		// vocabulary follows the translation (#111, #282).
+		`if (role === "base") return t("sideBase");`,
+		`if (role === "left") return t("sideLeft");`,
+		`if (role === "right") return t("sideRight");`,
 		`missing.push(t("sideLeft"))`,
 		`missing.push(t("sideRight"))`,
 	} {

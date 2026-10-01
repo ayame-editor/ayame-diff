@@ -61,7 +61,9 @@ func TestI18NControlsAreWired(t *testing.T) {
 	app := readWebAsset(t, "app.js")
 
 	for _, want := range []string{
-		`data-i18n="modeText"`, `data-i18n="modeThreewayCsv"`,
+		// The flat mode dropdown split into two axes (#263): the reading options
+		// and the folder shape are what remain labelled in index.html.
+		`data-i18n="modeText"`, `data-i18n="modeFolder"`,
 		`data-i18n="statusDifferent"`, `data-i18n="statusAll"`,
 	} {
 		if !strings.Contains(index, want) {
@@ -102,7 +104,7 @@ func TestMessageCatalogLivesInItsOwnModule(t *testing.T) {
 	}
 	for _, want := range []string{
 		"globalThis.AyameI18N",
-		"const { CATALOG: I18N, translate, pickLanguage } = globalThis.AyameI18N;",
+		"const { CATALOG: I18N, translate, pickLanguage, languages, languageMeta, localeTag, direction } = globalThis.AyameI18N;",
 		"pickLanguage(localStorage.getItem(\"ayame-lang\"), navigator.language)",
 		"return translate(I18N, lang, key, arg);",
 	} {
@@ -110,7 +112,7 @@ func TestMessageCatalogLivesInItsOwnModule(t *testing.T) {
 			t.Errorf("app.js is missing catalog wiring %q", want)
 		}
 	}
-	for _, want := range []string{"function translate(", "function pickLanguage(", "module.exports = api"} {
+	for _, want := range []string{"function translate(", "function pickLanguage(", "function localeTag(", "function direction(", "function nextLanguage(", "module.exports = api"} {
 		if !strings.Contains(module, want) {
 			t.Errorf("i18n.js is missing %q", want)
 		}

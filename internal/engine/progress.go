@@ -104,7 +104,7 @@ func (p *progressCounter) print(final bool) {
 		prefix = "stage done"
 	}
 	if b > 0 {
-		fmt.Fprintf(p.log, "%s: %s %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.phase, p.label, rows, formatBytes(b), event.RowsPerSecond, event.MiBPerSecond, duration.Round(time.Second))
+		fmt.Fprintf(p.log, "%s: %s %s rows=%d bytes=%s rows/s=%.0f MiB/s=%.1f elapsed=%s\n", prefix, p.phase, p.label, rows, FormatByteSize(b), event.RowsPerSecond, event.MiBPerSecond, duration.Round(time.Second))
 		return
 	}
 	fmt.Fprintf(p.log, "%s: %s %s rows=%d rows/s=%.0f elapsed=%s\n", prefix, p.phase, p.label, rows, event.RowsPerSecond, duration.Round(time.Second))
@@ -115,7 +115,11 @@ func emitProgress(cfg resolvedConfig, event ProgressEvent) {
 		cfg.OnProgress(event)
 	}
 }
-func formatBytes(v uint64) string {
+
+// FormatByteSize renders a byte count with binary units, e.g. 512.0MiB, matching
+// the syntax --memory and friends accept. The CLI progress log and the GUI/API
+// memory report share it so both describe the same budget the same way (#138).
+func FormatByteSize(v uint64) string {
 	const unit = 1024
 	if v < unit {
 		return fmt.Sprintf("%dB", v)

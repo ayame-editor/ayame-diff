@@ -50,6 +50,32 @@ func TestClampMemoryBudget(t *testing.T) {
 	}
 }
 
+// TestCSVMemoryStatusReportsBudgetAndSpill covers #138: the CSV diff response
+// carries the resolved budget, the server cap, and — only when the comparison
+// actually offloaded — the directory spill files went to, so the GUI can show the
+// memory state instead of a bare status string.
+func TestCSVMemoryStatusReportsBudgetAndSpill(t *testing.T) {
+	t.Parallel()
+	summary := engine.Summary{MemoryBudgetBytes: 512 << 20, Spilled: true}
+	got := csvMemoryStatusFor(csvRequest{TempDir: "/var/tmp/ayame"}, summary)
+	if got.BudgetBytes != 512<<20 || got.Budget != "512.0MiB" {
+		t.Fatalf("budget = %d/%q, want %d/%q", got.BudgetBytes, got.Budget, 512<<20, "512.0MiB")
+	}
+	if got.Cap != serverMaxMemoryText || !got.Spilled || got.SpillDir != "/var/tmp/ayame" {
+		t.Fatalf("status = %#v", got)
+	}
+	// With no explicit temp dir the spill directory falls back to the system temp
+	// directory, never an empty string the UI would have to guess about.
+	fallback := csvMemoryStatusFor(csvRequest{}, engine.Summary{MemoryBudgetBytes: 1 << 20})
+	if fallback.Spilled || fallback.SpillDir != "" {
+		t.Fatalf("resident run reported spill = %#v", fallback)
+	}
+	spilledDefault := csvMemoryStatusFor(csvRequest{}, summary)
+	if spilledDefault.SpillDir == "" {
+		t.Fatal("spill dir is empty with no --temp-dir")
+	}
+}
+
 // TestLimitedGatesConcurrentComparisons covers #170: expensive handlers reject
 // with 429 once maxConcurrentComparisons are in flight, and recover once a slot
 // frees.

@@ -45,6 +45,7 @@ type comparisonConfig struct {
 	toleranceSet  []bool
 	global        float64
 	globalSet     bool
+	rowFilter     *compiledFilter
 }
 
 type preparedComparison struct {
@@ -77,6 +78,24 @@ func buildComparisonConfig(header []string, cfg Config) (comparisonConfig, error
 	for _, index := range indexes {
 		c.ignoreColumns[index] = true
 	}
+	columnFilterMatched := false
+	if cfg.ColumnFilter != nil {
+		filter, err := compileRowFilter(header, cfg.ColumnFilter, true, "column filter")
+		if err != nil {
+			return comparisonConfig{}, err
+		}
+		for index, name := range header {
+			if matchFilterName(filter, name) {
+				c.ignoreColumns[index] = true
+				columnFilterMatched = true
+			}
+		}
+	}
+	rowFilter, err := compileRowFilter(header, cfg.RowFilter, false, "row filter")
+	if err != nil {
+		return comparisonConfig{}, err
+	}
+	c.rowFilter = rowFilter
 	for _, tolerance := range cfg.ColumnTolerances {
 		index := tolerance.Index
 		if !tolerance.ByIndex {
@@ -92,7 +111,7 @@ func buildComparisonConfig(header []string, cfg Config) (comparisonConfig, error
 		c.tolerances[index], c.toleranceSet[index] = tolerance.Value, true
 	}
 	c.enabled = c.ignoreCase || c.whitespace != "none" || len(c.filters) > 0 ||
-		len(indexes) > 0 || c.globalSet || len(cfg.ColumnTolerances) > 0
+		len(indexes) > 0 || columnFilterMatched || c.globalSet || len(cfg.ColumnTolerances) > 0
 	return c, nil
 }
 
@@ -118,6 +137,19 @@ func resolveComparisonColumns(header, names []string, indexes []int, label strin
 		}
 	}
 	return resolved, nil
+}
+
+// ignoreMapped marks canonical positions excluded by an explicit column map
+// (#119). The column stays in the decoded row for display but is skipped by
+// prepare/equivalence, exactly like an ignored column resolved by name.
+func (c *comparisonConfig) ignoreMapped(positions []int) {
+	for _, position := range positions {
+		if position < 0 || position >= len(c.ignoreColumns) {
+			continue
+		}
+		c.ignoreColumns[position] = true
+		c.enabled = true
+	}
 }
 
 func (c comparisonConfig) defaultKeys(keys []int) []int {
@@ -208,7 +240,7 @@ func (c comparisonConfig) equivalentPrepared(left, right preparedComparison) boo
 			tolerance, enabled = c.tolerances[index], true
 		}
 		if !enabled || !left.numericOK[index] || !right.numericOK[index] ||
-			math.Abs(left.numbers[index]-right.numbers[index]) > tolerance {
+			!withinTolerance(left.numbers[index], right.numbers[index], tolerance) {
 			return false
 		}
 	}
@@ -226,10 +258,27 @@ func (c comparisonConfig) changedIndexesPrepared(left, right preparedComparison)
 			tolerance, enabled = c.tolerances[index], true
 		}
 		if enabled && left.numericOK[index] && right.numericOK[index] &&
-			math.Abs(left.numbers[index]-right.numbers[index]) <= tolerance {
+			withinTolerance(left.numbers[index], right.numbers[index], tolerance) {
 			continue
 		}
 		changed = append(changed, index)
 	}
 	return changed
+}
+
+// withinTolerance reports whether two parsed numbers are within an absolute
+// tolerance, treating the bound as inclusive. Two decimal strings are parsed
+// independently, so an exactly 0.01 difference can arrive as
+// 0.010000000000001563 and fail a 0.01 limit; the relative slack makes the
+// configured bound behave as documented rather than one ulp short (#121).
+func withinTolerance(left, right, tolerance float64) bool {
+	difference := math.Abs(left - right)
+	if difference <= tolerance {
+		return true
+	}
+	if tolerance == 0 {
+		return false
+	}
+	scale := math.Max(1, math.Max(math.Abs(left), math.Abs(right)))
+	return difference-tolerance <= scale*1e-12
 }
