@@ -1,0 +1,3355 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A native CLI for comparing huge CSV/TSV and text files, with encoding auto-detection and a local web GUI.">
+      
+      
+      
+        <link rel="canonical" href="https://ayame-editor.github.io/ayame-diff/gui/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../shell-integration/">
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+    
+    
+      
+        <title>GUI guide - ayame-diff</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.342714a4.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/ayame-docs.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gui" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ayame-diff" class="md-header__button md-logo" aria-label="ayame-diff" data-md-component="logo">
+      
+  <img src="../assets/favicon.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ayame-diff
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GUI guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="/ayame-diff/" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="/ayame-diff/ja/" hreflang="ja" class="md-select__link">
+              日本語
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ayame-editor/ayame-diff" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hjosugi/ayame-diff
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ayame-diff" class="md-nav__button md-logo" aria-label="ayame-diff" data-md-component="logo">
+      
+  <img src="../assets/favicon.svg" alt="logo">
+
+    </a>
+    ayame-diff
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ayame-editor/ayame-diff" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hjosugi/ayame-diff
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    GUI guide
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI guide
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#searching-a-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      Searching a result
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#access-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      Access control
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      serve
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gui_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      gui
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-web-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using the web UI
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Using the web UI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparison-conditions-and-the-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison conditions and the default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editing-a-pane" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editing a pane
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#display-width-and-cjk-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Display width and CJK alignment
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#progress-and-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Progress and messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#accessibility-and-keyboard-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessibility and keyboard use
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#external-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      External changes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#theme-and-colours" class="md-nav__link">
+    <span class="md-ellipsis">
+      Theme and colours
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-urls-and-browser-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison URLs and browser history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multiple-comparisons-tabs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multiple comparisons (tabs)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#navigating-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Navigating differences
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-conditions-while-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison conditions while reading
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manual-alignment-and-ignored-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Manual alignment and ignored differences
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#csv-tsv-setup-and-table-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      CSV / TSV setup and table result
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CSV / TSV setup and table result">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#making-a-comparison-match" class="md-nav__link">
+    <span class="md-ellipsis">
+      Making a comparison match
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#folder-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Folder comparison
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      HTTP API
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="HTTP API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get" class="md-nav__link">
+    <span class="md-ellipsis">
+      GET /
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-apihealth" class="md-nav__link">
+    <span class="md-ellipsis">
+      GET /api/health
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apidiff" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/diff
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example request
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apidiffcontext" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/diff/context
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apipatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/patch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apireport" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/report
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#csv-and-file-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      CSV and file APIs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    File-manager integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Compare
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Compare
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI usage
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Comparison options
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../encoding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Encoding
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Merge and reconcile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../three-way/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Three-way comparison
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Automate
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Automate
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Comparison projects
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui-setup-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI setup parity
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-regression-checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI regression checklist
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Project
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Project
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging and Windows trust
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ayame family design
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-design-research-followup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Competitor UI research
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architecture decisions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            Architecture decisions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-naming-unification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0001: Project name
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-diff-acceptance-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0002: Diff architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-encoding-dependency/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0003: Encoding dependency
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-git-repository-boundary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0004: Git repository boundary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-syntax-highlighting-treesitter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0006: Syntax highlighting and tree-sitter
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    日本語
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            日本語
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ホーム
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    はじめる
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            はじめる
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI ガイド
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell-integration.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ファイルマネージャー統合
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    比較する
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            比較する
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI の使い方
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison-options.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    比較オプション
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../encoding.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    文字コード
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    マージと調整
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../three-way.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    3-way 比較
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    自動化する
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            自動化する
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projects.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    比較プロジェクト
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui-setup-parity.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI 設定対応表
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-regression-checklist.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GUI 退行防止チェックリスト
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    プロジェクト
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            プロジェクト
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    パッケージングと Windows の信頼
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ayame ファミリーのデザイン
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-design-research-followup.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    競合 UI 調査
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5_4" id="__nav_6_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    アーキテクチャ決定記録
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            アーキテクチャ決定記録
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/README.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    概要
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-naming-unification.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0001: プロジェクト名
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-diff-acceptance-architecture.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0002: diff アーキテクチャ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-encoding-dependency.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0003: 文字コード依存
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-git-repository-boundary.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0004: Git リポジトリ境界
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-syntax-highlighting-treesitter.ja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    0006: シンタックスハイライトと tree-sitter
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#searching-a-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      Searching a result
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#access-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      Access control
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      serve
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gui_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      gui
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-web-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using the web UI
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Using the web UI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparison-conditions-and-the-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison conditions and the default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editing-a-pane" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editing a pane
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#display-width-and-cjk-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Display width and CJK alignment
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#progress-and-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Progress and messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#accessibility-and-keyboard-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessibility and keyboard use
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#external-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      External changes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#theme-and-colours" class="md-nav__link">
+    <span class="md-ellipsis">
+      Theme and colours
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-urls-and-browser-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison URLs and browser history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multiple-comparisons-tabs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multiple comparisons (tabs)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#navigating-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Navigating differences
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-conditions-while-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Comparison conditions while reading
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manual-alignment-and-ignored-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Manual alignment and ignored differences
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#csv-tsv-setup-and-table-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      CSV / TSV setup and table result
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CSV / TSV setup and table result">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#making-a-comparison-match" class="md-nav__link">
+    <span class="md-ellipsis">
+      Making a comparison match
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#folder-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Folder comparison
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      HTTP API
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="HTTP API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get" class="md-nav__link">
+    <span class="md-ellipsis">
+      GET /
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-apihealth" class="md-nav__link">
+    <span class="md-ellipsis">
+      GET /api/health
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apidiff" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/diff
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example request
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apidiffcontext" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/diff/context
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apipatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/patch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#post-apireport" class="md-nav__link">
+    <span class="md-ellipsis">
+      POST /api/report
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#csv-and-file-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      CSV and file APIs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- i18n: language-switcher -->
+<p><a href="./">English</a> | <a href="../gui.ja/">日本語</a></p>
+<h1 id="gui">GUI<a class="headerlink" href="#gui" title="Permanent link">&para;</a></h1>
+<p><code>ayame-diff</code> bundles a small local web app so you can compare files in the
+browser instead of the terminal. The single-page app is embedded in the binary,
+so there is nothing extra to install and no network access to the outside world.</p>
+<p><img alt="Initial comparison setup with file paths and mode options" src="../assets/screenshot-setup.png" /></p>
+<p><em>Paths are prominent before the first comparison; after that, editable sticky
+pane headers replace the initial path rail.</em></p>
+<p>Two subcommands start it:</p>
+<ul>
+<li><code>serve</code> — start the server on a fixed address (localhost by default).</li>
+<li><code>gui</code> — start the server on a free localhost port and open your browser.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Local, single-user use only</p>
+<p>The server opens the file paths you type in the browser, so it binds to
+localhost by default and is meant only for your own local use. Do not expose
+it to a network. A non-loopback <code>--addr</code> requires <code>--allow-remote</code> and
+prints a warning; anyone holding the URL can drive it, so place it behind
+trusted network access controls.</p>
+</div>
+<h2 id="searching-a-result">Searching a result<a class="headerlink" href="#searching-a-result" title="Permanent link">&para;</a></h2>
+<p><code>Ctrl+F</code> opens a search bar over the comparison result. Matches are highlighted
+with a running count; <code>Enter</code> and <code>Shift+Enter</code> step forward and back, and <code>Esc</code>
+closes. Toggles narrow it to changed lines only, make it case-sensitive, or
+treat the query as a regular expression.</p>
+<p>Matching runs against each line's whole text, so anchors (<code>$</code>) and patterns
+spanning several syntax tokens work as written. The line-number gutter is not
+searched, so a numeric query matches content rather than line numbers. The
+number of highlighted matches is capped so a broad query on a very large diff
+cannot undo the incremental rendering; the counter shows <code>+</code> when it applies.</p>
+<h2 id="access-control">Access control<a class="headerlink" href="#access-control" title="Permanent link">&para;</a></h2>
+<p>Every run generates an API token, and every <code>/api</code> call needs it in an
+<code>X-Ayame-Token</code> header. The token rides in the URL that <code>gui</code> opens and <code>serve</code>
+prints, and the page keeps it in <code>sessionStorage</code>, so an ordinary reload keeps
+working. Open the printed URL — a bare <code>http://127.0.0.1:PORT/</code> in a fresh tab
+has no token and the UI will say so.</p>
+<p>Two properties follow from that design:</p>
+<ul>
+<li><strong>No CSRF.</strong> A page on another site cannot set a custom header without a CORS
+  preflight, which this server refuses. A cookie would have been attached
+  automatically and would not have protected anything.</li>
+<li><strong>No DNS rebinding.</strong> A loopback server also pins the <code>Host</code> header to the
+  address it bound. A page that makes its own hostname resolve to <code>127.0.0.1</code>
+  still sends that hostname in <code>Host</code>, and is refused — even with a valid token.</li>
+</ul>
+<p>The embedded page, its assets, and <code>/api/health</code> stay open: the page cannot set
+headers for its own sub-resources, and the launching command polls health for
+readiness before any browser exists. Neither exposes user data.</p>
+<p>A <code>--allow-remote</code> listener does not pin <code>Host</code>, because the names it is
+reachable under cannot be known here. The token is the defense there.</p>
+<h2 id="serve"><code>serve</code><a class="headerlink" href="#serve" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ayame-diff serve [--addr host:port] [--allow-remote]
+</code></pre></div>
+<p>Starts the web UI and keeps running until you use <strong>Stop server</strong> in the top bar
+or stop it with <code>Ctrl+C</code>, <code>SIGINT</code>, or <code>SIGTERM</code>. Shutdown drains active HTTP
+requests before the listener closes; requests that are only waiting — an
+external-change watch, for example — are ended at once rather than held for
+their full poll window, so a stop returns immediately.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ayame-diff<span class="w"> </span>serve<span class="w">                       </span><span class="c1"># http://127.0.0.1:8080</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>ayame-diff<span class="w"> </span>serve<span class="w"> </span>--addr<span class="w"> </span><span class="m">127</span>.0.0.1:9000
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>ayame-diff<span class="w"> </span>serve<span class="w"> </span>--addr<span class="w"> </span><span class="m">0</span>.0.0.0:8080<span class="w"> </span>--allow-remote
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--addr</code></td>
+<td><code>127.0.0.1:8080</code></td>
+<td>Listen address (<code>host:port</code>).</td>
+</tr>
+<tr>
+<td><code>--allow-remote</code></td>
+<td>off</td>
+<td>Explicitly allow a non-loopback listen address. The API token still applies; the <code>Host</code> pin does not.</td>
+</tr>
+</tbody>
+</table>
+<p>If a requested fixed port is already in use, the command reports the conflict
+and binds the next available port instead.</p>
+<h2 id="gui_1"><code>gui</code><a class="headerlink" href="#gui_1" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ayame-diff gui [--addr host:port] [--allow-remote] [--no-open]
+</code></pre></div>
+<p>Same UI as <code>serve</code>, but it picks a free localhost port and launches your default
+browser — the "double-click to a GUI" experience without a native webview
+dependency.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ayame-diff<span class="w"> </span>gui<span class="w">             </span><span class="c1"># pick a free port and open the browser</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>ayame-diff<span class="w"> </span>gui<span class="w"> </span>--no-open<span class="w">   </span><span class="c1"># start the server but don't open a browser</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--addr</code></td>
+<td><code>127.0.0.1:0</code></td>
+<td>Listen address; port <code>0</code> picks a free port.</td>
+</tr>
+<tr>
+<td><code>--allow-remote</code></td>
+<td>off</td>
+<td>Explicitly allow a non-loopback listen address. The API token still applies; the <code>Host</code> pin does not.</td>
+</tr>
+<tr>
+<td><code>--no-open</code></td>
+<td>off</td>
+<td>Start the server but do not open the browser.</td>
+</tr>
+</tbody>
+</table>
+<p>An explicitly requested fixed GUI port uses the same next-port fallback;
+the default port <code>0</code> already asks the operating system for a free port.</p>
+<p>Each <code>gui</code> browser tab holds an authenticated lease. Closing the last tab
+releases that lease and stops the server after a short reload grace period, so
+a double-click launch does not leave an orphan process. A tab or browser that
+crashes without sending its release expires after 90 seconds. With <code>--no-open</code>,
+open the printed URL within 90 seconds. The explicit <strong>Stop server</strong> button
+remains available in both <code>gui</code> and <code>serve</code>.</p>
+<h2 id="using-the-web-ui">Using the web UI<a class="headerlink" href="#using-the-web-ui" title="Permanent link">&para;</a></h2>
+<p>Enter the <strong>LEFT</strong> and <strong>RIGHT</strong> file paths (or use the server-side file picker)
+and choose <strong>what to compare</strong> — two files, three files (a 3-way merge, which
+adds a <strong>BASE</strong> field), or a folder. Set the comparison options (encoding, resync
+window, ignore-case, whitespace handling, EOL controls, <strong>absorb re-indentation</strong>
+to keep a re-indented file aligned, repeatable regex filters
+entered one per line), then <strong>Compare</strong>. The result is shown as a side-by-side
+grid with per-hunk headers, line numbers and word-level highlighting. <strong>Syntax highlight</strong> adds syntax coloring for common source,
+data, markup, and log formats; the file extension selects the language and the
+toggle is remembered in the browser. For languages whose multi-line constructs
+it models — block comments, JavaScript/TypeScript template literals, Go raw
+strings, Python triple-quoted strings, and shell heredocs — it carries state
+across consecutive rendered lines, so such a construct is colored through to its
+end. It operates only on rendered diff rows, so it does not scan or retain the
+complete input file: a construct that starts before the first rendered line of a
+hunk, or spans an omitted gap between hunks, is not tracked and left with the
+line-local coloring. When that accurate pass is unavailable — an unknown
+extension, a data/markup/log format, an older front end, or an error — the view
+falls back to the previous line-local highlighting, unchanged. See
+<a href="../adr/0006-syntax-highlighting-treesitter/">ADR 0006</a> for why a tree-sitter
+grammar is not shipped yet. Choose <strong>patch format</strong> (<code>normal</code>, <code>context</code>, or
+<code>unified</code>) and a context-line count, then use <strong>Export patch</strong> to download an
+applyable <code>ayame.patch</code>. Patch export preserves CRLF and missing-final-newline
+markers and rejects binary/NUL input. Export is available in <code>text</code> mode only; a
+patch of a sorted view would not apply safely to the original file.</p>
+<p><strong>How a result is read is separate from what was compared.</strong> The result toolbar
+carries a <strong>Read as</strong> choice — <code>text</code>, <code>sorted</code>, or <code>csv / tsv</code> — and switching
+it re-runs the same inputs under the new reading, so a wrong guess can be tried
+and reverted without re-entering anything. The choice is offered only where it
+means something: a folder comparison has no reading, and a three-file comparison
+can be read as text or CSV but not sorted. The sorted view's numeric/reverse
+controls and the CSV setup appear as the reading requires them.</p>
+<p>Every result opens with a <strong>Statistics</strong> panel that describes the change before
+the rows. A text or sorted result shows the whole-file context — the changed
+line count and its share of the file, and the largest hunk — alongside the
+per-kind totals. <strong>Export CSV</strong> downloads the panel as a long-format table
+(<code>section,column,metric,value</code>) and <strong>Export JSON</strong> downloads the same summary
+as JSON; both are built from the summary already in the browser, so exporting
+never re-runs the comparison.</p>
+<p>The same <strong>Export</strong> menu carries <strong>Export report</strong>, which writes a
+confirmation/verification record of the review: the compared inputs with their
+sizes, modification times, detected encodings and SHA-256 hashes; the applied
+comparison conditions (ignore settings, line filters, sync points, window and
+move detection); the difference totals; every ignored hunk with its reason; the
+read/unread review state; and the versioned URL state needed to rerun the
+comparison. Choose a printable, self-contained HTML report, Markdown, or JSON.
+The compared content is left out by default; tick <strong>embed compared content</strong>
+only when the report may be shared with what the files contain. Confirmed-hunk
+tracking arrives with #288, so a report from this build states plainly that no
+confirmed hunks are recorded.</p>
+<p>After a result appears, the initial path rail is removed from the work area.
+Each sticky pane header identifies its side and carries an editable path, a
+server-side browse button, detected encoding and line count where available.
+Press <code>Enter</code> or leave an edited field to compare that replacement immediately;
+the <code>⇄</code> control swaps LEFT and RIGHT. Re-comparison restores the logical line that
+was in view rather than returning to the first difference.</p>
+<h3 id="comparison-conditions-and-the-default">Comparison conditions and the default<a class="headerlink" href="#comparison-conditions-and-the-default" title="Permanent link">&para;</a></h3>
+<p>Everything under <strong>Comparison conditions</strong> — ignore case, whitespace, EOL
+handling, line filters, and move detection — starts from a saved default.
+Changing one gives the current comparison its own value; the saved default is
+left alone until you press <strong>Make default</strong>. The chip beside the heading names
+the scope in effect (<em>Using default</em>, or <em>This comparison only · N from
+default</em>) and the group's badge counts how many conditions differ, so a
+one-off tweak is visible instead of silently becoming the next visit's default.
+<strong>Reset to default</strong> puts the saved values back. Loading a comparison URL or an
+<code>.ayamediff</code> project applies its conditions as a session override as well, so
+opening a shared link never rewrites your default. Only the condition group
+follows this rule; engine tuning and per-mode options are not part of the saved
+default.</p>
+<h3 id="editing-a-pane">Editing a pane<a class="headerlink" href="#editing-a-pane" title="Permanent link">&para;</a></h3>
+<p><strong>Edit</strong> in the result toolbar opens both files for editing. It appears for a
+two-file <code>text</code> comparison of real files: pasted text has nowhere to save to,
+and <code>sorted</code>, <code>csv / tsv</code>, folder and three-way views reshape or reorder rows,
+so a row there no longer addresses a line in a file.</p>
+<p>Turning it on loads both files in full — up to 8 MiB each — and compares what is
+in the panes rather than what is on disk. Click a line, or focus it and press
+<code>Enter</code>, to edit it; <code>Enter</code> commits, <code>Escape</code> restores the line as it was, and
+moving away commits too. The comparison catches up when a line is committed
+rather than on every keystroke, and an IME composition is left alone until it
+ends, so Japanese input is not interrupted mid-word.</p>
+<p>A committed line is shown immediately: the edited cell is painted from the
+buffer and marked provisional, with a bar that says the result is being
+recomputed. The authoritative comparison then replaces the whole result and the
+logical line that was in view is restored, so nothing jumps. Commits are
+coalesced: an edit made while a comparison is running queues one catch-up run
+rather than one comparison each, and starting the new comparison cancels the
+previous request. The provisional guess re-judges that one line as same/changed
+only for a plain exact text comparison; with <code>ignore case</code>, a whitespace rule,
+<code>ignore EOL</code>, line filters, move detection, sync points, or a line whose
+counterpart is not on screen, it shows the typed text and leaves the
+classification to the server. A comparison-condition change has no honest local
+approximation, so it keeps the usual progress placeholder until the result
+arrives, and this pane edits line content only — line insertion and deletion are
+not operations it performs.</p>
+<p>Each pane header carries its own state: a marker when it holds unsaved lines, a
+<strong>Save</strong> button for that side alone, and a <code>read-only</code> badge when the file
+cannot be written. <code>Ctrl+S</code> saves the pane being edited. A save preserves the
+file's encoding, BOM, line terminator and final-newline state — an edited line
+does not quietly convert the rest of the file. If the file changed on disk after
+it was opened, the save is refused and offers to overwrite instead of discarding
+the other change silently. Leaving the page with unsaved lines warns first, and
+an external change no longer reloads over unsaved work: the reload bar asks.</p>
+<p>Two kinds of difference are on screen at once while editing, and they stay
+visually distinct. How the two compared files differ is the cell shading, plus
+the <code>-</code>/<code>+</code> marker in the unified view. A line whose text differs from the file
+the buffer loaded — something you typed this session — carries its own handle in
+the gutter: an accent bar with a glyph (<code>~</code>), not shading. Click a handle to put
+that whole run of lines back to what was loaded, or focus the line and press
+<code>Delete</code>. Saving clears the handles; discarding the edits clears them too, so no
+stale mark outlives the change it pointed at.</p>
+<p>Anything that would replace what is being edited — a different path, a mode
+switch, turning on pasted text — asks first and stays put if you decline;
+re-comparing and changing comparison or display options keep the buffers and do
+not ask.</p>
+<p>Editing changes lines; it does not add or remove them, and the comparison
+settings continue to apply as they do while reading.</p>
+<h3 id="display-width-and-cjk-alignment">Display width and CJK alignment<a class="headerlink" href="#display-width-and-cjk-alignment" title="Permanent link">&para;</a></h3>
+<p>Columns line up only when a single font renders both the Latin and the CJK on a
+line, because CSS chooses fonts per character. If a Latin-only monospace face is
+listed before any CJK-capable one, a line such as <code>name 名前</code> uses two fonts whose
+advance widths need not be exactly 1:2, and the columns drift. The family stack
+therefore leads with faces that cover both scripts — <code>Noto Sans Mono CJK JP</code>,
+<code>Source Han Mono JP</code>, and the Windows-bundled <code>MS Gothic</code> — before the Latin-only
+fallbacks. If none of those is installed, a system cannot align mixed lines on
+its own; installing Noto Sans Mono CJK JP restores it.</p>
+<p>Two display settings refine this and share their meaning with the CLI:</p>
+<ul>
+<li><strong>tab size</strong> (<code>2</code>, <code>4</code>, or <code>8</code>, default <code>8</code>) is applied as a CSS <code>tab-size</code>
+  token. The CLI does not expand tabs: <code>internal/textwidth</code> counts a tab as
+  zero cells and a terminal expands it at its own tab stop, so there is no
+  single CLI tab width to match. The GUI makes the width explicit and defaults
+  to the common terminal value of 8.</li>
+<li><strong>wide ○ ※ α</strong> (<code>East Asian Ambiguous</code> characters) mirrors
+  <code>internal/textwidth</code>'s <code>Options.EastAsianAmbiguousWide</code> and the CLI's
+  <code>--east-asian-ambiguous-wide</code>. It is off by default, matching terminals that
+  render these as one cell; turn it on when the font renders them full-width.</li>
+</ul>
+<p>What is tested is the width/alignment decision both halves share, not the pixel
+result: the GUI's <code>textwidth.js</code> is checked against the CLI's <code>internal/diffout</code>
+output and <code>internal/textwidth</code> for the same input, but the glyph advances the
+browser actually paints still depend on the font installed.</p>
+<h3 id="progress-and-messages">Progress and messages<a class="headerlink" href="#progress-and-messages" title="Permanent link">&para;</a></h3>
+<p>A running comparison writes to its own progress line, and the outcome of an
+operation — saved merge, exported patch, failed compare — joins a separate
+message lane below it. Messages stack instead of replacing each other, so the
+result of the previous attempt is still readable after the next one starts. A
+success withdraws itself after a few seconds; a warning or a failure stays until
+it is dismissed with its close button or with <code>Escape</code> while it holds focus. A
+message that repeats is counted on its existing line rather than stacking a
+duplicate, and each line carries the time it arrived.</p>
+<p>A text comparison's progress line reports which phase it is in — reading the
+inputs, comparing, detecting moved blocks, sending the result, rendering — with
+the time that phase has taken, not just how long the run has lasted. A phase
+with a real count shows it (the streamed result pages, the rendered hunks); the
+phases that have none stay indeterminate instead of inventing a percentage. The
+result is streamed in bounded pages, so the first hunks can be read while the
+rest is still arriving, and the unchanged-context regions are filled in once the
+hunk geometry is known. When <code>maxHunks</code> cuts hunks away or <code>maxLines</code> cuts a long
+hunk short, the GUI warns in the message lane before the truncated result is
+read, so the limit can be raised then instead of being discovered while reading.
+Cancel aborts the in-flight request immediately.</p>
+<p>A large result is painted in slices rather than in one blocking pass, so
+scrolling and input stay responsive while it builds; <strong>Cancel</strong> stops a render
+that is already under way, not only a request still in flight.</p>
+<h3 id="accessibility-and-keyboard-use">Accessibility and keyboard use<a class="headerlink" href="#accessibility-and-keyboard-use" title="Permanent link">&para;</a></h3>
+<p>Nothing in the diff depends on seeing colour. Added lines carry <code>+</code> and deleted
+lines carry <code>-</code> in the gutter of both the side-by-side and unified views, and
+each hunk header names its kind (<code>+ Insert</code>, <code>− Delete</code>, <code>~ Replace</code>,
+<code>MOVED #…</code>). A three-way conflict carries <code>≠</code>. In forced-colours mode, where
+every wash is replaced by system colours, the glyph is still there: it is the
+marker, not the background, that says which line is which.</p>
+<p>Assistive technology receives the same fact in words. Each diff row is named
+<code>added</code>, <code>deleted</code> or <code>modified</code> alongside its line number, and each hunk is a
+labelled group. The application keeps a single polite live region for
+navigation feedback — the position after <code>Alt+↓</code>, a search step, or a merge
+choice — while a failure is announced assertively through the message lane. The
+visible counters (difference position, search hit count, unresolved count) are
+not live regions of their own; the controls that change them describe themselves
+with the count instead, so a keypress does not queue several announcements.</p>
+<p>The whole flow is keyboard-only. <code>Tab</code>/<code>Shift+Tab</code> reach every control,
+<code>Alt+↓</code>/<code>Alt+↑</code> (or <code>Alt+Home</code>/<code>Alt+End</code>) move between differences, <code>Alt+←</code>/
+<code>Alt+→</code> (and <code>Alt+B</code> in three-way) adopt a side, <code>Ctrl+F</code> searches, <code>Ctrl+S</code>
+saves an edited pane, and <code>Escape</code> closes the search and every dialog. The focus
+ring is visible on every control, including the diff rows and the minimap.</p>
+<p>Two limitations are worth stating. Off-screen hunks use CSS
+<code>content-visibility: auto</code> so that a very large diff does not lay out the whole
+document at once; some browsers also omit that off-screen content from the
+accessibility tree until it has been scrolled into view. Bring a hunk on screen
+with the difference navigation before reading it, since the position is
+announced as you move. The minimap is a compact overview, not a text document;
+it is keyboard operable as a scrollbar, but its markers carry no text.</p>
+<p>The markers, the live-region layout and the focus-ring coverage are pinned by
+automated tests that run in CI: Go tests read the served assets and a
+<code>node --test</code> suite executes the pure mapping. A full axe or Lighthouse pass
+would need a headless browser and a Node dependency the project does not carry,
+so it stays a manual check in the
+<a href="../ui-regression-checklist/">GUI regression checklist</a>.</p>
+<h3 id="external-changes">External changes<a class="headerlink" href="#external-changes" title="Permanent link">&para;</a></h3>
+<p><strong>Auto-reload external changes</strong> is enabled by default in the View menu for
+file-backed <code>text</code>, <code>sorted</code>, <code>csv / tsv</code>, and three-way comparisons. Saving a
+compared file in another editor triggers one debounced re-comparison and keeps
+the same logical row at the same screen offset. Atomic-save sequences and
+several writes close together are coalesced before the comparison starts.</p>
+<p>The browser uses authenticated <code>fetch</code> long polls, so the watch request carries
+the same <code>X-Ayame-Token</code> as every other filesystem API. At most the three
+BASE/LEFT/RIGHT paths are watched, and abandoned requests stop when the page,
+paths, mode, or preference changes. If a future editable result has unsaved
+changes, automatic replacement stops and a bar offers <strong>Reload</strong> or <strong>Keep
+current edits</strong>.</p>
+<p>Pasted text has no source file to watch. Folder comparison also stays manual:
+recursively polling an arbitrarily large tree on every save would violate the
+bounded-resource guarantees. Opening a changed folder entry as a text
+comparison watches that file pair normally.</p>
+<h3 id="theme-and-colours">Theme and colours<a class="headerlink" href="#theme-and-colours" title="Permanent link">&para;</a></h3>
+<p>The View menu chooses a theme (system, light, dark) and a colour scheme
+(default, colorblind, or <strong>custom</strong>). <strong>Customize colors…</strong> opens an editor over
+the design tokens that drive the whole result: the ground and text colours, the
+accent and status ramp, the addition/deletion/change washes and their word
+highlights, and the font family and size tokens. Each edit is painted onto the
+page as it is made, so the comparison already on screen is the preview rather
+than a separate sample.</p>
+<p>A theme is a JSON object of token overrides with a base (system, light, or dark)
+and a name. <strong>Save</strong> stores it in the browser under that name and lists it in
+the editor; <strong>Copy JSON</strong> and <strong>Import JSON</strong> move a theme between machines, so
+a team can standardise a palette. <strong>Reset to preset</strong> returns to a shipped
+preset (Ayame Light/Dark, WinMerge, VS Code Dark+, Solarized Light, or High
+contrast).</p>
+<p>Under the token editor the dialog reports the WCAG contrast ratio of each
+foreground/background pair the palette implies — body text on the ground, the
+accent button label, and each diff foreground over its wash — and marks every
+pair below the AA threshold. A custom palette therefore cannot reintroduce the
+unreadable colour-on-colour case of #150 without a visible warning.</p>
+<p>Theme and colour choices are global browser preferences, shared by every tab.</p>
+<h3 id="comparison-urls-and-browser-history">Comparison URLs and browser history<a class="headerlink" href="#comparison-urls-and-browser-history" title="Permanent link">&para;</a></h3>
+<p>After a successful file-backed comparison, the GUI stores the input paths,
+mode, and comparison conditions in a versioned URL fragment. Reload restores
+and re-runs that comparison. Comparing different inputs pushes a history entry,
+while condition changes replace the current entry, so Back and Forward move
+between complete comparison states.</p>
+<p>The fragment is not sent to the server, but it does contain local paths.
+<strong>Copy link</strong> in the result toolbar warns about that disclosure and copies a URL
+with the API token removed. The copied URL grants no access by itself; open
+ayame-diff normally first so the browser session has its own token.</p>
+<p>Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
+use an <code>.ayamediff</code> project for very large CSV column selections.</p>
+<p>Display preferences — wrap, word highlight, syntax highlighting, whitespace,
+theme, colours and the view — are stored once and apply to every comparison.
+Comparison conditions are stored per comparison, keyed by the mode and input
+paths, so reopening a comparison restores the conditions it was run with and a
+different pair starts from the defaults.</p>
+<h3 id="multiple-comparisons-tabs">Multiple comparisons (tabs)<a class="headerlink" href="#multiple-comparisons-tabs" title="Permanent link">&para;</a></h3>
+<p>Several comparisons can stay open at once. After the first successful
+comparison a tab bar appears above the paths; <strong>＋</strong> opens a new tab from the
+current comparison (change one side and Re-compare), and the <strong>×</strong> on a tab
+closes it. The active tab is highlighted, and closing the active tab activates
+its neighbour.</p>
+<p>Each tab keeps its own inputs, mode, comparison conditions, and scroll
+position. Switching tabs re-applies that state and recomputes the result rather
+than holding every diff in memory, so scroll position survives but a large
+comparison is paid for again when it is opened. The tab set is stored in the
+same URL fragment as the active comparison, so a reload restores the open tabs;
+each history entry carries its own set, so Back returns to the tabs that
+belonged with that comparison. <strong>Copy link</strong> still copies one comparison and
+never the reader's other tabs.</p>
+<p>Applied ignore settings are shown in the result summary and in the condition
+toolbar. They affect matching only: rendered lines and exported patches retain
+the original text. Whitespace- and case-only differences are not erased: they
+stay visible as a subdued, chequered hunk with their own <strong>ignored-only</strong> count
+(KDiff3's third state), while next/previous navigation, the difference counts,
+and patch export treat them as equal. A dismissed difference therefore remains
+auditable instead of being indistinguishable from one that was never there.</p>
+<p><strong>Absorb re-indentation</strong> separates <em>which lines correspond</em> from <em>which
+correspondences count as a difference</em> (#270). Checking it makes whitespace
+insensitive only for alignment, so a file that was reformatted or re-indented
+keeps every line paired up while the content difference is still reported at
+its original position, instead of the whitespace-only lines vanishing. It does
+not change what the <code>whitespace</code> setting counts as a difference, and it is a
+no-op when that setting already ignores whitespace. The server field is
+<code>alignWhitespace</code>.</p>
+<p>Browser-dropped files are copied to a private local cache. Each file is limited
+to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
+HTTP 413 error and its partial staged file is removed. Orphaned session caches
+become eligible for cleanup after 24 hours when a later session starts.</p>
+<h3 id="navigating-differences">Navigating differences<a class="headerlink" href="#navigating-differences" title="Permanent link">&para;</a></h3>
+<p>The sticky navigation bar jumps to the first, previous, next, or last hunk and
+shows the current/total and unread count. Keyboard shortcuts are <code>Alt+Down</code>,
+<code>Alt+Up</code>, <code>Alt+End</code>, and <code>Alt+Home</code>; the <code>?</code> button shows this list in the UI.
+The location bar on the right draws markers directly from hunk indexes, supports
+click-to-jump, and overlays the current viewport. Left/right text stays vertically
+and horizontally synchronized because each hunk is rendered as one shared grid
+and scroll row rather than two independent panes.</p>
+<p>In a merge, moving between differences and moving between conflicts are separate
+tasks, so they have separate keys. <code>Alt+Down</code> / <code>Alt+Up</code> walk every difference and
+<code>Alt+Home</code> / <code>Alt+End</code> reach the ends, while <code>F8</code> / <code>Shift+F8</code> walk only the
+conflicts of a three-way result. <code>Alt+Left</code>, <code>Alt+Right</code>, and <code>Alt+B</code> adopt the
+left, right, or base side of the current conflict, and <code>Alt+A</code> adopts both
+(left's lines followed by right's). <code>Ctrl+Shift+S</code> saves the merge while the merge
+panel is open; <code>Ctrl+Enter</code> still runs the comparison. Turn on <strong>auto-advance</strong> in
+the merge panel, or press <code>Alt+Shift+A</code>, to jump to the next unresolved conflict
+after each adoption, so the whole merge can be resolved without the mouse. The <code>?</code>
+button lists this default map.</p>
+<p>Beside read-on-scroll, each hunk has an explicit <strong>Confirm</strong> toggle. Scrolling
+past a hunk marks it read automatically; confirming is a deliberate action, and
+the <code>Confirmed N / M</code> counter tracks it. The <code>↑✓</code> / <code>↓✓</code> buttons step only
+through hunks that are not confirmed yet, while first/previous/next/last keep
+walking every difference. A confirmed hunk stays visible and still exports —
+confirmation is not ignoring — but its content is dimmed and its minimap marker
+is outlined. Confirmations are stored in <code>localStorage</code>, keyed by the
+comparison's paths and a signature of each hunk's kind, range, and changed
+lines: reopening the same comparison restores them, and a hunk whose compared
+content changed loses its confirmation.</p>
+<p>Shortcuts are data, not fixed strings: every action is bound in one table and
+the <code>?</code> help dialog is generated from it, so the help cannot describe keys that
+no longer fire. Open <strong>Customize shortcuts</strong> from that dialog to move an action
+to another chord, switch between the <code>default</code> and <code>minimal</code> presets, reset to
+the preset, or export the whole binding set as JSON. A chord two actions claim is
+reported with both names, and chords the browser reserves (such as <code>Ctrl+W</code>) are
+refused. The choice is stored in <code>localStorage</code>, so it applies to the whole
+browser rather than one comparison.</p>
+<p>Enable <strong>detect moves</strong> to pair exact deleted/inserted blocks. Moved hunks use a
+dedicated purple color and an <code>↔</code> button in the hunk's action toolbar jumps to
+the paired location. Detection
+is off by default; <strong>move min lines</strong> and the engine candidate cap prevent the
+optional post-processing pass from dominating huge comparisons.</p>
+<p><strong>Context</strong> shows unchanged lines at each hunk boundary. The initial number of
+lines is set under <strong>Settings → Result display</strong> (default 3); setting it to 0
+keeps only the expandable boundaries. Use the up/down buttons to reveal 20 more
+lines from one edge, click the collapsed-line label to reveal both edges, or
+drag that label toward the edge to expand. The collapsed label names what it
+hides rather than only how much: the hidden line range plus an excerpt of the
+first hidden line, or a symbol/heading when the file is recognised source. Turning
+<strong>Context</strong> off returns to a hunk-only view without re-running the comparison.
+Context ranges are fetched on demand, so opening one boundary does not send the
+whole unchanged file to the browser; the one-line preview behind the label is
+fetched the same bounded way and is never unfolded into the result. In the
+side-by-side view, context lines remain editable on both sides when <strong>Edit</strong> is
+active.</p>
+<h3 id="comparison-conditions-while-reading">Comparison conditions while reading<a class="headerlink" href="#comparison-conditions-while-reading" title="Permanent link">&para;</a></h3>
+<p>The settings that change what counts as a difference are permanent in the result
+toolbar, each showing its current value so the policy the result was produced
+under is readable without opening a dialog: whitespace (<strong>ignore amount</strong>,
+<strong>ignore all</strong>), case, EOL (ignore EOL, ignore trailing EOL, or both), line
+filters with the number active, and move detection. The toolbar therefore
+doubles as a status display. Changing a row writes the matching control in
+<strong>Comparison settings</strong> and re-runs the comparison; because the inputs are
+unchanged it replaces the current history entry rather than pushing a new one.</p>
+<p>Only the toggles live in the toolbar. Values that tune how much is computed —
+<strong>move min lines</strong>, the <strong>context</strong> line count, and the line-filter definitions
+themselves — stay in <strong>Comparison settings</strong>, so the number of toolbar items is
+fixed and does not grow with the input. The line-filter row reports how many
+filters are active and opens that part of the dialog to edit them.</p>
+<h3 id="manual-alignment-and-ignored-differences">Manual alignment and ignored differences<a class="headerlink" href="#manual-alignment-and-ignored-differences" title="Permanent link">&para;</a></h3>
+<p>When automatic resynchronization picks the wrong lines, click one line on each
+side and choose <strong>Add sync</strong>. Sync points split the diff into independent
+intervals, are listed as removable <code>LEFT:RIGHT</code> chips, and trigger an immediate
+recalculation. Points must increase on both sides; the API and CLI validate
+bounds and ordering. The CLI equivalent is repeatable <code>--sync 100:120</code> using
+1-based line numbers.</p>
+<p>Each hunk also has <strong>Ignore this difference</strong>. Ignored hunks remain visible as
+collapsed dashed headers, are excluded from next/previous navigation and unread
+counts, and can be restored. Patch export omits them and records the count in
+the <code>X-Ayame-Ignored-Hunks</code> response header, so the hidden decision remains
+auditable; use declarative line filters (#28) for a permanent rule. <strong>Export
+report</strong> lists each ignored hunk with its coordinates and the reason
+<code>manually ignored during review</code>, so the header count is not the only record.</p>
+<p>Each hunk carries a small action toolbar anchored to that hunk. Hover the hunk,
+move keyboard focus into it, or press its <code>⋯</code> handle to open the toolbar; the
+handle stays visible, so the actions are discoverable rather than hidden behind
+hover. On a device without hover the toolbar is shown outright. Ignore/restore,
+the <code>↔</code> jump for moved hunks, and the adopt buttons (while merge mode is on)
+live there, so each action sits on the change it applies to. The session-wide
+controls stay where they were: <strong>Add sync</strong> and difference navigation remain in
+the navigation bar, and <strong>All left / All right / All base</strong>, Undo, and Redo
+remain in the merge panel.</p>
+<h3 id="csv-tsv-setup-and-table-result">CSV / TSV setup and table result<a class="headerlink" href="#csv-tsv-setup-and-table-result" title="Permanent link">&para;</a></h3>
+<p>Choose <code>csv / tsv</code>, then <strong>Inspect headers</strong>. The server reads only the first
+logical record and reports detected format/parser and aligned columns. The
+searchable column list supports all-column, selected-key, and excluded-key
+modes plus Select all / Invert. Parsing, delimiter, compatibility, ignore,
+tolerance, resource, temporary-storage, and output settings are available in
+the same screen; <strong>Review settings</strong> summarizes the effective run.</p>
+<p><strong>Row &amp; column filter</strong> builds comparison conditions without SQL. A condition is
+a column, an operator (<code>=</code>, <code>≠</code>, contains, starts/ends, <code>&gt;</code>, <code>≥</code>, <code>&lt;</code>, <code>≤</code>,
+numeric range, empty, regular expression), and a value; conditions combine with
+AND/OR and nested groups. Row conditions drop non-matching rows before the
+comparison, and column conditions ignore columns whose <em>names</em> match — the same
+declarative ignore-column mechanism as the text field. <strong>Preview matches</strong> scans
+the inputs and reports LEFT/RIGHT kept rows and kept columns. The built filter is
+stored in the project file, and the existing per-line regular expression filters
+remain available as an advanced fallback for text.</p>
+<p>The result is paged in groups of 100 logical differences. Changed cells alone
+use the modification color, header badges show per-column change counts, and
+<strong>changed columns only</strong> hides wide unchanged columns. The <strong>Statistics</strong> panel
+at the top of the result lists every changed column with its count and its share
+of the changed rows; a numeric column also reports the sum, mean, and maximum of
+right-minus-left and how many values rose, fell, or changed representation only.
+The list scrolls rather than being capped, and exports as CSV or JSON. The
+server caps the browser response at 5,000 logical differences; <strong>Run and export</strong>
+writes the complete TSV (with <code>_changed_cols</code>) or JSON Lines result to a local
+path. Unlike the text view, the CSV table lists differences only and does not
+fold unchanged rows, so there is no collapsed bar to label. When explicit key
+columns were chosen, the pager names the key range on the current page, and if
+the display cap truncates the result the summary also names the key range the
+shown differences cover.</p>
+<p>When column names disagree, or a column exists on only one side, <strong>manual
+column mapping</strong> pairs a left column with a right column by hand, can mark a
+pairing ignored, and tolerates a side that is missing. Applying it re-runs the
+comparison. The editor starts from the same name alignment the engine uses;
+the content-based estimate of #116 is not part of this build, and the source
+line says so. A saved mapping lives in the project. Result table headers can
+also be dragged to reorder columns for reading, which changes presentation only.</p>
+<p>The summary also names the budget the comparison ran under and whether it had to
+spill. The <code>/api/csv/diff</code> response carries a <code>memory</code> object with the resolved
+<code>budget_bytes</code>, the server <code>cap</code>, and — only when the engine offloaded work to
+disk — the <code>spill_dir</code>; the CSV summary renders it as, for example,
+<code>memory 512.0MiB / limit 8GiB spilling to /tmp</code>. The comparison stays cancellable
+while it is spilling, and its temporary files are removed after success, failure,
+and cancellation.</p>
+<h4 id="making-a-comparison-match">Making a comparison match<a class="headerlink" href="#making-a-comparison-match" title="Permanent link">&para;</a></h4>
+<p>Below a CSV result, <strong>How to match</strong> reads the differences the server already
+returned and proposes the option changes that would clear them. It attributes
+differences to column order (align by name), trailing or repeated whitespace,
+letter case, numeric rounding within a tolerance, or a column that most changes
+concentrate in (a candidate to ignore). Each card names its likely cause and
+shows the residual difference count the server measured by re-running the
+comparison with that one option applied, so "ignore whitespace" reads as "leaves
+0" before it is applied. <strong>Apply</strong> writes the option into the setup form,
+re-runs the comparison, and refreshes the cards; proposals stack, so the second
+one is evaluated against the first. The applied normalization set is part of the
+comparison, so <strong>Save project</strong> stores it.</p>
+<p>See the <a href="../gui-setup-parity/">GUI reachability and placement policy</a> for the
+full mapping and the rules that keep advanced settings reachable without
+promoting every engine option onto the result screen.</p>
+<h3 id="folder-comparison">Folder comparison<a class="headerlink" href="#folder-comparison" title="Permanent link">&para;</a></h3>
+<p>The <code>folder</code> mode accepts include/exclude globs, hidden-file policy, parallel
+worker count, a five-way comparison method, named filter files/sets, and a
+boolean metadata filter expression. <strong>Preview filter</strong> reports selected counts
+and exposes a path sample before any content comparison. Folder settings can be
+saved in a portable <code>.ayamediff.json</code> project. Results form an
+indented, status-colored tree with status filters. Clicking a changed file
+switches to text mode and opens the paired relative paths. Symbolic links are
+skipped and <code>.gz</code> files compare decompressed content. <strong>Flat</strong> drops the nesting
+and lists the filtered files in path order with their parent folder in a
+Location column, so a difference scattered through a deep tree is found without
+opening folders one by one; the status filter and search still decide what is
+listed, and the selection and scroll position survive switching between the two.</p>
+<p><strong>Continuous</strong> switches the same result to one scroll through every differing
+file, so a change set is read straight through instead of opened and returned to
+once per file. Each file is introduced by a header carrying its relative path,
+its status and its hunk count; the header sticks while you read that file, and
+clicking it collapses the file away. The status filter and the path search
+narrow this view exactly as they narrow the tree; unchanged files are left out,
+since there is nothing in them to read.</p>
+<p>A file's diff is fetched when it comes near the viewport and released again once
+it has drifted far enough away, so a change set of a hundred files holds only a
+handful of them at a time and a released file keeps the space it took rather
+than pulling the page up under you. Difference navigation crosses file
+boundaries here: it steps hunk to hunk inside the file being read and moves to
+the next differing file at its edge, loading it if it has not been read yet. The
+minimap marks the files rather than the hunks, and clicking a mark jumps to that
+file.</p>
+<h2 id="http-api">HTTP API<a class="headerlink" href="#http-api" title="Permanent link">&para;</a></h2>
+<p>The GUI is a thin client over a small JSON API. You can call it directly.</p>
+<h3 id="get"><code>GET /</code><a class="headerlink" href="#get" title="Permanent link">&para;</a></h3>
+<p>Serves the embedded single-page app.</p>
+<h3 id="get-apihealth"><code>GET /api/health</code><a class="headerlink" href="#get-apihealth" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ok"</span><span class="p">,</span><span class="w"> </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<h3 id="post-apidiff"><code>POST /api/diff</code><a class="headerlink" href="#post-apidiff" title="Permanent link">&para;</a></h3>
+<p>Request body:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">"old"</span><span class="p">:</span><span class="w"> </span><span class="s2">"old.txt"</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">"new"</span><span class="p">:</span><span class="w"> </span><span class="s2">"new.txt"</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">"encoding"</span><span class="p">:</span><span class="w"> </span><span class="s2">"auto"</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">"window"</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">"maxHunks"</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">"maxLines"</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">"numeric"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="nt">"reverse"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span><span class="nt">"ignoreCase"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">  </span><span class="nt">"whitespace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"none"</span><span class="p">,</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span><span class="nt">"alignWhitespace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"none"</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p">}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>old</code>, <code>new</code></td>
+<td>string</td>
+<td>File paths to compare.</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>string</td>
+<td><code>text</code> (default) or <code>sorted</code>.</td>
+</tr>
+<tr>
+<td><code>encoding</code></td>
+<td>string</td>
+<td>Same values as <a href="../encoding/"><code>--encoding</code></a>.</td>
+</tr>
+<tr>
+<td><code>window</code></td>
+<td>number</td>
+<td>Resync window (default 128 when 0).</td>
+</tr>
+<tr>
+<td><code>maxHunks</code></td>
+<td>number</td>
+<td>Max hunks returned (default 200 when ≤ 0).</td>
+</tr>
+<tr>
+<td><code>maxLines</code></td>
+<td>number</td>
+<td>Max lines per hunk side (default 200 when 0).</td>
+</tr>
+<tr>
+<td><code>numeric</code>, <code>reverse</code></td>
+<td>bool</td>
+<td>Sort controls, used when <code>mode</code> is <code>sorted</code>.</td>
+</tr>
+<tr>
+<td><code>ignoreCase</code></td>
+<td>bool</td>
+<td>Ignore case when comparing.</td>
+</tr>
+<tr>
+<td><code>whitespace</code></td>
+<td>string</td>
+<td><code>none</code>, <code>change</code> or <code>all</code>; decides what counts as a difference.</td>
+</tr>
+<tr>
+<td><code>alignWhitespace</code></td>
+<td>string</td>
+<td><code>none</code>, <code>change</code> or <code>all</code>; used only to establish line correspondence. <code>change</code> absorbs re-indentation while the difference is still reported (#270).</td>
+</tr>
+<tr>
+<td><code>syncPoints</code></td>
+<td>array</td>
+<td>0-based <code>{ "old": N, "new": N }</code> forced correspondences.</td>
+</tr>
+<tr>
+<td><code>ignoredHunks</code></td>
+<td>array</td>
+<td>Stored hunk indexes omitted from patch/report output.</td>
+</tr>
+</tbody>
+</table>
+<p>Success response:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"old_lines"</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"new_lines"</span><span class="p">:</span><span class="w"> </span><span class="mi">118</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">"hunks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="p">{</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">      </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Replace"</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="nt">"old_start"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">      </span><span class="nt">"old_len"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">      </span><span class="nt">"new_start"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">      </span><span class="nt">"new_len"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">      </span><span class="nt">"old"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"line a"</span><span class="p">,</span><span class="w"> </span><span class="s2">"line b"</span><span class="p">],</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">      </span><span class="nt">"new"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"line A"</span><span class="p">]</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">  </span><span class="nt">"hunk_count"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">  </span><span class="nt">"omitted_hunks"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="w">  </span><span class="nt">"added"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="w">  </span><span class="nt">"deleted"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="w">  </span><span class="nt">"modified"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="p">}</span>
+</code></pre></div>
+<p>Each hunk's <code>kind</code> is <code>Insert</code>, <code>Delete</code> or <code>Replace</code>, with <code>old</code>/<code>new</code> arrays
+holding the affected lines (truncated to <code>maxLines</code> per side). The optional
+<code>move_detection_skipped: true</code> field indicates that move detection was
+requested but omitted hunks made a complete result impossible. A whitespace- or
+case-only difference the request's ignore options dismissed is returned with
+<code>"downgraded": true</code>; such hunks are excluded from <code>hunk_count</code> and the line
+statistics, and <code>downgraded_hunks</code> counts them. Errors return
+an HTTP 4xx status with a JSON body:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="s2">"right: open /data/right.csv: no such file or directory"</span><span class="p">,</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"file_not_found"</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/data/right.csv"</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">"side"</span><span class="p">:</span><span class="w"> </span><span class="s2">"right"</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p><code>error</code> is the English diagnostic and never disappears. <code>code</code> is a stable
+identifier the web UI turns into a localized sentence with a remedy, so a raw
+syscall, <code>strconv</code>, or <code>encoding/json</code> string is never what the user reads;
+<code>path</code> and <code>side</code> name the input a message would otherwise have to be parsed
+for. Codes are added rather than renamed: <code>file_not_found</code>,
+<code>permission_denied</code>, <code>invalid_path</code>, <code>invalid_request</code>, <code>overwrite_refused</code>,
+<code>unsupported_input</code>, <code>timeout</code>, <code>busy</code>, <code>unauthorized</code>, and <code>internal</code>. Treat
+an unknown code as the HTTP status alone would suggest.</p>
+<h3 id="example-request">Example request<a class="headerlink" href="#example-request" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8080/api/diff<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"old":"old.txt","new":"new.txt","mode":"text","ignoreCase":true,"whitespace":"change"}'</span>
+</code></pre></div>
+<h3 id="post-apidiffcontext"><code>POST /api/diff/context</code><a class="headerlink" href="#post-apidiffcontext" title="Permanent link">&para;</a></h3>
+<p>Loads bounded source ranges for unchanged-line expansion. The request accepts
+the same path/inline text, mode, encoding, and sort fields as <code>/api/diff</code>, plus
+<code>ranges</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">"old"</span><span class="p">:</span><span class="w"> </span><span class="s2">"old.txt"</span><span class="p">,</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">"new"</span><span class="p">:</span><span class="w"> </span><span class="s2">"new.txt"</span><span class="p">,</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">,</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">"encoding"</span><span class="p">:</span><span class="w"> </span><span class="s2">"auto"</span><span class="p">,</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span><span class="nt">"ranges"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"old_start"</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="nt">"new_start"</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="nt">"count"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span><span class="p">]</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="p">}</span>
+</code></pre></div>
+<p>The response echoes each <code>id</code> and start position with <code>old</code> and <code>new</code> line
+arrays. A range contains 1–200 lines; one request contains at most 512 ranges
+and 20,000 lines in total. Coordinates outside either input are rejected.</p>
+<h3 id="post-apipatch"><code>POST /api/patch</code><a class="headerlink" href="#post-apipatch" title="Permanent link">&para;</a></h3>
+<p>Accepts the same path, inline-text, mode, encoding and comparison fields as
+<code>/api/diff</code>, plus:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">"old"</span><span class="p">:</span><span class="w"> </span><span class="s2">"old.txt"</span><span class="p">,</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">"new"</span><span class="p">:</span><span class="w"> </span><span class="s2">"new.txt"</span><span class="p">,</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">"patchFormat"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unified"</span><span class="p">,</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="nt">"context"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="p">}</span>
+</code></pre></div>
+<p>The response is <code>text/x-diff</code> with <code>Content-Disposition: attachment</code>. Valid
+formats are <code>normal</code>, <code>context</code>, and <code>unified</code>; <code>context</code> is non-negative and
+defaults to 3 when omitted.</p>
+<h3 id="post-apireport"><code>POST /api/report</code><a class="headerlink" href="#post-apireport" title="Permanent link">&para;</a></h3>
+<p>Builds the confirmation/verification report (#296). It accepts the same path,
+inline-text, mode, encoding and comparison fields as <code>/api/diff</code> (including
+<code>ignoredHunks</code>), plus:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">"old"</span><span class="p">:</span><span class="w"> </span><span class="s2">"old.txt"</span><span class="p">,</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="nt">"new"</span><span class="p">:</span><span class="w"> </span><span class="s2">"new.txt"</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">"format"</span><span class="p">:</span><span class="w"> </span><span class="s2">"html"</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">"includeContent"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span><span class="nt">"readHunks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">],</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span><span class="nt">"confirmedHunks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="nt">"comparisonState"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"v"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">,</span><span class="w"> </span><span class="nt">"paths"</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="nt">"controls"</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="nt">"reproduceURL"</span><span class="p">:</span><span class="w"> </span><span class="s2">"http://127.0.0.1:9000/#compare=..."</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="p">}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>format</code></td>
+<td>string</td>
+<td><code>json</code> (default), <code>markdown</code>, or <code>html</code>.</td>
+</tr>
+<tr>
+<td><code>includeContent</code></td>
+<td>bool</td>
+<td>Embed the hunk lines. Default <code>false</code>; the server never returns compared content unless this is set.</td>
+</tr>
+<tr>
+<td><code>readHunks</code></td>
+<td>array</td>
+<td>Hunk indexes the reviewer has read.</td>
+</tr>
+<tr>
+<td><code>confirmedHunks</code></td>
+<td>array</td>
+<td>Hunk indexes confirmed (#288). Omit it when the build has no confirmation tracking; the report then says so instead of guessing.</td>
+</tr>
+<tr>
+<td><code>comparisonState</code></td>
+<td>object</td>
+<td>The versioned URL state (<code>v</code>, <code>mode</code>, <code>paths</code>, <code>controls</code>) captured by the web UI.</td>
+</tr>
+<tr>
+<td><code>reproduceURL</code></td>
+<td>string</td>
+<td>A share URL without the API token, recorded verbatim.</td>
+</tr>
+</tbody>
+</table>
+<p>The response is a <code>Content-Disposition: attachment</code> download named
+<code>ayame-report.json</code>, <code>ayame-report.md</code>, or <code>ayame-report.html</code>. The report
+records the inputs with sizes, modification times, detected encodings and
+SHA-256 hashes; the comparison conditions; the totals; every ignored hunk with
+its reason; the read/unread state; and the <code>#compare=</code> fragment that replays the
+comparison. It covers <code>text</code> and <code>sorted</code> comparisons; CSV, folder, and
+three-way reports are not implemented yet.</p>
+<h3 id="csv-and-file-apis">CSV and file APIs<a class="headerlink" href="#csv-and-file-apis" title="Permanent link">&para;</a></h3>
+<p><code>POST /api/file/read</code> returns a whole text file for editing — its lines, the
+encoding/BOM/terminator profile a later save restores, a size-and-mtime stamp,
+and whether it is writable — refusing anything over 8 MiB. <code>POST /api/file/save</code>
+writes lines back through that profile. It requires <code>overwrite: true</code>, and when
+the request carries the <code>expect</code> stamp it refuses a file that changed since,
+answering <code>409</code> with code <code>stale_write</code> unless <code>force</code> is set.</p>
+<ul>
+<li><code>GET /api/files?path=...</code> lists up to 2,000 local directory entries for the
+  setup file picker.</li>
+<li><code>POST /api/watch</code> accepts one to three file paths and an optional prior
+  <code>baseline</code>. With no baseline it returns the current snapshot immediately;
+  otherwise it waits up to 20 seconds and returns as soon as size, modified
+  time, or mode changes. Re-submit the returned <code>snapshot</code> as the next
+  baseline. Directories are rejected so one request cannot imply an unbounded
+  recursive scan.</li>
+<li><code>POST /api/csv/inspect</code> accepts CSV setup JSON and returns first-record schema
+  inspection without scanning data rows.</li>
+<li><code>POST /api/csv/diff</code> runs the complete comparison and returns headers,
+  a summary with per-column counts, shares, and numeric deltas, at most
+  <code>maxRows</code> logical JSON cell differences (<code>500</code> by default, hard cap <code>5,000</code>),
+  and a <code>memory</code> object naming the resolved <code>budget_bytes</code>, the server <code>cap</code>,
+  the <code>spilled</code> flag, and (when a spill happened) the <code>spill_dir</code>.</li>
+<li><code>POST /api/csv/export</code> uses the same request plus <code>output</code>, <code>outputFormat</code>
+  (<code>tsv</code> or <code>jsonl</code>), and <code>outputHeader</code>, and writes the complete local result.</li>
+<li><code>POST /api/csv/suggest</code> evaluates a bounded list of candidate option sets (at
+  most 8) and returns only the residual difference count for each, so the UI can
+  price a suggestion without running the full diff view.</li>
+</ul>
+<p>These endpoints deliberately accept local paths and are subject to the same
+local-single-user and explicit remote-mode warnings as the rest of the GUI.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href=".." class="md-footer__link md-footer__link--prev" aria-label="Previous: Home">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Home
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../shell-integration/" class="md-footer__link md-footer__link--next" aria-label="Next: File-manager integration">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                File-manager integration
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ayame-editor/ayame-diff" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.sections", "navigation.footer", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      
+    
+  </body>
+</html>
