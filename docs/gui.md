@@ -518,6 +518,14 @@ server caps the browser response at 5,000 logical differences; **Run and export*
 writes the complete TSV (with `_changed_cols`) or JSON Lines result to a local
 path.
 
+When column names disagree, or a column exists on only one side, **manual
+column mapping** pairs a left column with a right column by hand, can mark a
+pairing ignored, and tolerates a side that is missing. Applying it re-runs the
+comparison. The editor starts from the same name alignment the engine uses;
+the content-based estimate of #116 is not part of this build, and the source
+line says so. A saved mapping lives in the project. Result table headers can
+also be dragged to reorder columns for reading, which changes presentation only.
+
 See the [GUI reachability and placement policy](gui-setup-parity.md) for the
 full mapping and the rules that keep advanced settings reachable without
 promoting every engine option onto the result screen.

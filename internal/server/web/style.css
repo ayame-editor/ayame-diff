@@ -1147,6 +1147,16 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .csv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; }
 .csv-table thead th:first-child, .csv-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--panel); }
 .csv-table thead th b { margin-left: 0.35rem; padding: 0.05rem 0.35rem; border-radius: 999px; background: var(--chg-bg); color: var(--chg-fg); }
+/* Manual column mapping (#119): drag handles on the result header and the
+   left-right pairing editor. */
+.csv-table thead th[draggable="true"] { cursor: grab; }
+.csv-table thead th.csv-column-dragging { opacity: 0.5; }
+.column-map-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0; }
+.column-map-rows { display: flex; flex-direction: column; gap: 0.35rem; }
+.column-map-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.column-map-row select { max-width: 16rem; }
+.column-map-arrow { color: var(--muted); }
+.column-map-row.column-map-invalid select { border-color: var(--del-fg); }
 .csv-left_only td { background: var(--del-bg); }
 .csv-right_only td { background: var(--add-bg); }
 .csv-cell-changed { background: var(--chg-bg) !important; color: var(--chg-fg); font-weight: 600; }
