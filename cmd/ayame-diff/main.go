@@ -58,6 +58,8 @@ Subcommands:
   dir             compare directories or archives
   bin             byte-level binary/hex diff
   3way            compare BASE, LEFT, and RIGHT (text or CSV)
+  difftool        be the two-file tool a VCS difftool calls
+  mergetool       be the three-way tool a VCS mergetool calls
   serve           run the local web UI
   gui             run the web UI and open it in a browser
   update          self-update to the latest release
@@ -107,6 +109,8 @@ var subcommandRunners = map[string]subcommandRunner{
 	"dir":             runDir,
 	"bin":             runBin,
 	"3way":            runThreeWay,
+	"difftool":        runDifftool,
+	"mergetool":       runMergetool,
 	"serve":           runServe,
 	"gui":             runGUI,
 	"update":          runUpdate,
@@ -331,13 +335,9 @@ func printVersion(stdout io.Writer) {
 
 // runCSV is the CSV/TSV key-comparison mode (the original behavior).
 func runCSV(args []string, stdout, stderr io.Writer) int {
-	opts, err := parseFlags(args, flagOutput(args, stdout, stderr))
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	opts, code, done := parseCSVFlags(args, stdout, stderr)
+	if done {
+		return code
 	}
 	if opts.ShowVersion {
 		printVersion(stdout)
@@ -347,7 +347,7 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	if opts.Project != "" {
 		loaded, loadErr := project.Load(opts.Project)
 		if loadErr != nil {
-			fmt.Fprintln(stderr, "error:", loadErr)
+			reportError(stderr, loadErr)
 			return exitError
 		}
 		cfg = loaded.CSV
@@ -366,18 +366,18 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	if opts.SaveProject != "" {
 		if err := cfg.Validate(); err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			return exitUsage
 		}
 		if err := project.Save(opts.SaveProject, project.Project{Mode: "csv", CSV: cfg, Report: project.Report{CellDiff: cfg.CellDiff, OutputFormat: cfg.OutputFormat}}); err != nil {
-			fmt.Fprintln(stderr, "error: save project:", err)
+			reportError(stderr, fmt.Errorf("save project: %w", err))
 			return exitError
 		}
 		fmt.Fprintln(stderr, "saved project:", opts.SaveProject)
 	}
 	summary, err := runEngine(ctx, cfg)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		if errors.Is(err, context.Canceled) {
 			return exitInterrupt
 		}
@@ -386,11 +386,11 @@ func runCSV(args []string, stdout, stderr io.Writer) int {
 	if opts.SummaryJSON != "" {
 		data, marshalErr := json.MarshalIndent(summary, "", "  ")
 		if marshalErr != nil {
-			fmt.Fprintln(stderr, "error: encode summary:", marshalErr)
+			reportError(stderr, fmt.Errorf("encode summary: %w", marshalErr))
 			return exitError
 		}
 		if writeErr := os.WriteFile(opts.SummaryJSON, append(data, '\n'), 0o644); writeErr != nil {
-			fmt.Fprintln(stderr, "error: write summary:", writeErr)
+			reportError(stderr, fmt.Errorf("write summary: %w", writeErr))
 			return exitError
 		}
 	}

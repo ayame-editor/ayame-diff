@@ -53,6 +53,14 @@ new counts and explain why the new route still satisfies the product goal.
    [GUI setup reachability and placement policy](gui-setup-parity.md) when a
    setting or action moves. Add or update an automated test for any stable
    route, shortcut, or layout invariant that can be checked without screenshots.
+7. **Run the keyboard-only end-to-end pass.** With the pointer untouched,
+   complete compare → review → merge → save: `Tab` from the path fields,
+   `Enter` to compare, `Alt+↓` to step differences and `Alt+←`/`Alt+→` to adopt
+   a side, `Tab` to the merge output, and `Enter` on **Save merge**. Confirm the
+   non-colour markers (`+`, `-`, `~`, `≠`) appear in both the side-by-side and
+   unified views, and that the focus ring is visible at every stop. This is the
+   pass automated checks cannot replace, since it depends on real browser
+   focus and assistive technology.
 
 ## Pull request evidence
 

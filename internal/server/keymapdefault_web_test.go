@@ -57,8 +57,8 @@ func TestKeymapDefaultAssetsAreWired(t *testing.T) {
 	if !strings.Contains(app, "globalThis.AyameKeymap") {
 		t.Error("app.js does not read the default keymap module")
 	}
-	if !strings.Contains(app, "const SHORTCUT_BINDINGS = KEYMAP_DEFAULT_BINDINGS;") {
-		t.Error("app.js does not use the tested default map")
+	if !strings.Contains(app, "mergeBindings(SHORTCUT_ACTIONS, presetBindings(") {
+		t.Error("app.js does not resolve the tested default map through the preset layer")
 	}
 	if strings.Contains(app, "event.altKey || event.ctrlKey") {
 		t.Error("app.js still compares raw modifiers instead of asking the binding table")

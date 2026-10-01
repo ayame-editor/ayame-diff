@@ -68,36 +68,40 @@ func TestConfirmDialogRestoresFocus(t *testing.T) {
 }
 
 // TestShortcutListIsGeneratedFromOneSource keeps the help from drifting away
-// from the handlers it documents. Since #277 the one source is the keymap
-// module's default map; app.js labels each action and the dialog renders the
-// resolved chords, so there is no second list to update.
+// from the handlers it documents. The chords live in keymap.js (#285) and the
+// dialog renders the resolved bindings, so the defaults are checked in the
+// module and the wiring in app.js.
 func TestShortcutListIsGeneratedFromOneSource(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
-	keymap := readWebAsset(t, "keymap.js")
+	module := readWebAsset(t, "keymap.js")
 
-	for _, want := range []string{
-		"const SHORTCUT_ACTIONS = KEYMAP_ACTION_IDS.map(",
-		"const SHORTCUT_BINDINGS = KEYMAP_DEFAULT_BINDINGS;",
-		"function matchesShortcut(event, id)",
-	} {
-		if !strings.Contains(app, want) {
-			t.Errorf("app.js no longer builds the help from the keymap: missing %q", want)
+	if !strings.Contains(app, "function showShortcuts(") {
+		t.Fatal("app.js does not build the shortcut dialog")
+	}
+	help := renderFunctionBody(t, app, "function showShortcuts(")
+	if !strings.Contains(help, "SHORTCUT_ACTIONS") || !strings.Contains(help, "keyBindings") {
+		t.Error("the shortcut help does not render the live bindings")
+	}
+	// The bindings the app installs are the module's defaults.
+	for _, keys := range []string{"Alt+ArrowDown", "Ctrl+F", "Escape", "Alt+B"} {
+		if !strings.Contains(module, keys) {
+			t.Errorf("keymap.js omits the default binding %s", keys)
 		}
 	}
-	if !strings.Contains(app, "displayChord(SHORTCUT_BINDINGS[action.id])") {
+	if !strings.Contains(app, "displayChord(keyBindings[action.id])") {
 		t.Error("the shortcut dialog does not render the bound chord")
 	}
 	if strings.Contains(app, "const SHORTCUTS = [") {
 		t.Error("app.js still carries a second shortcut list")
 	}
 	// Entries are i18n keys, not baked-in English.
-	if strings.Contains(app, "Next / previous difference") {
+	if strings.Contains(help, "Next / previous difference") {
 		t.Error("the shortcut help hardcodes English instead of using translation keys")
 	}
 	// The bindings the app documents live in the tested default map.
 	for _, chord := range []string{"Alt+ArrowDown", "Alt+ArrowUp", "Alt+ArrowLeft", "Alt+ArrowRight", "Alt+B", "Ctrl+F", "Escape", "Ctrl+Enter"} {
-		if !strings.Contains(keymap, `"`+chord+`"`) {
+		if !strings.Contains(module, `"`+chord+`"`) {
 			t.Errorf("the default keymap is missing %s", chord)
 		}
 	}

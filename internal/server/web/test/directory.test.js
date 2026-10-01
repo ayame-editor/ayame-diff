@@ -11,6 +11,10 @@ const {
   dirEntryStamp,
   directoryEntryRequest,
   filterDirectoryEntries,
+  sortDirectoryEntries,
+  locationOf,
+  formatEpochNanos,
+  rememberPlace,
 } = require("../directory.js");
 
 test("flat entries become a counted folder hierarchy", () => {
@@ -94,4 +98,42 @@ test("status and path search filter the flat entries before building the tree", 
     filterDirectoryEntries(entries, "all", "guide").map((entry) => entry.path),
     ["docs/guide.md"],
   );
+});
+
+test("the flat view lists files in path order without mutating the input", () => {
+  const entries = [
+    { path: "src/z.go", status: "changed" },
+    { path: "README.md", status: "same" },
+    { path: "src/a.go", status: "added" },
+  ];
+  const sorted = sortDirectoryEntries(entries);
+  assert.deepEqual(sorted.map((entry) => entry.path), ["README.md", "src/a.go", "src/z.go"]);
+  assert.deepEqual(entries.map((entry) => entry.path), ["src/z.go", "README.md", "src/a.go"]);
+  assert.deepEqual(sortDirectoryEntries([]), []);
+});
+
+test("the Location column holds the parent folder, empty at the root", () => {
+  assert.equal(locationOf("src/nested/a.go"), "src/nested");
+  assert.equal(locationOf("src/a.go"), "src");
+  assert.equal(locationOf("README.md"), "");
+  assert.equal(locationOf(""), "");
+});
+
+test("nanosecond stamps become readable local times", () => {
+  const stamp = formatEpochNanos("1700000000000000000");
+  assert.match(stamp, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(new Date(1700000000000).getHours(), Number(stamp.slice(11, 13)));
+  assert.equal(formatEpochNanos(""), "");
+  assert.equal(formatEpochNanos("nope"), "");
+  assert.equal(formatEpochNanos("0"), "");
+});
+
+test("recent places are newest-first, deduplicated and bounded", () => {
+  assert.deepEqual(rememberPlace([], "/a"), ["/a"]);
+  assert.deepEqual(rememberPlace(["/a", "/b"], "/c"), ["/c", "/a", "/b"]);
+  assert.deepEqual(rememberPlace(["/a", "/b"], "/b"), ["/b", "/a"]);
+  assert.deepEqual(rememberPlace(["/a", "/b", "/c"], "/d", 2), ["/d", "/a"]);
+  // An empty path does not add an entry, and a non-array is tolerated.
+  assert.deepEqual(rememberPlace(["/a"], ""), ["/a"]);
+  assert.deepEqual(rememberPlace(null, "/a"), ["/a"]);
 });

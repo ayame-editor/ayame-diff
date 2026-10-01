@@ -16,6 +16,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # 両方のソート�
 ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ比較
 ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT 比較
+ayame-diff difftool [flags] LEFT RIGHT                # VCS の2ファイル difftool として動作
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # VCS の3-way mergetool として動作
 ayame-diff serve  [--addr host:port] [--allow-remote]  # ローカルWeb GUI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # GUIを開き、必要なら入力を事前設定
 ayame-diff update [--check]                            # 最新リリースの確認・導入
@@ -47,6 +49,8 @@ ayame-diff shell-select PATH                           # Windows Explorer 統合
 ## `csv` — CSV/TSVキー比較（デフォルト） { #csv }
 
 2つのCSV/TSVファイル（`.csv.gz`や`.tsv.gz`も含む）をキーで比較し、行の順序が異なっていても差異のある行をTSV形式で出力します。左と右は異なるフォーマットを使用しても構いません。ヘッダー名が一致すれば、異なる列の順序は自動的に揃えられます。
+
+比較はもともと行順に依存しません。同じ行が違う順で並んでいるだけなら「差異」ではなくデータ一致です。GUIはその判定を「データ一致（列順のみ相違）」「データ一致（行順のみ相違）」「実データ差 N 件」のように1行で明示し、件数の解釈をあなたに委ねません。左右が同じ列集合を違う順で持つ場合は、列名で整列して再比較する操作をワンクリックで提示するので、列順を間違えて出力した抽出結果でも、再抽出せずに一致を確認できます。
 
 ```bash
 ayame-diff csv --left old.tsv --right new.csv --key id --out diff.tsv
@@ -147,6 +151,15 @@ ayame-diff csv --left old.csv --right new.csv --key id \
 
 設定全体を保存・再利用するには`--save-project FILE`や`--project FILE`を使用し、[比較プロジェクト](projects.md)のバージョン管理されたJSONや相対パス、GUI履歴、定期実行/CIでの利用例も参照してください。
 
+### メモリ予算と spill
+
+`--memory`（既定`2GiB`）は比較がソートに使用できる常駐メモリの予算です。GUIは既定で`512MiB`を要求し、サーバーはそれより大きい要求を`8GiB`の上限まで引き下げます。実効予算が小さくなってもエンジンがより多くspillするだけで、結果は変わりません。
+
+パーティションが予算の取り分に収まらない場合、エンジンはチャンク単位でソートし、`--temp-dir`上でソート済みrunをマージします。そのためRAMより大きい比較でも完了します。実行サマリーは解決後の予算を`memory_budget_bytes`として、spillしたかどうかを`spilled`として報告し、GUIのCSVサマリーも同様に、例えば`メモリ 512.0MiB / 上限 8GiB・一時ディレクトリ /tmp に退避中`と表示します。spillファイルは実行ごとのディレクトリに置かれ、成功時・失敗時・キャンセル時に削除されます。実行中の比較は、spill中であってもいつでもキャンセルでき、すみやかに戻ります。
+
+!!! warning
+    `sorted`と同様、`--temp-dir`は実ファイルシステム上を指してください。多くのLinuxでは`TMPDIR`がRAM-backed（tmpfs）であり、そこへspillするとメモリを節約するどころか消費します。
+
 ---
 
 ## `text` — 行指向のテキスト差分 { #text }
@@ -176,7 +189,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 | フラグ | 出力内容 |
 |---|---|
 | *(なし)* | ユニファイドハンク（デフォルト） |
-| `--side-by-side`（エイリアス `--side`） | 2列の旧 / 新レイアウト。`--width`で列幅を設定可能。 |
+| `--side-by-side`（エイリアス `--side`） | 2列の旧 / 新レイアウト。`--width`で列幅を設定可能。`--east-asian-ambiguous-wide`は東アジア曖昧幅文字を2セルとして数え、全角表示の端末に合わせる。 |
 | `--json` | ハンクの種類、行番号、行数を含む構造化JSON |
 | `--summary` | 標準エラーに1行のサマリーを出力 |
 | `--format unified` / `-U N` | N行のコンテキスト付きユニファイドパッチ（デフォルトは3） |
@@ -211,6 +224,7 @@ ayame-diff text --window 32 --sync 100:120 --sync 5000:5100 old.txt new.txt
 --max-lines N               1ハンクあたりの最大行数（デフォルト200）
 --window N                  行の差異時にリシンクの先読みウィンドウサイズ（デフォルト128）
 --width N                   --side-by-sideの総列幅（デフォルト160）
+--east-asian-ambiguous-wide  --side-by-sideで東アジア曖昧幅文字（○、※、α）を2セルとして扱う
 ```
 
 パッチ出力は`--max-hunks`や`--max-lines`で切り詰められません。LF/CRLFや最後の改行なしマーカーを保持し、デコード済みのバイナリやNUL入力を拒否します。ロケールに依存しないファイルヘッダのタイムスタンプを使用します。CIはGNU `patch`とともにこれらのフォーマットを適用し、ユニファイド出力は`git apply`で検証します。
@@ -369,6 +383,50 @@ ayame-diff bin --max-regions 20 --max-bytes 64 old.dat new.dat
 
 ---
 
+## `difftool` / `mergetool` — VCS から呼ばれる側になる { #difftool-mergetool }
+
+`ayame-diff`はリポジトリを読みませんが、VCS や IDE が外部の差分・マージツールとして
+呼び出すことはできます（ADR 0004）。この2つのコマンドはその向きのためのもので、
+呼ばれる側に必要なもの——Git の引数順、論理ラベル、GUI を閉じるまでの待機、マージが
+実際に解決したかを示す終了コード——を追加します。Git、SVN、IDE への登録手順は
+[ファイルマネージャーとクイック起動](shell-integration.ja.md)を参照してください。
+
+```bash
+# 2ファイル difftool（Git の $LOCAL / $REMOTE）
+ayame-diff difftool "$LOCAL" "$REMOTE"
+ayame-diff difftool --label "HEAD~1:foo.txt" --label "HEAD:foo.txt" "$LOCAL" "$REMOTE"
+
+# 3-way mergetool: BASE LOCAL REMOTE、出力は $MERGED
+ayame-diff mergetool --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+ayame-diff mergetool --order local-base-remote --output "$MERGED" "$LOCAL" "$BASE" "$REMOTE"
+
+# ブラウザ GUI: タブが閉じるまで待機するので呼び出し元が正しく待つ
+ayame-diff difftool --wait "$LOCAL" "$REMOTE"
+ayame-diff mergetool --gui --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+```
+
+`--label`は繰り返し指定でき、位置引数の順に対応します。`difftool`では2つで LEFT と
+RIGHT、`mergetool`では3つで BASE、LOCAL、REMOTE を指定します。Git が渡す一時パスを、
+読み手が理解できる名前に置き換えます。ラベルはパッチのヘッダー、`difftool`の1行
+バナー、GUI のペイン見出しに表示されます。
+
+`--gui`はブラウザで比較を開きます。`--wait`は同じ動作で、明示的なブロッキング指定です
+（`--gui`を含意します）。ブラウザのタブが閉じるか、サーバー停止か、Ctrl+C まで
+プロセスは待機するため、`git difftool`は比較の完了を待ちます。
+
+`mergetool`の終了コードは、`--output`が未解決の競合なしで書けたときだけ0です。保存された
+出力に競合マーカーが残る場合は1、GUI セッションが何も保存せず終了した場合（中断）は130
+なので、呼び出し元が「保存された」を「解決済み」と取り違えることはありません。端末モードは
+マージエンジンの未解決数をそのまま使い、GUI モードは保存時の未解決数をサーバーから受け取り
+ます。
+
+呼び出しごとに短命のサーバーを起動・停止します。`git difftool`は1ファイルずつ実行する
+ためセッションは直列で、呼び出しをまたぐサーバー再利用はありません。ファイルごとの
+確認を省くには`git config --global difftool.prompt false`を設定し、テキスト出力だけで
+よい場合は端末の`difftool`を選んでください。
+
+---
+
 ## `update` — スタンドアロン版の更新 { #update }
 
 `update`はGitHubの最新リリースを確認し、現在のOS・アーキテクチャ用アーカイブを
@@ -440,10 +498,36 @@ ayame-diff shell-select PATH
 - `1` — 標準の未解決 conflict marker を含む出力を書き込み済み
 - `2` / `3` — 上記の使用方法エラー、または実行時・書き込みエラー
 
+`mergetool`の場合：
+
+- `0` — `--output` を未解決 conflict なしで書き込み済み
+- `1` — 保存済みの `--output` に未解決の conflict marker が残っている
+- `130` — GUI セッションが保存せず終了（中断）
+- `2` / `3` — 上記の使用方法エラー、または実行時・書き込みエラー
+
+`difftool`は比較が完了すれば `0` を返します（マージ結果は存在しないため、
+マージ成否を主張しません）。
+
 使用方法エラーと実行時エラーは意図的に区別しています。「呼び出し方が誤っている」のか
 「処理を完了できなかった」のかをスクリプトが判別できるようにするためです。内部クラッシュは
 標準エラー出力にスタックトレースを出して `3` を返します。`2` を返すことはないため、
 使用方法エラーと取り違えられることはありません。
+
+---
+
+## エラーメッセージ { #error-messages }
+
+コマンドが失敗すると、`ayame-diff`は標準エラー出力に短い説明と1行の対処を表示します。
+たとえば`error: ファイルが見つかりません。`の次に
+`hint: パスを確認してください。…`と続きます。表示言語はロケール（`LC_ALL`、
+`LC_MESSAGES`、`LANG`の順）に従い、`ja`で始まる値なら日本語、それ以外は英語になります。
+パスの不存在、権限エラー、フラグ値の不正、JSONの不正、出力先が入力と同じ、といった
+代表的な失敗は、生のsyscall・`strconv`・`encoding/json`の文字列ではなく平易な言葉で
+説明します。
+
+終了コードと機械可読な出力（`--json`、`--tsv`、`--summary-json`）は変わりません。
+`AYAME_DIFF_DEBUG`に任意の値を設定すると、不具合報告に使える生のエラー文字列が説明の
+下に表示されます。
 
 ---
 

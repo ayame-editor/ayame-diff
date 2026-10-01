@@ -33,6 +33,9 @@
   /* Disclosure marks and similar glyphs, sized against the label beside them
      rather than the root — hence em, not rem. */
   --fs-glyph: 0.8em;
+  /* The glyph inside a gutter change handle (#292): smaller than the caption,
+     because it has to sit inside the handle bar without widening it. */
+  --fs-gutter: 0.62rem;
 }
 
 /* Visible to assistive technology only: a control whose visible label would
@@ -108,6 +111,42 @@ body.drag-active::after {
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
+/* Comparison tabs (#281). A single horizontally scrolling row: many open
+   comparisons must never wrap and take a second row away from the diff. */
+.comparison-tabs {
+  display: flex; align-items: stretch; gap: 0.35rem;
+  flex: 0 0 auto; min-width: 0; margin-bottom: 0.4rem;
+}
+.tab-list {
+  display: flex; align-items: stretch; gap: 0.25rem;
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin;
+}
+.tab {
+  display: flex; align-items: center; min-width: 0; max-width: 16rem;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--panel);
+}
+.tab.active {
+  border-color: var(--accent); background: var(--bg-elevated);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: transparent; border: 0; color: var(--fg-dim);
+  padding: 0.25rem 0.5rem; font-size: var(--fs-label);
+}
+.tab.active .tab-label { color: var(--fg); font-weight: 600; }
+.tab-close {
+  flex: 0 0 auto; background: transparent; border: 0; color: var(--fg-dim);
+  padding: 0.1rem 0.45rem; font-size: var(--fs-label); line-height: 1;
+}
+.tab-close:hover { color: var(--danger); }
+.tab-new {
+  flex: 0 0 auto; background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-control); color: var(--fg-dim);
+  padding: 0.2rem 0.6rem; font-size: var(--fs-label); line-height: 1;
+}
+.tab-new:hover { color: var(--accent-bright); border-color: var(--accent); }
 /* No centred 1200px column. Horizontal space is the scarce resource in a diff
    tool — it decides whether a side-by-side line wraps, how many folder columns
    fit, how much of a CSV row is visible — and this runs locally in a window the
@@ -225,12 +264,34 @@ input[type="text"] {
    move detection is off, #124) so the dependency reads as inactive, matching
    button:disabled below. */
 .opt:has(input:disabled, select:disabled) { opacity: 0.5; }
+/* The input shape is a segmented control rather than a dropdown (#263): it is
+   the first of two orthogonal axes, and the options are few and read at a
+   glance. The reading axis lives on the result toolbar instead. */
+.input-shape {
+  display: flex; align-items: stretch; gap: 0; margin: 0; padding: 0; border: 0;
+}
+.input-shape label {
+  display: inline-flex; align-items: center; gap: 0.3rem; margin-left: -1px;
+  padding: 0.3rem 0.6rem; border: 1px solid var(--border);
+  color: var(--muted); font-size: var(--fs-label); cursor: pointer;
+}
+.input-shape label:first-of-type { border-radius: var(--radius-control) 0 0 var(--radius-control); margin-left: 0; }
+.input-shape label:last-of-type { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
+.input-shape label:has(input:checked) {
+  color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  position: relative; z-index: 1;
+}
+.input-shape input { margin: 0; }
 button {
   margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
-:where(button, input, select, textarea, summary, a[href], [tabindex]):focus-visible {
+/* Every focusable control shows the ring, including role-based widgets that are
+   not native elements (#298). [tabindex] already covers most of them; naming the
+   roles keeps the coverage if a widget is later made focusable by script alone. */
+:where(button, input, select, textarea, summary, a[href], [tabindex],
+  [role="button"], [role="treeitem"], [role="menuitem"], [role="scrollbar"]):focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
@@ -350,12 +411,58 @@ button:active:not(:disabled) {
   border-radius: 50%; animation: status-spin 0.75s linear infinite;
 }
 .file-diff-error { margin: 0.5rem 0.7rem; color: var(--del-fg); }
-/* An edited line carries its own gutter mark, so unsaved work is visible in
-   the result and not only in the pane header (#256). */
-.cell.edited > .ln { position: relative; color: var(--chg-fg); font-weight: 600; }
-.cell.edited > .ln::after {
-  content: "*"; position: absolute; right: -0.35em; top: 0;
-  color: var(--chg-fg);
+/* Gutter change bars (#292). While a pane is being edited two signals share
+   the gutter, and neither relies on colour alone. The comparison's own
+   difference keeps its cell shading plus the -/+ marker in the unified view;
+   a line that differs from the file the buffer loaded gets a distinct accent
+   handle carrying a glyph, which is also the control that reverts that run.
+   The handle is a child of .ln, so .ln has to be the positioning context. */
+.cell.selectable-line > .ln { position: relative; }
+/* A thin stripe repeats the comparison's own palette in the gutter: it is the
+   same difference the cell shading shows, not the session's edit. It appears
+   only while editing, so reading a diff is unchanged. */
+body.editing .cell.add > .ln::before,
+body.editing .cell.del > .ln::before,
+body.editing .cell.chg > .ln::before {
+  content: ""; position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 3px;
+  border-radius: 0 2px 2px 0; opacity: 0.5;
+}
+body.editing .cell.add > .ln::before { background: var(--add-fg); }
+body.editing .cell.del > .ln::before { background: var(--del-fg); }
+body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
+.cell.local-change > .ln { color: var(--fg); font-weight: 600; }
+.gutter-change {
+  position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 0.85rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent); color: var(--on-accent);
+  font-family: var(--ui); font-size: var(--fs-gutter); font-weight: 700; line-height: 1;
+  cursor: pointer; user-select: none;
+}
+.gutter-change:hover { filter: brightness(1.15); }
+
+/* Optimistic line render (#258). A committed edit is painted before the
+   authoritative comparison returns. The bar and the tinted marks say so, so the
+   approximation is never read as the final result, and the bar is sticky so the
+   warning stays visible while scrolling the provisional line. */
+.provisional-bar {
+  position: sticky; top: var(--pane-heads-height, 0px); z-index: 3;
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0; padding: 0.35rem 0.7rem;
+  border-bottom: 1px solid var(--chg-fg);
+  background: var(--chg-bg); color: var(--chg-fg);
+  font: var(--fs-label) var(--ui);
+}
+.provisional-bar::before {
+  content: ""; width: 0.7rem; height: 0.7rem; flex: 0 0 auto;
+  border: var(--selection-ring-width) solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: status-spin 0.75s linear infinite;
+}
+.cell.provisional {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--chg-fg) 10%, transparent);
+}
+.cell.provisional-same {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--muted) 16%, transparent);
 }
 
 .external-change-bar {
@@ -378,6 +485,45 @@ button:active:not(:disabled) {
 .summary .note { color: var(--muted); }
 /* A left/right encoding mismatch is a likely cause of garbled output (#130). */
 .summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
+/* The truncation notice carries one action that lifts the cap for the reader,
+   so they never have to pick a number themselves (#261). */
+.summary .note-action {
+  margin: 0; padding: 0.1rem 0.55rem; border: 1px solid var(--border);
+  background: transparent; color: var(--accent); font: inherit;
+  font-size: var(--fs-caption); border-radius: var(--radius-control); cursor: pointer;
+}
+.summary .note-action:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* Statistics panel (#120). It opens the result, before the rows, so the shape
+   of the change is readable without scrolling through it. The body scrolls
+   rather than capping the column list, so a wide file shows every column. */
+.stats-view {
+  margin-top: 0.8rem; border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px); background: var(--panel);
+}
+.stats-head {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border);
+}
+.stats-head strong { font-size: var(--fs-emphasis); }
+.stats-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+.stats-export {
+  margin: 0; padding: 0.2rem 0.55rem; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); font-weight: 600;
+}
+.stats-scroll { max-height: 16rem; overflow: auto; }
+.stats-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.stats-table th, .stats-table td {
+  padding: 0.2rem 0.6rem; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.stats-table thead th { position: sticky; top: 0; background: var(--panel); }
+.stats-table tbody th { font-weight: 600; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.stats-table td.stat-bar { width: 8rem; min-width: 4rem; }
+.stats-table .stat-bar-fill {
+  display: block; height: 0.5rem; min-width: 1px;
+  background: var(--chg-fg); border-radius: 999px;
+}
 
 .diff-nav {
   /* Left-aligned and wrapping. Centring made the controls drift with the width
@@ -408,11 +554,34 @@ button:active:not(:disabled) {
 .merge-panel button { margin: 0; padding: 0.3rem 0.65rem; }
 .merge-panel input[type="text"] { flex: 1 1 18rem; }
 .merge-panel .opt { display: flex; }
-/* Adopt buttons are noise for read-only sessions: hidden until merge mode (#100). */
+/* The unresolved list names where the save would decide implicitly (#272). */
+.merge-unresolved { flex: 1 1 100%; display: flex; flex-direction: column; gap: 0.25rem; }
+.merge-unresolved-title { color: var(--muted); font-size: var(--fs-label); }
+.merge-unresolved-list { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem; max-height: 8rem; overflow: auto; }
+.merge-unresolved-list button { font-size: var(--fs-caption); }
+.merge-unresolved-more { color: var(--muted); font-size: var(--fs-caption); align-self: center; }
+.merge-target { display: flex; align-items: center; gap: 0.35rem; }
+/* Adopt buttons are noise for read-only sessions: hidden until merge mode
+   (#100). The three-way view keeps them in .hunk-merge; the two-way toolbar
+   carries .hunk-adopt instead. */
 .hunk-merge { float: right; display: none; gap: 0.25rem; margin-left: 0.35rem; }
 .merge-mode .hunk-merge { display: inline-flex; }
+.hunk-toolbar .hunk-adopt { display: none; }
+.merge-mode .hunk-toolbar .hunk-adopt { display: inline-block; }
 .merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .context-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+/* Condition toolbar (#264): a fixed row per toggle, each showing its current
+   value, so the applied policy is readable without opening Settings. Only the
+   name is emphasized when a condition is off its default. */
+.condition-bar { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; }
+.condition { color: var(--muted); }
+.condition-name { white-space: nowrap; }
+.condition select { min-width: 0; max-width: 12rem; }
+.condition[data-active="true"] .condition-name { color: var(--accent); font-weight: 600; }
+.condition-filters { margin: 0; min-width: 0; padding: 0.25rem 0.5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); }
+.condition[data-active="true"] .condition-filters { border-color: var(--accent); }
+.condition-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.condition[data-active="true"] .condition-value { color: var(--accent); }
 .hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: var(--fs-caption); }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }
@@ -421,11 +590,47 @@ button:active:not(:disabled) {
 .hunk.merge-base .choose-base { background: var(--gold); color: var(--on-accent); }
 .hunk.merge-both { box-shadow: inset 0 0 0 2px var(--accent); }
 .hunk.merge-both .choose-both { background: var(--accent); color: var(--on-accent); }
+/* A hunk can adopt base together with a side now (#271); keep the side border
+   colors readable instead of letting merge-base's border-color win. */
+.hunk.merge-base.merge-left { border-left-color: var(--del-fg); }
+.hunk.merge-base.merge-right { border-right-color: var(--add-fg); }
 .three-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: auto; }
+/* BASE is on demand (#282): the common comparison is LEFT | RESULT | RIGHT,
+   and the ancestor only takes a column when the reader asks for it. */
+.three-grid > .three-pane.base { display: none; }
+.result.show-base .three-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.result.show-base .three-grid > .three-pane.base { display: block; }
 .three-pane { min-width: 0; border-right: 1px solid var(--border); }
 .three-pane:last-child { border-right: 0; }
 .three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: var(--fs-label); }
-.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); border-top: 1px solid var(--border); }
+.three-pane.base h3 { color: var(--gold); }
+/* The result column is the merge output, so it is tinted as the line that
+   will be written and flagged while a conflict is still unresolved. */
+.three-pane.result { background: color-mix(in srgb, var(--add-fg) 7%, transparent); }
+.three-pane.result.unresolved { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.three-pane.result.unresolved h3 { color: var(--danger); }
+.three-pane-badge { margin-left: 0.35rem; padding: 0.02rem 0.4rem; border-radius: 999px; background: var(--danger); color: var(--on-accent); font-size: var(--fs-caption); }
+.base-toggle[aria-pressed="true"] { background: var(--gold); color: var(--on-accent); }
+.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); tab-size: var(--tab-size); -moz-tab-size: var(--tab-size); border-top: 1px solid var(--border); }
+/* Per-line provenance (#257). The gutter repeats KDiff3's summary column: the
+   adopted side's initial, and `m` for a line the user typed. Manual gets a grey
+   wash as well, because a letter alone is easy to miss while scanning. */
+.merge-provenance { margin-top: 0.5rem; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.merge-provenance > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-label); }
+.merge-provenance-hint { margin: 0.35rem 0 0.2rem; color: var(--muted); font-size: var(--fs-caption); }
+.merge-provenance-counts { margin: 0 0 0.35rem; font-variant-numeric: tabular-nums; font-size: var(--fs-label); }
+.merge-preview { max-height: 22rem; overflow: auto; border-top: 1px solid var(--border); }
+.merge-preview-line { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); align-items: start; cursor: text; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font: var(--fs-data) var(--mono); }
+.merge-preview-line:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.merge-origin-marker { padding: 0.12rem 0.2rem; color: var(--muted); font-weight: 600; text-align: center; user-select: none; }
+.merge-preview-line.origin-left .merge-origin-marker { color: var(--del-fg); }
+.merge-preview-line.origin-right .merge-origin-marker { color: var(--add-fg); }
+.merge-preview-line.origin-manual .merge-origin-marker { color: var(--gold); }
+.merge-preview-line.origin-manual { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.merge-preview-line.origin-manual .merge-line-text { font-style: italic; }
+.merge-line-text { padding: 0.12rem 0.45rem; white-space: pre-wrap; word-break: break-word; }
+.merge-preview-line.editing { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.merge-line-editor { width: 100%; box-sizing: border-box; }
 .three-event.conflict { border-color: var(--danger); }
 .three-event.same_change { border-color: var(--accent); }
 .three-event.merged { border-color: var(--add-fg); }
@@ -435,6 +640,7 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
+#confirmCounter { min-width: 8rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
 /* The minimap column was 18px, below the ~24px a pointer can reliably hit.
    Keep the full-width target at narrow breakpoints too (#102). */
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
@@ -462,6 +668,7 @@ button:active:not(:disabled) {
 /* Read and current are different states and must not be confused: read is
    history, current is where you are. */
 .sidebar-item.read .sidebar-line { opacity: 0.55; }
+.sidebar-item.confirmed .sidebar-mark { color: var(--accent); }
 .sidebar-item.ignored { text-decoration: line-through; opacity: 0.5; }
 .sidebar-item.current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .sidebar-item.current .sidebar-line { color: var(--fg); opacity: 1; font-weight: 700; }
@@ -485,6 +692,7 @@ button:active:not(:disabled) {
 .minimap-marker.current { outline: var(--selection-ring-width) solid var(--accent); z-index: 2; }
 .minimap-marker:focus-visible { outline: var(--focus-ring); outline-offset: -2px; min-height: 8px; z-index: 4; }
 .minimap-marker.read { opacity: 0.38; }
+.minimap-marker.confirmed { box-shadow: inset 0 0 0 1px var(--accent); }
 .minimap-viewport {
   position: absolute; left: 0; right: 0; min-height: 8px; border: var(--selection-ring-width) solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent); cursor: grab; z-index: 1;
@@ -556,6 +764,29 @@ button:active:not(:disabled) {
 .result.unified .cell.chg[data-marker="-"] { background: var(--del-bg); }
 .result.unified .cell.chg[data-marker="+"] { background: var(--add-bg); }
 
+/* The non-colour signal (#298). Unified already printed the glyph in its own
+   column above; side-by-side prints the same glyph inside the line-number
+   gutter, so the cell's two-column grid is untouched and no extra DOM node is
+   added. It survives a colour-blind theme, a monochrome display and forced
+   colours, where the wash does not. The pseudo-element is on the line number,
+   not the cell, because the cell's ::before would become a stray grid item. */
+.result:not(.unified) .cell > .ln[data-marker]::after {
+  content: attr(data-marker);
+  margin-left: 0.45ch;
+  font-weight: 700;
+  color: var(--fg);
+}
+.result:not(.unified) .cell.add > .ln[data-marker]::after { color: var(--add-fg); }
+.result:not(.unified) .cell.del > .ln[data-marker]::after { color: var(--del-fg); }
+.result:not(.unified) .cell.chg[data-marker="-"] > .ln::after { color: var(--del-fg); }
+.result:not(.unified) .cell.chg[data-marker="+"] > .ln::after { color: var(--add-fg); }
+/* Forced colours replace every wash with system colours, leaving the glyph as
+   the only difference between an add, a delete and a change. Keep it solid
+   rather than inheriting a colour the OS may map away. */
+@media (forced-colors: active) {
+  .cell[data-marker] > .ln[data-marker]::after { color: CanvasText; }
+}
+
 /* Menus. Settings that are not touched while reading a diff live here instead of
    as labelled controls in the bar — eighteen of those wrapped to two ragged rows
    and buried the navigation the bar exists for. */
@@ -580,6 +811,7 @@ button:active:not(:disabled) {
 .menu-panel .opt { font-size: var(--fs-label); }
 .menu-panel .opt select { width: 100%; }
 .menu-panel button { margin: 0; width: 100%; }
+.menu-panel .report-hint { margin: 0; font-size: var(--fs-caption); color: var(--muted); }
 /* Icon-only controls: the label survives as the tooltip and the accessible name. */
 .icon-btn { min-width: 2rem; padding: 0.25rem 0.5rem; }
 .opt.inline { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-label); }
@@ -621,9 +853,30 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .app-dialog menu { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0; padding: 0; }
 .app-dialog menu button { margin: 0; }
 .app-dialog menu button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.confirm-details {
+  margin: 0 0 1rem; padding-inline-start: 1.25rem; max-height: 40vh; overflow: auto;
+  text-align: start; color: var(--fg);
+}
+.confirm-details li { margin: 0.15rem 0; overflow-wrap: anywhere; }
+.confirm-details .impact-overwrite { color: var(--del-fg); }
+.confirm-details .impact-info { color: var(--muted); }
 .shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.9rem; margin: 0 0 1rem; }
 .shortcuts dt { font-family: var(--mono); color: var(--accent-bright); white-space: nowrap; }
 .shortcuts dd { margin: 0; }
+
+/* Shortcut remapping (#285). The dialog is wider than the help list because
+   each row pairs a label with the chord button and its clear button. */
+.keymap-dialog { max-width: min(44rem, 92vw); }
+.keymap-dialog .dialog-hint { color: var(--muted); font-size: var(--fs-label); margin: 0 0 0.7rem; }
+.keymap-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
+.keymap-preset { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: var(--fs-label); }
+.keymap-list { display: grid; gap: 0.25rem; max-height: min(55vh, 28rem); overflow: auto; margin: 0 0 0.8rem; }
+.keymap-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 0.2rem 0; }
+.keymap-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keymap-chord { font-family: var(--mono); min-width: 9rem; text-align: center; border-color: var(--border); }
+.keymap-row.capturing .keymap-chord { border-color: var(--accent); color: var(--accent-bright); }
+.keymap-status { font-size: var(--fs-label); color: var(--muted); min-height: 1.2em; margin: 0 0 0.4rem; }
+.keymap-status.warning { color: var(--del-fg); }
 
 
 .csv-advanced > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
@@ -632,6 +885,37 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   background: var(--accent); border-radius: 999px; padding: 0.05rem 0.5rem;
 }
 .details-hint { margin: 0.4rem 0 0.6rem; color: var(--muted); font-size: var(--fs-label); }
+/* Condition scope (#262): a chip naming the scope in effect plus the two
+   explicit actions. The chip turns accent-coloured — the same signal as the
+   .details-badge it sits beside — as soon as a condition leaves the default. */
+.condition-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.2rem 0 0.4rem; }
+.condition-scope-state {
+  font-size: var(--fs-caption); font-weight: 600; color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: 999px; padding: 0.05rem 0.5rem;
+}
+.condition-scope-state.customized { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.condition-scope button { margin: 0; padding: 0.25rem 0.6rem; font-size: var(--fs-caption); font-weight: 600; }
+#compareConditions.session-customized > summary { color: var(--accent-bright); }
+
+/* Filter builder (#129): a group is a full-width card, a condition is one row
+   of controls. Nested groups indent rather than draw a second border so a deep
+   tree stays readable. */
+.filter-builder, .filter-group {
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: 0.5rem; margin: 0.5rem 0; background: var(--bg);
+}
+.filter-group { margin-inline-start: 1rem; background: var(--panel); }
+.filter-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.filter-head strong { font-size: var(--fs-label); }
+.filter-condition { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.4rem; }
+.filter-condition input, .filter-condition select { min-width: 6rem; }
+.filter-condition .filter-value, .filter-condition .filter-value2 { flex: 1 1 8rem; min-width: 6rem; }
+.filter-tree { margin-top: 0.2rem; }
+.filter-actions { margin-top: 0.4rem; }
+.filter-remove {
+  margin: 0; line-height: 1; padding: 0.2rem 0.5rem; font-size: var(--fs-label);
+}
+#filterPreviewResult { color: var(--muted); font-size: var(--fs-label); }
 
 .result-search {
   position: sticky; top: 3.3rem; z-index: 4;
@@ -654,6 +938,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .search-hit.current { outline: var(--selection-ring-width) solid var(--accent); }
 
 .hunk {
+  position: relative;
   border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden;
   /* Skip layout and paint for hunks that are off screen (#127). Appending a
      large diff otherwise ends in one full-document layout — measured at
@@ -669,7 +954,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   content-visibility: auto; contain-intrinsic-size: auto 3rem;
 }
 .context-gap {
-  display: grid; grid-template-columns: minmax(2.4rem, 1fr) auto minmax(2.4rem, 1fr);
+  display: grid; grid-template-columns: minmax(2.4rem, 1fr) minmax(0, auto) minmax(2.4rem, 1fr);
   align-items: center; gap: 0.35rem; min-height: 1.9rem;
   padding: 0.15rem 0.45rem; border-block: 1px dashed var(--border);
   background: var(--panel); color: var(--muted); font-size: var(--fs-caption);
@@ -677,8 +962,9 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .context-gap:first-child { border-top: 0; }
 .context-gap:last-child { border-bottom: 0; }
 .context-gap-label {
-  grid-column: 2; margin: 0; padding: 0.12rem 0.55rem;
+  grid-column: 2; margin: 0; padding: 0.12rem 0.55rem; max-width: 100%;
   border: 0; background: transparent; color: var(--muted); font: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .context-gap-label:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .context-expand { margin: 0; padding: 0.08rem 0.55rem; font-size: var(--fs-caption); }
@@ -690,14 +976,54 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .hunk.read .hunk-head::after { content: " ✓"; color: var(--accent); }
 .hunk.moved { border-color: var(--move-fg); }
 .hunk.moved .hunk-head { background: var(--move-bg); color: var(--move-fg); }
-.move-jump {
-  float: right; margin: -0.15rem 0 0 0.6rem; padding: 0.08rem 0.45rem;
-  background: var(--move-fg); border: 0; font-size: var(--fs-caption);
+/* The hunk-local toolbar (#293). The head shows only a small handle; the
+   toolbar appears where the change is on pointer hover, on keyboard focus
+   within the hunk, when pinned from the handle, or on a device without hover.
+   No action is reachable by hover alone. */
+.hunk-toolbar-toggle {
+  position: absolute; top: 0.28rem; right: 0.45rem; z-index: 2;
+  margin: 0; padding: 0.08rem 0.42rem;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); font-size: var(--fs-caption);
 }
-.hunk-ignore {
+.hunk-toolbar-toggle:hover,
+.hunk-toolbar-toggle[aria-expanded="true"] { color: var(--fg); border-color: var(--accent); }
+.hunk-toolbar {
+  position: absolute; top: 0.28rem; right: 2.35rem; z-index: 2;
+  display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;
+  max-width: calc(100% - 3.3rem);
+  padding: 0.1rem 0.28rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+  visibility: hidden; opacity: 0;
+  transition: opacity 120ms ease;
+}
+.hunk:hover .hunk-toolbar,
+.hunk:focus-within .hunk-toolbar,
+.hunk.toolbar-open .hunk-toolbar { visibility: visible; opacity: 1; }
+/* Touch has no hover to reveal the toolbar, so it is shown outright rather
+   than hidden behind a gesture the device cannot make (#293). */
+@media (hover: none) {
+  .hunk-toolbar { visibility: visible; opacity: 1; }
+}
+.hunk-toolbar button {
+  margin: 0; padding: 0.08rem 0.42rem;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); font-size: var(--fs-caption);
+}
+.hunk-toolbar .hunk-ignore { background: transparent; color: var(--muted); }
+.hunk-toolbar .move-jump { background: var(--move-fg); border: 0; color: var(--on-accent); }
+/* Explicit confirmation (#288). The button reads as a toggle (pressed state and
+   its own label), and a confirmed hunk is demoted without disappearing: it still
+   exports, unlike an ignored hunk, which is a different decision. */
+.hunk-confirm {
   float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
   background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
 }
+.hunk-confirm[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.hunk.confirmed { border-left: 4px solid var(--accent); }
+.hunk.confirmed .rows { opacity: 0.6; }
 .filter-input { min-width: 18rem; }
 .filter-input textarea { width: 100%; min-height: 2.6rem; resize: vertical; }
 .filters-active { flex-basis: 100%; }
@@ -705,9 +1031,33 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .hunk.ignored { opacity: 0.68; border-style: dashed; }
 .hunk.ignored .hunk-head::before { content: "⊘ "; color: var(--muted); }
 .minimap-marker.ignored { opacity: 0.18; }
+/* Whitespace/case-only differences (#269). KDiff3 draws these chequered: the
+   reader can see the difference was found and dismissed, without it competing
+   with a real conflict. The rows stay visible (unlike .ignored, which hides
+   them) but lose the conflict colour and take a subdued checker wash. */
+.hunk.downgraded { border-style: dashed; border-color: color-mix(in srgb, var(--muted) 45%, var(--border)); }
+.hunk.downgraded .rows {
+  background:
+    repeating-conic-gradient(
+      color-mix(in srgb, var(--muted) 16%, transparent) 0% 25%,
+      transparent 0% 50%
+    ) 0 0 / 9px 9px;
+}
+.hunk.downgraded .cell { background: transparent; color: var(--muted); }
+.hunk.downgraded .cell .ln { opacity: 0.72; }
+.hunk.downgraded .w-add, .hunk.downgraded .w-del { background: transparent; box-shadow: none; }
+.hunk-downgraded {
+  margin-left: 0.4rem; padding: 0 0.35rem; border: 1px dashed currentColor;
+  border-radius: 999px; color: var(--muted); font-size: var(--fs-caption);
+}
+.summary .downgraded b { color: var(--muted); }
+.sidebar-item.downgraded { opacity: 0.55; }
+.sidebar-item.downgraded .sidebar-mark { color: var(--muted); }
+.minimap-marker.downgraded { opacity: 0.4; }
 .hunk-head {
   font-family: var(--mono); font-size: var(--fs-label);
-  padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
+  padding: 0.35rem 2.6rem 0.35rem 0.7rem;
+  background: var(--panel); color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
 /* Pane headers. Sticky inside the result so the two sides stay identified
@@ -726,6 +1076,10 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 }
 .pane-head + .pane-head { border-left: 1px solid var(--border); }
 .pane-head-label { color: var(--muted); font-weight: 700; flex: none; }
+.pane-head-alias {
+  color: var(--fg); font-weight: 600; flex: none; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .pane-head-path {
   font-family: var(--mono); color: var(--fg);
   flex: 1 1 auto;
@@ -745,6 +1099,11 @@ input.pane-head-path {
 }
 input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--border); background: var(--bg); }
 .pane-head-meta { color: var(--muted); white-space: nowrap; flex: none; }
+.pane-head-meta.encoding-mismatch { color: var(--danger); font-weight: 700; }
+.pane-head-encoding {
+  flex: none; max-width: 8.5rem; margin: 0; padding: 0.05rem 0.2rem;
+  font-size: var(--fs-caption);
+}
 .pane-head-browse {
   margin: 0; padding: 0.1rem 0.4rem; flex: none; font-size: var(--fs-caption);
 }
@@ -769,6 +1128,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   display: grid; grid-template-columns: var(--diff-gutter) 1fr; gap: var(--diff-gap);
   padding: 0.1rem 0.5rem; font-family: var(--mono);
   font-size: var(--fs-data); white-space: pre-wrap; word-break: break-word;
+  tab-size: var(--tab-size); -moz-tab-size: var(--tab-size);
   border-top: 1px solid var(--border);
 }
 .cell:first-child { border-right: 1px solid var(--border); }
@@ -826,12 +1186,15 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .result-match strong { color: var(--add-fg); }
 .result-partial { border-color: var(--gold); background: var(--chg-bg); }
 .result-partial strong { color: var(--chg-fg); }
+.csv-align-columns { margin-top: 0.7rem; }
+.summary .note.csv-verdict-differences { color: var(--del-fg); font-weight: 700; }
 .initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .initial-empty strong { color: var(--fg); font-size: var(--fs-emphasis); }
 .initial-empty p { margin: 0.35rem 0 0; }
 .csv-pages { display: flex; justify-content: center; align-items: center; gap: 0.6rem; }
 .csv-pages button { margin: 0; padding: 0.25rem 0.7rem; }
 .csv-page-input { width: 4.5rem; padding: 0.25rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--fg); text-align: right; }
+.csv-key-range { color: var(--muted); font-size: var(--fs-caption); }
 /* The result is the scroll container now, so a 70vh cap here made two nested
    vertical scrollbars and left the last row unreachable. Vertical scrolling
    belongs to the result; this keeps only the horizontal axis, which a wide
@@ -853,6 +1216,16 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .csv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; }
 .csv-table thead th:first-child, .csv-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--panel); }
 .csv-table thead th b { margin-left: 0.35rem; padding: 0.05rem 0.35rem; border-radius: 999px; background: var(--chg-bg); color: var(--chg-fg); }
+/* Manual column mapping (#119): drag handles on the result header and the
+   left-right pairing editor. */
+.csv-table thead th[draggable="true"] { cursor: grab; }
+.csv-table thead th.csv-column-dragging { opacity: 0.5; }
+.column-map-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0; }
+.column-map-rows { display: flex; flex-direction: column; gap: 0.35rem; }
+.column-map-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.column-map-row select { max-width: 16rem; }
+.column-map-arrow { color: var(--muted); }
+.column-map-row.column-map-invalid select { border-color: var(--del-fg); }
 .csv-left_only td { background: var(--del-bg); }
 .csv-right_only td { background: var(--add-bg); }
 .csv-cell-changed { background: var(--chg-bg) !important; color: var(--chg-fg); font-weight: 600; }
@@ -866,9 +1239,16 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .file-browser header button { margin-left: auto; padding: 0.2rem 0.55rem; }
 .browser-path input { flex: 1; }
 .browser-path button { margin: 0; padding: 0.35rem 0.7rem; }
-.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 7rem); padding: 0.45rem; }
-.browser-entries button { margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
+.browser-tools { display: flex; align-items: center; gap: 0.5rem; padding: 0 0.65rem 0.65rem; border-bottom: 1px solid var(--border); }
+.browser-tools button { margin: 0; padding: 0.3rem 0.7rem; }
+.browser-tools .browser-recent { flex: 1; min-width: 0; }
+.browser-tools .browser-recent select { width: 100%; }
+.browser-tools input[type="search"] { flex: 1; min-width: 8rem; }
+.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 10.5rem); padding: 0.45rem; }
+.browser-entries button { display: flex; align-items: baseline; gap: 0.75rem; margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
 .browser-entries button:hover { background: var(--bg); }
+.browser-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-entry-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
 #chooseFolder { margin: 0.45rem; }
 /* Folder result tree (#104). Rows were a flat list that faked depth with a left
    padding and put the whole path in every row; folding was impossible and the
@@ -904,6 +1284,9 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .dir-size, .dir-stamp { color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dir-stamp { min-width: 9rem; text-align: right; }
 .dir-size { min-width: 6rem; text-align: right; }
+/* Flattened folder view (#275): a Location column replaces the indentation. */
+.dir-tree.flat .dir-entry { grid-template-columns: var(--dir-marker-col) minmax(0, 1fr) minmax(0, 1.2fr) auto auto; }
+.dir-location { color: var(--muted); font-size: var(--fs-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dir-folder { color: var(--fg); font-weight: 600; }
 .dir-folder .dir-twisty::before { content: "▸"; display: inline-block; }
 .dir-folder[aria-expanded="true"] .dir-twisty::before { transform: rotate(90deg); }
@@ -916,8 +1299,9 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 @media (prefers-reduced-motion: reduce) {
   .status.busy::before { animation: none; }
   .file-diff.loading .file-diff-head::after { animation: none; }
+  .provisional-bar::before { animation: none; }
   .message { animation: none; }
-  button, .cell.selectable-line, .hunk, .status { transition: none; }
+  button, .cell.selectable-line, .hunk, .hunk-toolbar, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }
 }
 
@@ -954,9 +1338,12 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   #diffCounter { min-width: 7rem; }
 
   /* Three fixed columns make every pane unreadable at phone width. The event
-     keeps BASE/LEFT/RIGHT order but presents each pane as a full-width block;
-     the sticky path header follows the same order above it (#107). */
+     keeps LEFT | RESULT | RIGHT order but presents each pane as a full-width
+     block; the sticky path header follows the same order above it (#107). */
   .three-grid { grid-template-columns: 1fr; overflow: visible; }
+  /* An on-demand BASE column stacks with the rest rather than forcing four
+     columns into phone width (#282). */
+  .result.show-base .three-grid { grid-template-columns: 1fr; }
   .three-pane { border-right: 0; border-bottom: 1px solid var(--border); }
   .three-pane:last-child { border-bottom: 0; }
   .pane-heads.three { grid-template-columns: 1fr; }
@@ -969,3 +1356,67 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
      and the already-visible pane headers carry the paths. */
   .statusbar-paths { display: none; }
 }
+
+/* "How do I make it match?" suggestion cards (#121). Shown only for a CSV
+   result, between the messages and the diff navigation. */
+.suggestions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-elevated);
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+}
+.suggestions-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; }
+.suggestions-head strong { font-size: var(--fs-ui); }
+.suggestions-head span { color: var(--fg-dim); font-size: var(--fs-label); }
+.suggestion-cards { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.suggestion-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "cause apply" "action apply" "residual apply";
+  gap: 0.15rem 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 0.45rem 0.6rem;
+  min-width: 15rem;
+  flex: 1 1 15rem;
+}
+.suggestion-cause { grid-area: cause; color: var(--fg-dim); font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: 0.03em; }
+.suggestion-action { grid-area: action; font-size: var(--fs-ui); }
+.suggestion-residual { grid-area: residual; color: var(--fg-dim); font-size: var(--fs-label); }
+.suggestion-residual.suggestion-resolves { color: var(--accent); font-weight: 600; }
+.suggestion-apply { grid-area: apply; align-self: stretch; }
+.suggestion-active, .suggestion-none, .suggestion-causes { flex-basis: 100%; margin: 0; color: var(--fg-dim); font-size: var(--fs-label); }
+
+/* Theme editor (#286). A custom theme is one more choice in the colours menu;
+   this dialog edits the design tokens behind it and reports the WCAG contrast
+   of the foreground/background pairs the palette implies. It reuses the shared
+   type and radius tokens like every other surface. */
+.theme-dialog { width: min(48rem, 94vw); max-height: 88vh; }
+.theme-body { display: grid; gap: 0.6rem; overflow: auto; }
+.theme-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
+.theme-controls .opt { display: grid; gap: 0.15rem; }
+.theme-controls input, .theme-controls select { min-width: 9rem; }
+.theme-tokens { display: grid; gap: 0.4rem; }
+.theme-group { border: 1px solid var(--border); border-radius: var(--radius-control); padding: 0.4rem 0.6rem; }
+.theme-group > summary { cursor: pointer; }
+.theme-token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.35rem 0.8rem; margin-top: 0.4rem; }
+.theme-token { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.35rem; }
+.theme-token-name { grid-column: 1 / -1; color: var(--fg-dim); font-family: var(--mono); font-size: var(--fs-caption); }
+.theme-token input[type="text"] { min-width: 0; font-family: var(--mono); font-size: var(--fs-caption); }
+.theme-swatch { width: 2.2rem; height: 1.7rem; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-control); background: none; }
+.theme-contrast { display: grid; gap: 0.2rem; }
+.theme-contrast-row { display: grid; grid-template-columns: 1fr auto 6rem; gap: 0.5rem; align-items: center; padding: 0.2rem 0.4rem; border-radius: var(--radius-control); border: 1px solid var(--border); }
+.theme-contrast-pair { font-family: var(--mono); font-size: var(--fs-caption); }
+.theme-contrast-value { font-variant-numeric: tabular-nums; }
+.theme-contrast-status { text-align: end; }
+.theme-contrast-row.fail { border-color: var(--danger); color: var(--danger); }
+.theme-contrast-row.pass .theme-contrast-status { color: var(--success); }
+.theme-contrast-row.unknown .theme-contrast-status { color: var(--fg-dim); }
+.theme-saved { display: grid; gap: 0.25rem; }
+.theme-saved-row { display: flex; gap: 0.4rem; align-items: center; }
+.theme-saved-name { flex: 1; }
+.theme-saved-empty { color: var(--fg-dim); margin: 0; }
+.theme-share-actions { display: flex; gap: 0.4rem; }
+#themeJSON { width: 100%; font-family: var(--mono); font-size: var(--fs-caption); }
