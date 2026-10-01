@@ -23,10 +23,12 @@ for (const mode of ['text','sorted','threeway']) {
   if (!eq(modes.liveCompareConditions(mode), modes.COMPARE_CONDITIONS)) process.exit(10);
   if (modes.deadCompareConditions(mode).length !== 0) process.exit(11);
 }
-// csvRequestBody() reads ignoreCase / whitespace / lineFilters only.
+// csvRequestBody() reads ignoreCase / the whitespace part of the unified scale
+// / lineFilters. The scale also carries EOL, which record-based CSV ignores,
+// but the single control stays live because its whitespace part applies.
 for (const mode of ['csv','threeway-csv']) {
-  if (!eq(modes.liveCompareConditions(mode), ['ignoreCase','whitespace','lineFilters'])) process.exit(12);
-  if (!eq(modes.deadCompareConditions(mode), ['ignoreEOL','ignoreTrailingEOL'])) process.exit(13);
+  if (!eq(modes.liveCompareConditions(mode), modes.COMPARE_CONDITIONS)) process.exit(12);
+  if (modes.deadCompareConditions(mode).length !== 0) process.exit(13);
 }
 // dirRequestBody() reads none of the shared comparison conditions.
 if (modes.liveCompareConditions('dir').length !== 0) process.exit(14);

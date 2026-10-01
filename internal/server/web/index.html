@@ -12,11 +12,20 @@
     <header class="topbar">
       <h1>ayame-diff</h1>
       <span class="tag" id="version">web</span>
-      <button id="lang" class="lang" type="button" data-i18n="langButton" data-i18n-aria-label="langSwitchLabel">日本語 → EN</button>
+      <select id="lang" class="lang" data-i18n-aria-label="langSwitchLabel" aria-label="Display language"></select>
       <button id="stopServer" class="stop-server" type="button" data-i18n="stopServer" data-i18n-title="stopServer" data-i18n-aria-label="stopServer">サーバーを停止</button>
     </header>
 
     <main>
+      <!-- Multiple comparisons as tabs (#281). The active comparison keeps its
+           own URL entry and back/forward history; each tab additionally
+           remembers its inputs, conditions and scroll position, so switching
+           back returns to the same view. The bar stays hidden until the first
+           comparison exists, then the setup form collapses as before. -->
+      <nav class="comparison-tabs" id="comparisonTabs" hidden>
+        <div class="tab-list" id="tabList" role="tablist" data-i18n-aria-label="comparisonTabs"></div>
+        <button id="newTab" type="button" class="tab-new" data-i18n-title="newTab" data-i18n-aria-label="newTab"><span aria-hidden="true">＋</span></button>
+      </nav>
       <!-- Initial-only path rail. After the first successful comparison the
            sticky pane headers become the editable path controls, so this rail
            disappears instead of duplicating the same fields above the result. -->
@@ -196,11 +205,57 @@
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
         <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff"><span aria-hidden="true">↑</span></button>
+        <button id="prevUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="prevUnconfirmed" data-i18n-aria-label="prevUnconfirmed" hidden><span aria-hidden="true">↑✓</span></button>
         <span id="diffCounter" aria-live="polite"></span>
+        <span id="confirmCounter" aria-live="polite" hidden></span>
+        <button id="nextUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="nextUnconfirmed" data-i18n-aria-label="nextUnconfirmed" hidden><span aria-hidden="true">↓✓</span></button>
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
         <button id="contextToggle" type="button" class="context-toggle" data-i18n="contextToggle" data-i18n-title="contextToggleTitle" aria-pressed="true" hidden>Context</button>
+        <!-- The comparison conditions that change what counts as a difference,
+             permanent in the toolbar and each showing its current value (#264).
+             JetBrains keeps exactly these in the viewer; the numeric tuning and
+             the filter definitions stay in the settings dialog, so the row
+             count is fixed. app.js mirrors the settings controls (ignoreCase,
+             whitespace, ignoreEOL/ignoreTrailingEOL, lineFilters, detectMoves)
+             rather than keeping a second copy of the state. -->
+        <div class="condition-bar" id="conditionBar" role="group" data-i18n-aria-label="conditionsGroup" hidden>
+          <label class="opt inline condition" id="tbWhitespaceWrap">
+            <span class="condition-name" data-i18n="whitespace">whitespace</span>
+            <select id="tbWhitespace" data-i18n-aria-label="whitespace">
+              <option value="none" data-i18n="whitespaceNone">do not ignore</option>
+              <option value="change" data-i18n="whitespaceChange">ignore amount</option>
+              <option value="all" data-i18n="whitespaceAll">ignore all</option>
+            </select>
+          </label>
+          <label class="opt inline condition" id="tbCaseWrap">
+            <span class="condition-name" data-i18n="caseCondition">case</span>
+            <select id="tbCase" data-i18n-aria-label="caseCondition">
+              <option value="distinguish" data-i18n="caseDistinguish">distinguish</option>
+              <option value="ignore" data-i18n="caseIgnore">ignore</option>
+            </select>
+          </label>
+          <label class="opt inline condition" id="tbEolWrap">
+            <span class="condition-name" data-i18n="eolCondition">EOL</span>
+            <select id="tbEol" data-i18n-aria-label="eolCondition">
+              <option value="as-is" data-i18n="eolKeep">as-is</option>
+              <option value="eol" data-i18n="ignoreEOL">ignore EOL</option>
+              <option value="trailing" data-i18n="ignoreTrailingEOL">ignore trailing EOL</option>
+              <option value="both" data-i18n="eolBoth">ignore both</option>
+            </select>
+          </label>
+          <span class="opt inline condition" id="tbFiltersWrap">
+            <button id="tbFilters" class="condition-filters" type="button" data-i18n-title="conditionFiltersTitle" data-i18n-aria-label="lineFilters"><span class="condition-name" data-i18n="lineFilters">line filters</span><span class="condition-value" id="tbFiltersValue">0</span></button>
+          </span>
+          <label class="opt inline condition" id="tbMovesWrap">
+            <span class="condition-name" data-i18n="conditionMoves">moves</span>
+            <select id="tbMoves" data-i18n-aria-label="conditionMoves">
+              <option value="off" data-i18n="conditionMovesOff">off</option>
+              <option value="detect" data-i18n="conditionMovesOn">detect</option>
+            </select>
+          </label>
+        </div>
         <label class="opt inline" id="dirStatusWrap" hidden><span class="sr-only" data-i18n="statusFilter">statuses</span><select id="dirStatus" data-i18n-title="statusFilter" data-i18n-aria-label="statusFilter"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
         <label class="opt inline" id="dirSearchWrap" hidden><span class="sr-only" data-i18n="folderSearch">path search</span><input id="dirSearch" type="search" data-i18n-placeholder="folderSearchPlaceholder" data-i18n-title="folderSearch" data-i18n-aria-label="folderSearch" placeholder="Search folder results" autocomplete="off" spellcheck="false" /></label>
         <button id="dirContinuous" type="button" class="continuous-toggle" data-i18n="continuousView" aria-pressed="false" hidden>Continuous</button>
@@ -226,6 +281,14 @@
               <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
               <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
               <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+              <label class="opt"><span data-i18n="tabSize">tab size</span>
+                <select id="tabSize">
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="8" selected>8</option>
+                </select>
+              </label>
+              <label class="opt check"><input id="ambiguousWide" type="checkbox" /><span data-i18n="ambiguousWide">wide ○ ※ α</span></label>
               <label class="opt check"><input id="autoReload" type="checkbox" checked /><span data-i18n="autoReload">auto-reload external changes</span></label>
               <hr />
               <label class="opt"><span data-i18n="theme">theme</span>
@@ -239,8 +302,10 @@
                 <select id="scheme">
                   <option value="default">default</option>
                   <option value="colorblind">colorblind</option>
+                  <option value="custom" data-i18n="themeCustom">custom</option>
                 </select>
               </label>
+              <button id="themeCustomize" type="button" data-i18n="themeCustomize">Customize colors…</button>
             </div>
           </details>
           <details class="menu" id="menuExport" hidden>
@@ -256,6 +321,17 @@
               <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
               <hr />
               <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+              <hr />
+              <label class="opt"><span data-i18n="reportFormat">report format</span>
+                <select id="reportFormat">
+                  <option value="html">HTML</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="json">JSON</option>
+                </select>
+              </label>
+              <label class="opt check"><input id="reportIncludeContent" type="checkbox" /><span data-i18n="reportIncludeContent">embed compared content</span></label>
+              <p class="report-hint" data-i18n="reportSensitiveHint">Reports leave the compared content out by default. Include it only when the file may be shared with what it contains.</p>
+              <button id="exportReport" type="button" data-i18n="exportReport" hidden>Export report</button>
             </div>
           </details>
         </div>
@@ -283,10 +359,32 @@
         <button id="mergeUndo" type="button" data-i18n="undo" disabled>Undo</button>
         <button id="mergeRedo" type="button" data-i18n="redo" disabled>Redo</button>
         <span id="mergeUnresolved" aria-live="polite"></span>
+        <div class="merge-unresolved" id="mergeUnresolvedBox" hidden>
+          <span class="merge-unresolved-title" data-i18n="unresolvedListHeading">Unresolved differences</span>
+          <ol class="merge-unresolved-list" id="mergeUnresolvedList"></ol>
+          <button id="mergeGoUnresolved" type="button" data-i18n="goToUnresolved">Go to unresolved</button>
+        </div>
+        <label class="merge-target"><span data-i18n="unresolvedTarget">Unresolved target</span>
+          <select id="mergeUnresolvedTarget">
+            <option value="left" data-i18n="left">Left</option>
+            <option value="right" data-i18n="right">Right</option>
+            <option value="base" data-i18n="sideBase">Base</option>
+            <option value="markers" data-i18n="targetMarkers">Keep conflict markers</option>
+          </select>
+        </label>
         <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <button id="simulateMerge" type="button" data-i18n="simulateMerge">Preview impact</button>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
+      <!-- Per-line provenance (#257): the merged result with a KDiff3-style
+           summary column. Fetched on demand, so it costs nothing until opened. -->
+      <details class="merge-provenance" id="mergeProvenance" hidden>
+        <summary data-i18n="mergeProvenanceTitle">Merge result by line</summary>
+        <p class="merge-provenance-hint" data-i18n="mergeProvenanceHint">Each line shows where it came from: B base, L left, R right, m manual.</p>
+        <p class="merge-provenance-counts" id="mergeProvenanceCounts" aria-live="polite"></p>
+        <div class="merge-preview" id="mergePreviewLines" role="list"></div>
+      </details>
       <div class="diff-layout">
         <!-- Index of the differences. With thirty hunks the only way to reach a
              particular one was to step through them or scroll; this lists them
@@ -324,16 +422,21 @@
 <details class="csv-advanced" id="compareConditions" open>
           <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
           <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
+          <p class="details-hint" data-i18n="conditionsScopeHint">Changes here apply to this comparison only, until you make them the default.</p>
+          <div class="condition-scope">
+            <span class="condition-scope-state" id="conditionScopeState" data-i18n="conditionScopeDefault">Default</span>
+            <button id="makeConditionsDefault" type="button" data-i18n="makeConditionsDefault">Make default</button>
+            <button id="resetConditionsDefault" type="button" data-i18n="resetConditionsDefault">Reset to default</button>
+          </div>
           <div class="opts">
             <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
-            <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
-            <label class="opt check"><input id="ignoreTrailingEOL" type="checkbox" /><span data-i18n="ignoreTrailingEOL">ignore trailing EOL</span></label>
             <label class="opt">
-                        <span data-i18n="whitespace">whitespace</span>
-                        <select id="whitespace">
-                          <option value="none">none</option>
-                          <option value="change">change</option>
-                          <option value="all">all</option>
+                        <span data-i18n="whitespaceScale">whitespace / EOL</span>
+                        <select id="whitespaceScale">
+                          <option value="strict" data-i18n="wsScaleStrict">strict (ignore nothing)</option>
+                          <option value="eol" data-i18n="wsScaleEOL">ignore line endings</option>
+                          <option value="eol-change" data-i18n="wsScaleEOLChange">ignore line endings and whitespace amount</option>
+                          <option value="eol-all" data-i18n="wsScaleEOLAll">ignore line endings and all whitespace</option>
                         </select>
                       </label>
             <label class="opt filter-input"><span data-i18n="lineFilters">line filters</span><textarea id="lineFilters" rows="2" data-i18n-placeholder="lineFiltersPlaceholder" placeholder="1行に1つの正規表現" spellcheck="false"></textarea></label>
@@ -364,14 +467,21 @@
 	<dialog id="fileBrowser" class="file-browser">
 	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
 	  <div class="browser-path"><button id="browserUp" type="button" data-i18n-title="parentFolder" data-i18n-aria-label="parentFolder" title="親フォルダ" aria-label="親フォルダ"><span aria-hidden="true">↑</span></button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
+	  <div class="browser-tools">
+	    <button id="browserHome" type="button" data-i18n="browserHome" data-i18n-title="browserHomeTitle">Home</button>
+	    <button id="browserRoot" type="button" data-i18n="browserRoot" data-i18n-title="browserRootTitle">Root</button>
+	    <label class="browser-recent"><select id="browserRecent" data-i18n-title="browserRecent" data-i18n-aria-label="browserRecent"><option value=""></option></select></label>
+	    <input id="browserFilter" type="search" data-i18n-placeholder="browserFilterPlaceholder" data-i18n-title="browserFilter" data-i18n-aria-label="browserFilter" placeholder="Filter" autocomplete="off" spellcheck="false" />
+	  </div>
 	  <button id="chooseFolder" type="button" data-i18n="chooseFolder">Choose this folder</button>
-	  <div id="browserEntries" class="browser-entries"></div>
+	  <div id="browserEntries" class="browser-entries" role="listbox" data-i18n-aria-label="browserEntriesLabel" tabindex="-1"></div>
 	</dialog>
 
     <dialog id="confirmDialog" class="app-dialog" aria-labelledby="confirmTitle">
       <form method="dialog">
         <h2 id="confirmTitle" data-i18n="confirmTitle">Confirm</h2>
         <p id="confirmMessage"></p>
+        <ul id="confirmDetails" class="confirm-details" hidden></ul>
         <menu>
           <button id="confirmCancel" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
           <button id="confirmOk" value="ok" type="submit" class="primary" data-i18n="confirmProceed">Proceed</button>
@@ -382,24 +492,103 @@
       <form method="dialog">
         <h2 id="shortcutsTitle" data-i18n="keyboardShortcuts">Keyboard shortcuts</h2>
         <dl id="shortcutsList" class="shortcuts"></dl>
+        <menu>
+          <button id="shortcutCustomize" value="customize" type="button" data-i18n="shortcutCustomize">Customize shortcuts</button>
+          <button value="close" type="submit" class="primary" data-i18n="close">Close</button>
+        </menu>
+      </form>
+    </dialog>
+    <!-- Remapping (#285). The actions and their chords come from keymap.js; this
+         dialog only edits the preset and the per-action overrides and shows the
+         conflicts those choices create. -->
+    <dialog id="keymapDialog" class="app-dialog keymap-dialog" aria-labelledby="keymapTitle">
+      <form method="dialog">
+        <h2 id="keymapTitle" data-i18n="shortcutEditorTitle">Customize keyboard shortcuts</h2>
+        <p class="dialog-hint" data-i18n="shortcutEditorHint">Choose an action, then press the keys to bind it. Escape cancels.</p>
+        <div class="keymap-toolbar">
+          <label class="keymap-preset"><span data-i18n="shortcutPreset">Preset</span>
+            <select id="keymapPreset">
+              <option value="default" data-i18n="shortcutPresetDefault">Default</option>
+              <option value="minimal" data-i18n="shortcutPresetMinimal">Minimal</option>
+            </select>
+          </label>
+          <button type="button" id="keymapReset" data-i18n="shortcutResetPreset">Reset to preset</button>
+          <button type="button" id="keymapExport" data-i18n="shortcutExportJSON">Export JSON</button>
+        </div>
+        <p id="keymapStatus" class="keymap-status" role="status" aria-live="polite"></p>
+        <div id="keymapList" class="keymap-list"></div>
         <menu><button value="close" type="submit" class="primary" data-i18n="close">Close</button></menu>
       </form>
     </dialog>
+    <!-- Theme editor (#286). A custom theme is one more choice in the colours
+         menu; this dialog edits the design tokens behind it. Every edit is
+         applied to the page as it is made, so the open diff is the preview. -->
+    <dialog id="themeDialog" class="app-dialog theme-dialog" aria-labelledby="themeTitle">
+      <form method="dialog">
+        <header><strong id="themeTitle" data-i18n="themeDialogTitle">Customize colors</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header>
+      </form>
+      <div class="theme-body">
+        <div class="theme-controls">
+          <label class="opt"><span data-i18n="themePreset">Preset</span><select id="themePreset"></select></label>
+          <label class="opt"><span data-i18n="themeBase">Base</span><select id="themeBase">
+            <option value="system" data-i18n="themeSystem">match system</option>
+            <option value="light" data-i18n="themeLight">light</option>
+            <option value="dark" data-i18n="themeDark">dark</option>
+          </select></label>
+          <label class="opt"><span data-i18n="themeName">Theme name</span><input id="themeName" type="text" maxlength="120" autocomplete="off" spellcheck="false" /></label>
+          <button id="themeReset" type="button" data-i18n="themeReset">Reset to preset</button>
+          <button id="themeSave" type="button" class="primary" data-i18n="themeSave">Save</button>
+        </div>
+        <h3 data-i18n="themeTokens">Tokens</h3>
+        <div id="themeTokens" class="theme-tokens"></div>
+        <h3 data-i18n="themeContrast">Contrast ratio (WCAG)</h3>
+        <div id="themeContrast" class="theme-contrast" aria-live="polite"></div>
+        <h3 data-i18n="themeSavedThemes">Saved themes</h3>
+        <div id="themeSavedList" class="theme-saved"></div>
+        <h3 data-i18n="themeShare">Share</h3>
+        <textarea id="themeJSON" rows="4" spellcheck="false" data-i18n-placeholder="themeImportPlaceholder" placeholder="Paste theme JSON"></textarea>
+        <div class="theme-share-actions">
+          <button id="themeExport" type="button" data-i18n="themeExport">Copy JSON</button>
+          <button id="themeImport" type="button" data-i18n="themeImport">Import JSON</button>
+        </div>
+      </div>
+      <form method="dialog" class="settings-actions"><button value="close" data-i18n="close">Close</button></form>
+    </dialog>
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
+    <script src="textwidth.js"></script>
     <script src="modes.js"></script>
+    <script src="whitespace-scale.js"></script>
+    <script src="conditionscope.js"></script>
     <script src="minimap.js"></script>
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="tabs.js"></script>
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
+    <script src="renderqueue.js"></script>
+    <script src="equivalence.js"></script>
     <script src="unchanged.js"></script>
+    <script src="truncation.js"></script>
+    <script src="hunkheader.js"></script>
+    <script src="confirmed.js"></script>
+    <script src="simulate.js"></script>
+    <script src="statsview.js"></script>
+    <script src="unresolved.js"></script>
+    <script src="keymap.js"></script>
+    <script src="hunkactions.js"></script>
     <script src="i18n.js"></script>
+    <script src="conditions.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
+    <script src="mergeprovenance.js"></script>
+    <script src="quickdiff.js"></script>
     <script src="apierrors.js"></script>
+    <script src="mergeselect.js"></script>
+    <script src="encoding.js"></script>
+    <script src="theme.js"></script>
     <script src="optimistic.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band

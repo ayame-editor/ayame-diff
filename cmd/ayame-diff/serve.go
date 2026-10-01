@@ -46,16 +46,12 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	remote, err := remoteBind(addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if remote && !allowRemote {
@@ -67,7 +63,7 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 	// actually bound, which "port 0" only reveals here.
 	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer ln.Close()
@@ -77,7 +73,7 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 	shutdownRequests, requestShutdown := newShutdownRequest()
 	handler, token, err := deps.newHandler(version, ln.Addr(), remote, server.LifecycleOptions{Shutdown: requestShutdown})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if remote {
@@ -87,7 +83,7 @@ Non-loopback addresses require the explicit --allow-remote safety opt-in.`)
 	// API at all, so print the whole thing (#108).
 	fmt.Fprintf(stderr, "ayame-diff serving on %s  (Stop server or Ctrl+C)\n", tokenURL(browserBaseURL(ln.Addr()), token))
 	if err := deps.serve(ln, handler, shutdownRequests); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK
