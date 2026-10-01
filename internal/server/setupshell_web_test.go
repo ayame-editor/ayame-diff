@@ -53,7 +53,7 @@ func TestComparisonOptionsAreNotOnTheSetupForm(t *testing.T) {
 	// What counts as a difference, and how much of one is computed.
 	for _, id := range []string{
 		"compareConditions", "engineTuning",
-		"ignoreCase", "whitespaceScale", "lineFilters", "detectMoves",
+		"ignoreCase", "whitespaceScale", "alignWhitespace", "lineFilters", "detectMoves",
 		"window", "maxHunks", "maxLines", "moveMinLines",
 	} {
 		marker := `id="` + id + `"`

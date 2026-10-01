@@ -13,7 +13,7 @@
   // Every comparison-condition control id in the shared setup pool. Whitespace
   // and line endings are one monotonic scale (#259) rather than three controls.
   const COMPARE_CONDITIONS = [
-    "ignoreCase", "whitespaceScale", "lineFilters",
+    "ignoreCase", "whitespaceScale", "lineFilters", "alignWhitespace",
   ];
 
   // The subset each mode passes to its request body. Modes absent from this map

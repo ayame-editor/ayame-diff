@@ -6998,6 +6998,13 @@ function makeCellExpandable(td, value) {
   td.append(copy);
 }
 
+// requestAlignWhitespace is the whitespace policy used only for line
+// correspondence (#270). The pure web/alignment.js module owns the mapping; the
+// fallback keeps an older cached page (without the script) comparing as before.
+function requestAlignWhitespace() {
+  return globalThis.AyameAlignment?.alignmentWhitespace(whitespaceScaleMode($("whitespaceScale").value), $("alignWhitespace").checked) || "none";
+}
+
 function requestBody() {
   const scratch = $("scratch").checked;
   const old = $("old").value.trim();
@@ -7031,6 +7038,7 @@ function requestBody() {
     ignoreCase: $("ignoreCase").checked,
 	...whitespaceRequestFields($("whitespaceScale").value),
 	lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+    alignWhitespace: requestAlignWhitespace(),
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
     syncPoints: syncPoints.map((point) => ({ ...point })),
@@ -7042,6 +7050,7 @@ function activeFilters() {
 	if ($("ignoreCase").checked) filters.push(t("ignoreCase"));
 	const whitespaceLevel = $("whitespaceScale").value;
 	if (whitespaceLevel !== "strict") filters.push(`${t("whitespaceScale")}: ${t(whitespaceScaleLabelKey(whitespaceLevel))}`);
+	if (requestAlignWhitespace() !== "none") filters.push(t("absorbReindent"));
 	for (const pattern of $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))
 	  filters.push(`/${pattern}/`);
 	return filters;
