@@ -515,9 +515,13 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .merge-unresolved-list button { font-size: var(--fs-caption); }
 .merge-unresolved-more { color: var(--muted); font-size: var(--fs-caption); align-self: center; }
 .merge-target { display: flex; align-items: center; gap: 0.35rem; }
-/* Adopt buttons are noise for read-only sessions: hidden until merge mode (#100). */
+/* Adopt buttons are noise for read-only sessions: hidden until merge mode
+   (#100). The three-way view keeps them in .hunk-merge; the two-way toolbar
+   carries .hunk-adopt instead. */
 .hunk-merge { float: right; display: none; gap: 0.25rem; margin-left: 0.35rem; }
 .merge-mode .hunk-merge { display: inline-flex; }
+.hunk-toolbar .hunk-adopt { display: none; }
+.merge-mode .hunk-toolbar .hunk-adopt { display: inline-block; }
 .merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .context-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 /* Condition toolbar (#264): a fixed row per toggle, each showing its current
@@ -819,6 +823,7 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .search-hit.current { outline: var(--selection-ring-width) solid var(--accent); }
 
 .hunk {
+  position: relative;
   border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); overflow: hidden;
   /* Skip layout and paint for hunks that are off screen (#127). Appending a
      large diff otherwise ends in one full-document layout — measured at
@@ -855,14 +860,44 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .hunk.read .hunk-head::after { content: " ✓"; color: var(--accent); }
 .hunk.moved { border-color: var(--move-fg); }
 .hunk.moved .hunk-head { background: var(--move-bg); color: var(--move-fg); }
-.move-jump {
-  float: right; margin: -0.15rem 0 0 0.6rem; padding: 0.08rem 0.45rem;
-  background: var(--move-fg); border: 0; font-size: var(--fs-caption);
+/* The hunk-local toolbar (#293). The head shows only a small handle; the
+   toolbar appears where the change is on pointer hover, on keyboard focus
+   within the hunk, when pinned from the handle, or on a device without hover.
+   No action is reachable by hover alone. */
+.hunk-toolbar-toggle {
+  position: absolute; top: 0.28rem; right: 0.45rem; z-index: 2;
+  margin: 0; padding: 0.08rem 0.42rem;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); font-size: var(--fs-caption);
 }
-.hunk-ignore {
-  float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
-  background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
+.hunk-toolbar-toggle:hover,
+.hunk-toolbar-toggle[aria-expanded="true"] { color: var(--fg); border-color: var(--accent); }
+.hunk-toolbar {
+  position: absolute; top: 0.28rem; right: 2.35rem; z-index: 2;
+  display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;
+  max-width: calc(100% - 3.3rem);
+  padding: 0.1rem 0.28rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+  visibility: hidden; opacity: 0;
+  transition: opacity 120ms ease;
 }
+.hunk:hover .hunk-toolbar,
+.hunk:focus-within .hunk-toolbar,
+.hunk.toolbar-open .hunk-toolbar { visibility: visible; opacity: 1; }
+/* Touch has no hover to reveal the toolbar, so it is shown outright rather
+   than hidden behind a gesture the device cannot make (#293). */
+@media (hover: none) {
+  .hunk-toolbar { visibility: visible; opacity: 1; }
+}
+.hunk-toolbar button {
+  margin: 0; padding: 0.08rem 0.42rem;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); font-size: var(--fs-caption);
+}
+.hunk-toolbar .hunk-ignore { background: transparent; color: var(--muted); }
+.hunk-toolbar .move-jump { background: var(--move-fg); border: 0; color: var(--on-accent); }
 /* Explicit confirmation (#288). The button reads as a toggle (pressed state and
    its own label), and a confirmed hunk is demoted without disappearing: it still
    exports, unlike an ignored hunk, which is a different decision. */
@@ -882,7 +917,8 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .minimap-marker.ignored { opacity: 0.18; }
 .hunk-head {
   font-family: var(--mono); font-size: var(--fs-label);
-  padding: 0.35rem 0.7rem; background: var(--panel); color: var(--muted);
+  padding: 0.35rem 2.6rem 0.35rem 0.7rem;
+  background: var(--panel); color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
 /* Pane headers. Sticky inside the result so the two sides stay identified
@@ -1107,7 +1143,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   .status.busy::before { animation: none; }
   .file-diff.loading .file-diff-head::after { animation: none; }
   .message { animation: none; }
-  button, .cell.selectable-line, .hunk, .status { transition: none; }
+  button, .cell.selectable-line, .hunk, .hunk-toolbar, .status { transition: none; }
   button:active:not(:disabled) { transform: none; }
 }
 

@@ -339,7 +339,8 @@ refused. The choice is stored in `localStorage`, so it applies to the whole
 browser rather than one comparison.
 
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
-dedicated purple color and an `↔` button jumps to the paired location. Detection
+dedicated purple color and an `↔` button in the hunk's action toolbar jumps to
+the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the
 optional post-processing pass from dominating huge comparisons.
 
@@ -386,6 +387,16 @@ the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
 auditable; use declarative line filters (#28) for a permanent rule. **Export
 report** lists each ignored hunk with its coordinates and the reason
 `manually ignored during review`, so the header count is not the only record.
+
+Each hunk carries a small action toolbar anchored to that hunk. Hover the hunk,
+move keyboard focus into it, or press its `⋯` handle to open the toolbar; the
+handle stays visible, so the actions are discoverable rather than hidden behind
+hover. On a device without hover the toolbar is shown outright. Ignore/restore,
+the `↔` jump for moved hunks, and the adopt buttons (while merge mode is on)
+live there, so each action sits on the change it applies to. The session-wide
+controls stay where they were: **Add sync** and difference navigation remain in
+the navigation bar, and **All left / All right / All base**, Undo, and Redo
+remain in the merge panel.
 
 ### CSV / TSV setup and table result
 
