@@ -108,9 +108,25 @@ type threeWayTextRequest struct {
 	Base             string            `json:"base"`
 	Output           string            `json:"output,omitempty"`
 	Choices          map[string]string `json:"choices,omitempty"`
+	Manual           map[string]string `json:"manual,omitempty"`
 	AllowUnresolved  bool              `json:"allowUnresolved,omitempty"`
 	Overwrite        bool              `json:"overwrite,omitempty"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite,omitempty"`
+}
+
+// threeWayTextChoices validates the per-conflict side choices shared by the
+// three-way preview and save handlers (#257). A choice may name one side or a
+// comma-joined combination such as "left,right" (#271).
+func threeWayTextChoices(raw map[string]string) (map[int]string, error) {
+	choices := make(map[int]string, len(raw))
+	for idText, side := range raw {
+		id, parseErr := strconv.Atoi(idText)
+		if parseErr != nil || id < 0 || mergechoice.Validate(side, "base", "left", "right") != nil {
+			return nil, fmt.Errorf("invalid conflict choice")
+		}
+		choices[id] = side
+	}
+	return choices, nil
 }
 
 func openThreeWayText(req threeWayTextRequest) (linediff.Lines, linediff.Lines, linediff.Lines, func(), error) {
@@ -210,26 +226,66 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer closeLines()
-	choices := make(map[int]string, len(req.Choices))
-	for idText, side := range req.Choices {
-		id, parseErr := strconv.Atoi(idText)
-		if parseErr != nil || id < 0 || mergechoice.Validate(side, "base", "left", "right") != nil {
-			writeError(w, http.StatusBadRequest, "invalid conflict choice")
-			return
-		}
-		choices[id] = side
+	choices, err := threeWayTextChoices(req.Choices)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	// Capture the base file's encoding/BOM/EOL before MergeLines streams it, so
 	// the written merge round-trips them instead of BOM-less UTF-8/LF (#159).
 	profile := threeway.ProfileOf(base)
-	lines, unresolved, err := threeway.MergeLines(base, result, choices, req.AllowUnresolved)
+	merged, unresolved, err := threeway.MergeLinesWithOrigins(base, result, choices, req.AllowUnresolved)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	merged = threeway.ApplyManual(merged, req.Manual)
+	lines := make([]string, len(merged))
+	for i, line := range merged {
+		lines[i] = line.Text
 	}
 	if err := threeway.WriteMerged(req.Output, lines, profile); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"output": req.Output, "conflicts": result.Conflicts, "unresolved": unresolved,
+		"provenance": threeway.CountOrigins(merged),
+	})
+}
+
+// handleThreeWayTextPreview resolves the current choices without writing, so
+// the GUI can show the merge result line by line before saving. It always
+// renders unresolved conflicts with markers, because the point of a preview is
+// to see the whole result (#257).
+func (s *Server) handleThreeWayTextPreview(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req threeWayTextRequest
+	if err := decodeDiffJSON(r.Body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	base, result, closeLines, err := threeWayTextResult(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer closeLines()
+	choices, err := threeWayTextChoices(req.Choices)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	merged, unresolved, err := threeway.MergeLinesWithOrigins(base, result, choices, true)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	merged = threeway.ApplyManual(merged, req.Manual)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lines": merged, "conflicts": result.Conflicts, "unresolved": unresolved,
+		"provenance": threeway.CountOrigins(merged),
+	})
 }

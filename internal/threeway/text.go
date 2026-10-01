@@ -172,25 +172,82 @@ func lineRange(source linediff.Lines, start, length uint64) []string {
 	return lines
 }
 
+// Origin names the document one line of a merge result came from. Manual marks
+// a line the user typed into the result; no input supplied it (#257).
+type Origin string
+
+const (
+	OriginBase   Origin = "base"
+	OriginLeft   Origin = "left"
+	OriginRight  Origin = "right"
+	OriginManual Origin = "manual"
+)
+
+// Provenance counts a merge result's lines by origin.
+type Provenance struct {
+	Base   int `json:"base"`
+	Left   int `json:"left"`
+	Right  int `json:"right"`
+	Manual int `json:"manual"`
+	Total  int `json:"total"`
+}
+
+// MergedLine is one line of a merge result together with its provenance. Key is
+// stable across conflict choices — it names the input line, not the output
+// position — so a manual override can be carried from a preview to the save
+// that follows it (#257).
+type MergedLine struct {
+	Text   string `json:"text"`
+	Origin Origin `json:"origin"`
+	Key    string `json:"key"`
+}
+
 // MergeLines selects automatic non-conflicts plus explicit conflict choices. A
 // conflict choice is a comma-joined list of sides ("left", "right", "base", or a
 // combination such as "left,right"), concatenated in the canonical
 // base→left→right order. Missing conflict choices are emitted with standard
 // conflict markers when allowUnresolved is true; otherwise an error is returned.
 func MergeLines(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]string, int, error) {
-	var output []string
+	merged, unresolved, err := MergeLinesWithOrigins(base, result, choices, allowUnresolved)
+	if err != nil {
+		return nil, unresolved, err
+	}
+	lines := make([]string, len(merged))
+	for i, line := range merged {
+		lines[i] = line.Text
+	}
+	return lines, unresolved, nil
+}
+
+// MergeLinesWithOrigins is MergeLines that also reports where each output line
+// came from, so a GUI can show per-line provenance and count what was adopted
+// versus typed (#257). Every output line carries one origin; the key of a line
+// stays the same when only a conflict choice changes.
+func MergeLinesWithOrigins(base linediff.Lines, result Result, choices map[int]string, allowUnresolved bool) ([]MergedLine, int, error) {
+	var output []MergedLine
 	var cursor uint64
 	unresolved := 0
+	appendBase := func(start, length uint64) {
+		for i := start; i < start+length; i++ {
+			line, ok := base.Line(i)
+			if !ok {
+				continue
+			}
+			output = append(output, MergedLine{Text: line, Origin: OriginBase, Key: fmt.Sprintf("b:%d", i)})
+		}
+	}
+	appendSide := func(eventID int, origin Origin, lines []string) {
+		for i, line := range lines {
+			output = append(output, MergedLine{Text: line, Origin: origin, Key: fmt.Sprintf("e%d:%s:%d", eventID, origin, i)})
+		}
+	}
 	for _, event := range result.Events {
-		output = append(output, lineRange(base, cursor, event.BaseStart-cursor)...)
-		var selected []string
+		appendBase(cursor, event.BaseStart-cursor)
 		switch event.Kind {
-		case LeftOnly:
-			selected = event.Left
+		case LeftOnly, Same:
+			appendSide(event.ID, OriginLeft, event.Left)
 		case RightOnly:
-			selected = event.Right
-		case Same:
-			selected = event.Left
+			appendSide(event.ID, OriginRight, event.Right)
 		case Conflict:
 			// A conflict may adopt more than one contribution ("both"): the
 			// recognized sides are concatenated in the canonical base→left→right
@@ -201,31 +258,80 @@ func MergeLines(base linediff.Lines, result Result, choices map[int]string, allo
 				if !allowUnresolved {
 					return nil, unresolved, fmt.Errorf("%d three-way conflicts are unresolved", unresolved)
 				}
-				selected = append(selected, "<<<<<<< LEFT")
-				selected = append(selected, event.Left...)
-				selected = append(selected, "||||||| BASE")
-				selected = append(selected, event.Base...)
-				selected = append(selected, "=======")
-				selected = append(selected, event.Right...)
-				selected = append(selected, ">>>>>>> RIGHT")
+				// Marker lines carry the origin of the section they open or
+				// close, so an unresolved block is still attributable (#257).
+				marker := 0
+				appendMarker := func(origin Origin, text string) {
+					output = append(output, MergedLine{Text: text, Origin: origin, Key: fmt.Sprintf("e%d:unresolved:%d", event.ID, marker)})
+					marker++
+				}
+				appendMarker(OriginLeft, "<<<<<<< LEFT")
+				for _, line := range event.Left {
+					appendMarker(OriginLeft, line)
+				}
+				appendMarker(OriginBase, "||||||| BASE")
+				for _, line := range event.Base {
+					appendMarker(OriginBase, line)
+				}
+				appendMarker(OriginBase, "=======")
+				for _, line := range event.Right {
+					appendMarker(OriginRight, line)
+				}
+				appendMarker(OriginRight, ">>>>>>> RIGHT")
 				break
 			}
 			for _, side := range adopted {
 				switch side {
 				case "base":
-					selected = append(selected, event.Base...)
+					appendSide(event.ID, OriginBase, event.Base)
 				case "left":
-					selected = append(selected, event.Left...)
+					appendSide(event.ID, OriginLeft, event.Left)
 				case "right":
-					selected = append(selected, event.Right...)
+					appendSide(event.ID, OriginRight, event.Right)
 				}
 			}
 		}
-		output = append(output, selected...)
 		cursor = event.BaseStart + event.BaseLen
 	}
-	output = append(output, lineRange(base, cursor, base.Count()-cursor)...)
+	appendBase(cursor, base.Count()-cursor)
 	return output, unresolved, nil
+}
+
+// ApplyManual replaces the text of every line whose key appears in overrides
+// and marks it manual. A caller that lets the user type into the merge result
+// passes the typed lines here, so the saved report and the preview agree that
+// they were not adopted from any side (#257).
+func ApplyManual(lines []MergedLine, overrides map[string]string) []MergedLine {
+	if len(overrides) == 0 {
+		return lines
+	}
+	applied := make([]MergedLine, len(lines))
+	copy(applied, lines)
+	for i := range applied {
+		if text, ok := overrides[applied[i].Key]; ok {
+			applied[i].Text = text
+			applied[i].Origin = OriginManual
+		}
+	}
+	return applied
+}
+
+// CountOrigins tallies a merge result by origin for a save report (#257).
+func CountOrigins(lines []MergedLine) Provenance {
+	provenance := Provenance{Total: len(lines)}
+	for _, line := range lines {
+		switch line.Origin {
+		case OriginLeft:
+			provenance.Left++
+		case OriginRight:
+			provenance.Right++
+		case OriginManual:
+			provenance.Manual++
+		case OriginBase:
+			provenance.Base++
+		}
+	}
+	return provenance
 }
 
 // The byte-level conventions of an input — encoding, BOM, terminator, final

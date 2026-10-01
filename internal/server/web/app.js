@@ -35,6 +35,12 @@ const {
 } = globalThis.AyameMinimap;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+const {
+  marker: provenanceMarker,
+  originClass: provenanceOriginClass,
+  labelKey: provenanceLabelKey,
+  breakdown: provenanceBreakdown,
+} = globalThis.AyameMergeProvenance;
 const { localChangeRegions, localChangeIndex, regionAt } = globalThis.AyameQuickDiff;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const { equivalenceTitleKey, alignmentProposal } = globalThis.AyameEquivalence;
@@ -1151,6 +1157,16 @@ function setMergeMode(on) {
   $("mergeMode").setAttribute("aria-pressed", on ? "true" : "false");
 }
 let threeWayData = null;
+// ---- Merge provenance (#257) ----
+// The server resolves the merge and reports each line's origin; the preview
+// only renders it. The manual map carries typed lines by their stable key, so
+// changing a conflict choice does not silently move an edit to another line.
+let mergePreview = null;
+let mergeManual = new Map();
+let mergePreviewToken = 0;
+let mergePreviewTimer = 0;
+let mergeLineEditor = null;
+let mergeComposing = false;
 
 // ---- External file changes (#251) ----
 // The server long-polls with os.Stat while the browser keeps the authenticated
@@ -3018,12 +3034,201 @@ async function renderThreeWay(data, csvMode) {
 function updateThreeWayMergeUI() {
 	$("allBase").hidden = false;
   $("mergePanel").hidden = !threeWayData;
+  syncMergeProvenancePanel();
   if (!threeWayData) return;
   for (const event of threeWayData.events) {
     syncMergeRow(mergeRowIndex.get(String(event.id)), event.id);
   }
   $("mergeUnresolved").textContent = t("unresolved", mergeSelection.unresolved(threeWayData.conflicts));
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
+  // A choice change rewrites the result, so an open preview has to follow it.
+  if (mergeProvenanceOpen()) scheduleMergePreview();
+}
+
+// The preview shows the result the save would write, one line per row, with
+// KDiff3's summary-column marker in the gutter. Manual is `m` and a grey wash,
+// so a typed line is never mistaken for an adopted one (#257).
+function mergeProvenanceOpen() {
+  const panel = $("mergeProvenance");
+  return Boolean(panel && !panel.hidden && panel.open);
+}
+
+function syncMergeProvenancePanel() {
+  const panel = $("mergeProvenance");
+  if (!panel) return;
+  // A CSV row is a record rather than a line and already carries its own
+  // origin, so per-line provenance is a text-mode view (#257).
+  const show = Boolean(threeWayData && !threeWayData.csvMode);
+  panel.hidden = !show;
+  if (!show) resetMergePreview();
+}
+
+function resetMergePreview() {
+  mergePreview = null;
+  mergeManual = new Map();
+  mergePreviewToken++;
+  if (mergePreviewTimer) { clearTimeout(mergePreviewTimer); mergePreviewTimer = 0; }
+  const counts = $("mergeProvenanceCounts");
+  if (counts) counts.textContent = "";
+  const lines = $("mergePreviewLines");
+  if (lines) lines.innerHTML = "";
+}
+
+function scheduleMergePreview() {
+  if (mergePreviewTimer) clearTimeout(mergePreviewTimer);
+  mergePreviewTimer = setTimeout(() => { mergePreviewTimer = 0; void refreshMergePreview(); }, 120);
+}
+
+async function refreshMergePreview() {
+  if (!threeWayData || threeWayData.csvMode || !mergeProvenanceOpen()) return;
+  const token = ++mergePreviewToken;
+  try {
+    const body = {
+      ...threeWayRequestBody(),
+      choices: mergeSelection.toWire(),
+      manual: Object.fromEntries(mergeManual),
+    };
+    const response = await apiFetch("/api/three-way/text/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw apiError(data, response);
+    if (token !== mergePreviewToken || !mergeProvenanceOpen()) return;
+    mergePreview = data;
+    // Drop edits whose input line the current choices no longer produce, so a
+    // stale override cannot come back with a later choice.
+    const keys = new Set((data.lines || []).map((line) => line.key));
+    for (const key of [...mergeManual.keys()]) if (!keys.has(key)) mergeManual.delete(key);
+    renderMergePreview();
+  } catch (err) {
+    if (token === mergePreviewToken) setStatus(String(err.message || err), "error");
+  }
+}
+
+function renderMergePreview() {
+  const container = $("mergePreviewLines");
+  if (!container) return;
+  closeMergeLineEditor({ commit: false });
+  container.innerHTML = "";
+  if (!mergePreview) return;
+  const fragment = document.createDocumentFragment();
+  (mergePreview.lines || []).forEach((line, index) => fragment.append(mergePreviewRow(line, index)));
+  container.append(fragment);
+  updateMergeProvenanceCounts();
+}
+
+function mergePreviewRow(line, index) {
+  const row = document.createElement("div");
+  row.className = `merge-preview-line ${provenanceOriginClass(line.origin)}`;
+  row.dataset.key = String(line.key || "");
+  row.dataset.index = String(index);
+  row.tabIndex = 0;
+  const gutter = document.createElement("span");
+  gutter.className = "merge-origin-marker";
+  const text = document.createElement("span");
+  text.className = "merge-line-text";
+  text.textContent = line.text;
+  row.append(gutter, text);
+  styleMergePreviewRow(row, line.origin);
+  row.addEventListener("click", () => openMergeLineEditor(row, line));
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openMergeLineEditor(row, line); }
+  });
+  return row;
+}
+
+function styleMergePreviewRow(row, origin) {
+  row.classList.remove("origin-base", "origin-left", "origin-right", "origin-manual");
+  row.classList.add(provenanceOriginClass(origin));
+  const marker = row.querySelector(".merge-origin-marker");
+  if (!marker) return;
+  marker.textContent = provenanceMarker(origin);
+  const label = t(provenanceLabelKey(origin));
+  marker.title = label;
+  marker.setAttribute("aria-label", label);
+}
+
+function updateMergeProvenanceCounts() {
+  const el = $("mergeProvenanceCounts");
+  if (!el) return;
+  if (!mergePreview) { el.textContent = ""; return; }
+  const counts = provenanceBreakdown(mergePreview.provenance);
+  el.textContent = t("mergeProvenanceCounts", {
+    adopted: counts.adopted.toLocaleString(),
+    base: counts.base.toLocaleString(),
+    left: counts.left.toLocaleString(),
+    right: counts.right.toLocaleString(),
+    manual: counts.manual.toLocaleString(),
+    unresolved: Number(mergePreview.unresolved || 0).toLocaleString(),
+  });
+}
+
+// A merged line is editable in place. The edit is held in mergeManual under the
+// line's key and sent with the save, so the written file and the report agree
+// on what was typed (#257).
+function openMergeLineEditor(row, line) {
+  if (!line || !row) return;
+  closeMergeLineEditor({ commit: true });
+  const text = row.querySelector(".merge-line-text");
+  if (!text) return;
+  const editor = document.createElement("textarea");
+  editor.className = "line-editor merge-line-editor";
+  editor.rows = 1;
+  editor.spellcheck = false;
+  editor.value = line.text;
+  editor.setAttribute("aria-label", t("mergeEditLine", { line: Number(row.dataset.index) + 1 }));
+  text.hidden = true;
+  row.classList.add("editing");
+  row.append(editor);
+  mergeLineEditor = { element: editor, row, line, before: line.text, beforeOrigin: line.origin };
+  editor.addEventListener("compositionstart", () => { mergeComposing = true; });
+  editor.addEventListener("compositionend", () => { mergeComposing = false; applyMergeLineEdit(); });
+  editor.addEventListener("input", () => { if (!mergeComposing) applyMergeLineEdit(); });
+  editor.addEventListener("click", (event) => event.stopPropagation());
+  editor.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.isComposing || mergeComposing) return;
+    if (event.key === "Escape") { event.preventDefault(); closeMergeLineEditor({ revert: true }); row.focus(); }
+    else if (event.key === "Enter") { event.preventDefault(); closeMergeLineEditor({ commit: true }); row.focus(); }
+  });
+  editor.addEventListener("blur", () => closeMergeLineEditor({ commit: true }));
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function applyMergeLineEdit() {
+  if (!mergeLineEditor) return;
+  const { element, row, line } = mergeLineEditor;
+  mergeManual.set(line.key, element.value);
+  line.text = element.value;
+  line.origin = "manual";
+  const text = row.querySelector(".merge-line-text");
+  if (text) text.textContent = element.value;
+  styleMergePreviewRow(row, "manual");
+}
+
+function closeMergeLineEditor(options = {}) {
+  if (!mergeLineEditor) return;
+  const { element, row, line, before, beforeOrigin } = mergeLineEditor;
+  mergeLineEditor = null;
+  mergeComposing = false;
+  if (options.revert) {
+    line.text = before;
+    line.origin = beforeOrigin;
+    if (beforeOrigin === "manual") mergeManual.set(line.key, before);
+    else mergeManual.delete(line.key);
+  } else if (options.commit && element.value !== before) {
+    line.text = element.value;
+    line.origin = "manual";
+    mergeManual.set(line.key, element.value);
+  } else {
+    line.text = before;
+    line.origin = beforeOrigin;
+  }
+  element.remove();
+  row.classList.remove("editing");
+  styleMergePreviewRow(row, line.origin);
+  const text = row.querySelector(".merge-line-text");
+  if (text) { text.hidden = false; text.textContent = line.text; }
+  updateMergeProvenanceCounts();
 }
 async function compareThreeWay(csvMode) {
   if (!$("base").value.trim() || !$("old").value.trim() || !$("new").value.trim()) { setStatus(t("enterPaths"), "error"); return false; }
@@ -3045,6 +3250,7 @@ async function compareThreeWay(csvMode) {
     const data = await response.json(); if (!response.ok) throw apiError(data, response);
     if (!isCurrentRequest(generation)) return false;
     threeWayData = null; resetMergeSelection(csvMode ? "threeway-csv" : "threeway"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
     clearInterval(timer);
     const rendered = await renderThreeWay(data, csvMode);
@@ -3069,8 +3275,19 @@ async function saveThreeWayMerge(previewConfirmed) {
   const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact)); if (!confirmOverwrite) return;
   const base = threeWayData.csvMode ? { ...csvRequestBody(), base: $("base").value.trim() } : threeWayRequestBody();
   const body = { ...base, output, choices: mergeSelection.toWire(), allowUnresolved, overwrite, confirmOverwrite };
+  // Typed result lines travel with the save so the file and the report agree
+  // on what was adopted and what was entered by hand (#257).
+  if (!threeWayData.csvMode && mergeManual.size) body.manual = Object.fromEntries(mergeManual);
   $("saveMerge").disabled = true;
-  try { const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw apiError(data, response); setStatus(t("mergeSaved", data.output), "success"); }
+  try {
+    const response = await apiFetch(`/api/merge/three-way/${threeWayData.csvMode ? "csv" : "text"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw apiError(data, response);
+    if (!threeWayData.csvMode && data.provenance) {
+      const counts = provenanceBreakdown(data.provenance);
+      setStatus(t("mergeSavedProvenance", { path: data.output, adopted: counts.adopted.toLocaleString(), manual: counts.manual.toLocaleString() }), "success");
+      if (mergePreview) { mergePreview.provenance = data.provenance; updateMergeProvenanceCounts(); }
+    } else setStatus(t("mergeSaved", data.output), "success");
+  }
   catch (err) { setStatus(String(err.message || err), "error"); } finally { $("saveMerge").disabled = false; }
 }
 
@@ -3848,6 +4065,7 @@ async function compareCSV() {
     const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
     threeWayData = null; resetMergeSelection("csv"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : "merged.csv";
     }
@@ -4282,6 +4500,7 @@ async function runCompare() {
     lastComparedRequest = JSON.stringify(body);
     threeWayData = null;
     resetMergeSelection("text"); mergeUndo = []; mergeRedo = [];
+    resetMergePreview();
     setMergeMode(false); // every fresh diff opens in reading mode (#100)
     if (!$("mergeOutput").value) {
       const source = $("old").value.trim();
@@ -5695,6 +5914,9 @@ $("mergeMode").addEventListener("click", () => { setMergeMode(!mergeMode); updat
 $("mergeUndo").addEventListener("click", undoMerge);
 $("mergeRedo").addEventListener("click", redoMerge);
 $("saveMerge").addEventListener("click", saveMergeResult);
+// The preview is a demand-driven server call, so it is fetched when opened and
+// refreshed on choice changes, never on load (#257).
+$("mergeProvenance").addEventListener("toggle", () => { if ($("mergeProvenance").open) void refreshMergePreview(); });
 $("simulateMerge").addEventListener("click", () => void previewMergeImpact());
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/ayame-editor/ayame-diff/internal/engine"
 	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
 
 func newTestServer(t *testing.T) http.Handler {
@@ -629,6 +630,71 @@ func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
 	}
 	data, _ := os.ReadFile(output)
 	if string(data) != "right\ntail\n" {
+		t.Fatalf("merged=%q", data)
+	}
+}
+
+// TestThreeWayTextPreviewAndProvenanceAPI covers the #257 preview endpoint and
+// the save report: the preview names each line's source, and the save counts
+// adopted versus manually typed lines.
+func TestThreeWayTextPreviewAndProvenanceAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt"), filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "a\nb\nc\n", left: "a\nB\nc\n", right: "a\nb\nC\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	req := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/text/preview", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var preview struct {
+		Lines      []threeway.MergedLine `json:"lines"`
+		Provenance threeway.Provenance   `json:"provenance"`
+		Unresolved int                   `json:"unresolved"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	wantProvenance := threeway.Provenance{Base: 1, Left: 1, Right: 1, Total: 3}
+	if len(preview.Lines) != 3 || preview.Unresolved != 0 || preview.Provenance != wantProvenance {
+		t.Fatalf("preview=%+v", preview)
+	}
+	var leftKey string
+	for _, line := range preview.Lines {
+		if line.Origin == threeway.OriginLeft {
+			leftKey = line.Key
+		}
+	}
+	if leftKey == "" {
+		t.Fatalf("preview has no left line: %+v", preview.Lines)
+	}
+	req.Output = output
+	req.Manual = map[string]string{leftKey: "typed"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var saved struct {
+		Provenance threeway.Provenance `json:"provenance"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	wantSaved := threeway.Provenance{Base: 1, Right: 1, Manual: 1, Total: 3}
+	if saved.Provenance != wantSaved {
+		t.Fatalf("saved provenance=%+v want=%+v", saved.Provenance, wantSaved)
+	}
+	data, _ := os.ReadFile(output)
+	if string(data) != "a\ntyped\nC\n" {
 		t.Fatalf("merged=%q", data)
 	}
 }

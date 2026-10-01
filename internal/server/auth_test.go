@@ -35,6 +35,7 @@ func TestAPIRequiresToken(t *testing.T) {
 		{http.MethodPost, "/api/csv/export", `{}`},
 		{http.MethodPost, "/api/merge/csv", `{}`},
 		{http.MethodPost, "/api/merge/three-way/text", `{}`},
+		{http.MethodPost, "/api/three-way/text/preview", `{}`},
 		{http.MethodPost, "/api/merge/three-way/csv", `{}`},
 		{http.MethodPost, "/api/project/save", `{}`},
 		{http.MethodPost, "/api/drop?session=x&name=y", "data"},

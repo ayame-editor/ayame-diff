@@ -528,6 +528,25 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .three-pane:last-child { border-right: 0; }
 .three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: var(--fs-label); }
 .three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); tab-size: var(--tab-size); -moz-tab-size: var(--tab-size); border-top: 1px solid var(--border); }
+/* Per-line provenance (#257). The gutter repeats KDiff3's summary column: the
+   adopted side's initial, and `m` for a line the user typed. Manual gets a grey
+   wash as well, because a letter alone is easy to miss while scanning. */
+.merge-provenance { margin-top: 0.5rem; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.merge-provenance > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-label); }
+.merge-provenance-hint { margin: 0.35rem 0 0.2rem; color: var(--muted); font-size: var(--fs-caption); }
+.merge-provenance-counts { margin: 0 0 0.35rem; font-variant-numeric: tabular-nums; font-size: var(--fs-label); }
+.merge-preview { max-height: 22rem; overflow: auto; border-top: 1px solid var(--border); }
+.merge-preview-line { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); align-items: start; cursor: text; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font: var(--fs-data) var(--mono); }
+.merge-preview-line:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.merge-origin-marker { padding: 0.12rem 0.2rem; color: var(--muted); font-weight: 600; text-align: center; user-select: none; }
+.merge-preview-line.origin-left .merge-origin-marker { color: var(--del-fg); }
+.merge-preview-line.origin-right .merge-origin-marker { color: var(--add-fg); }
+.merge-preview-line.origin-manual .merge-origin-marker { color: var(--gold); }
+.merge-preview-line.origin-manual { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.merge-preview-line.origin-manual .merge-line-text { font-style: italic; }
+.merge-line-text { padding: 0.12rem 0.45rem; white-space: pre-wrap; word-break: break-word; }
+.merge-preview-line.editing { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.merge-line-editor { width: 100%; box-sizing: border-box; }
 .three-event.conflict { border-color: var(--danger); }
 .three-event.same_change { border-color: var(--accent); }
 .three-event.merged { border-color: var(--add-fg); }
