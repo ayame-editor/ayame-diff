@@ -25,6 +25,12 @@ const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
 const { localChangeRegions, localChangeIndex, regionAt } = globalThis.AyameQuickDiff;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
 const {
+  requestFields: whitespaceRequestFields,
+  whitespaceMode: whitespaceScaleMode,
+  labelKey: whitespaceScaleLabelKey,
+  levelForWhitespace: whitespaceScaleLevel,
+} = globalThis.AyameWhitespaceScale;
+const {
   buildUnchangedRegions,
   initialContextRanges,
   missingContextSpans,
@@ -1243,7 +1249,7 @@ async function armFileWatchFromCurrentState() {
 const URL_STATE_MODES = new Set(["text", "sorted", "csv", "threeway", "threeway-csv", "dir"]);
 const URL_STATE_CONTROL_IDS = [
   "encoding", "numeric", "reverse",
-  "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters",
+  "ignoreCase", "whitespaceScale", "lineFilters",
   "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
   "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
   "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
@@ -2931,7 +2937,7 @@ function csvRequestBody() {
     leftParser: $("leftParser").value, rightParser: $("rightParser").value,
     leftDelimiter: $("leftDelimiter").value, rightDelimiter: $("rightDelimiter").value,
     lazyQuotes: $("lazyQuotes").checked, trimLeadingSpace: $("trimLeadingSpace").checked,
-    ignoreCase: $("ignoreCase").checked, whitespace: $("whitespace").value,
+    ignoreCase: $("ignoreCase").checked, whitespace: whitespaceScaleMode($("whitespaceScale").value),
     lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
     ignoreColumnNames: [], ignoreColumnIndexes: [], tolerance: $("tolerance").value === "" ? null : Number($("tolerance").value),
     columnTolerances: [], partitions: Number($("partitions").value), parseWorkers: Number($("parseWorkers").value),
@@ -3237,7 +3243,8 @@ function rememberComparison(body) {
 
 async function applyCSVProject(body) {
   $("old").value = body.old || ""; $("new").value = body.new || "";
-  for (const id of ["leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "whitespace", "memory", "tempDir", "partitionBuffer", "maxRecordBytes"]) if (body[id] != null) $(id).value = body[id];
+  for (const id of ["leftFormat", "rightFormat", "leftParser", "rightParser", "leftDelimiter", "rightDelimiter", "memory", "tempDir", "partitionBuffer", "maxRecordBytes"]) if (body[id] != null) $(id).value = body[id];
+  $("whitespaceScale").value = whitespaceScaleLevel(body.whitespace);
   for (const id of ["hasHeader", "alignColumnsByName", "lazyQuotes", "trimLeadingSpace", "ignoreCase", "keepTemp", "outputHeader"]) {
     const target = id === "alignColumnsByName" ? "alignColumns" : id; if (body[id] != null) $(target).checked = Boolean(body[id]);
   }
@@ -4124,10 +4131,8 @@ function requestBody() {
     numeric: $("numeric").checked,
     reverse: $("reverse").checked,
     ignoreCase: $("ignoreCase").checked,
-	ignoreEOL: $("ignoreEOL").checked,
-	ignoreTrailingEOL: $("ignoreTrailingEOL").checked,
+	...whitespaceRequestFields($("whitespaceScale").value),
 	lineFilters: $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-    whitespace: $("whitespace").value,
     detectMoves: $("detectMoves").checked,
     moveMinLines: Math.max(1, Number($("moveMinLines").value) || 2),
     syncPoints: syncPoints.map((point) => ({ ...point })),
@@ -4137,9 +4142,8 @@ function requestBody() {
 function activeFilters() {
 	const filters = [];
 	if ($("ignoreCase").checked) filters.push(t("ignoreCase"));
-	if ($("whitespace").value !== "none") filters.push(`${t("whitespace")}: ${$("whitespace").value}`);
-	if ($("ignoreEOL").checked) filters.push(t("ignoreEOL"));
-	if ($("ignoreTrailingEOL").checked) filters.push(t("ignoreTrailingEOL"));
+	const whitespaceLevel = $("whitespaceScale").value;
+	if (whitespaceLevel !== "strict") filters.push(`${t("whitespaceScale")}: ${t(whitespaceScaleLabelKey(whitespaceLevel))}`);
 	for (const pattern of $("lineFilters").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))
 	  filters.push(`/${pattern}/`);
 	return filters;
