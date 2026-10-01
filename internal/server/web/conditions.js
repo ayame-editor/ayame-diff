@@ -20,9 +20,10 @@
 
   const WHITESPACE_VALUES = ["none", "change", "all"];
   const CASE_VALUES = ["distinguish", "ignore"];
-  // The two EOL booleans the settings dialog exposes collapse into one control
-  // with four states, which is what keeps the toolbar bounded.
+  // The settings dialog exposes whitespace and EOL as one monotonic scale
+  // (#259); the toolbar mirrors it as two derived rows, so this stays bounded.
   const EOL_VALUES = ["as-is", "eol", "trailing", "both"];
+  const SCALE_VALUES = ["strict", "eol", "eol-change", "eol-all"];
   const MOVE_VALUES = ["off", "detect"];
 
   // One entry per toolbar row, in display order. `element` is the control's id
@@ -60,15 +61,32 @@
     return String(value).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).length;
   }
 
+  // scaleFor maps the two toolbar dimensions back onto the single settings
+  // control. change/all always ignore line endings on the scale, so an
+  // "as-is" EOL with a non-default whitespace is read as the closest level.
+  function scaleFor(whitespace, eol) {
+    if (whitespace === "all") return "eol-all";
+    if (whitespace === "change") return "eol-change";
+    return eol === "as-is" ? "strict" : "eol";
+  }
+
   // readPolicy turns the raw settings-control state into the compact vocabulary
-  // the toolbar speaks.
+  // the toolbar speaks. The whitespaceScale control is the source of truth
+  // (#259); the legacy individual booleans are still understood so stored
+  // policy and the pure tests can describe either shape.
   function readPolicy(raw = {}) {
+    let whitespace = WHITESPACE_VALUES.includes(raw.whitespace) ? raw.whitespace : "none";
     let eol = "as-is";
     if (raw.ignoreEOL && raw.ignoreTrailingEOL) eol = "both";
     else if (raw.ignoreEOL) eol = "eol";
     else if (raw.ignoreTrailingEOL) eol = "trailing";
+    if (SCALE_VALUES.includes(raw.whitespaceScale)) {
+      const scale = raw.whitespaceScale;
+      whitespace = scale === "eol-change" ? "change" : scale === "eol-all" ? "all" : "none";
+      eol = scale === "strict" ? "as-is" : "eol";
+    }
     return {
-      whitespace: WHITESPACE_VALUES.includes(raw.whitespace) ? raw.whitespace : "none",
+      whitespace,
       case: raw.ignoreCase ? "ignore" : "distinguish",
       eol,
       filters: lineFilterCount(raw.lineFilters),
@@ -76,21 +94,22 @@
     };
   }
 
-  // writePolicy maps a toolbar selection back onto the settings controls it
-  // owns. The filter definitions are not editable from the toolbar, and the
-  // numeric tuning is not represented here at all.
-  function writePolicy(control, value) {
+  // writePolicy maps a toolbar selection back onto the settings control it
+  // owns. Both the whitespace and EOL rows write the shared scale, so the
+  // current policy is passed in to preserve the other dimension. The filter
+  // definitions are not editable from the toolbar, and the numeric tuning is
+  // not represented here at all.
+  function writePolicy(control, value, current = {}) {
+    const ws = WHITESPACE_VALUES.includes(current.whitespace) ? current.whitespace : "none";
+    const curEol = current.eol === "as-is" ? "as-is" : "eol";
     switch (control) {
       case "whitespace":
-        return WHITESPACE_VALUES.includes(value) ? { whitespace: value } : {};
+        return WHITESPACE_VALUES.includes(value) ? { whitespaceScale: scaleFor(value, curEol) } : {};
       case "case":
         return CASE_VALUES.includes(value) ? { ignoreCase: value === "ignore" } : {};
       case "eol":
         if (!EOL_VALUES.includes(value)) return {};
-        return {
-          ignoreEOL: value === "eol" || value === "both",
-          ignoreTrailingEOL: value === "trailing" || value === "both",
-        };
+        return { whitespaceScale: scaleFor(ws, value === "as-is" ? "as-is" : "eol") };
       case "moves":
         return MOVE_VALUES.includes(value) ? { detectMoves: value === "detect" } : {};
       default:
@@ -142,6 +161,7 @@
     WHITESPACE_VALUES,
     CASE_VALUES,
     EOL_VALUES,
+    SCALE_VALUES,
     MOVE_VALUES,
     TOOLBAR_CONTROLS,
     lineFilterCount,

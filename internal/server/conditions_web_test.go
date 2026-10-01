@@ -41,8 +41,8 @@ func TestConditionToolbarIsPermanentAndReflectsPolicy(t *testing.T) {
 	// would either grow the toolbar or leave it without a source of truth.
 	dialog := sectionBetween(t, index, `<dialog id="settingsDialog"`, `</dialog>`)
 	for _, id := range []string{
-		`id="lineFilters"`, `id="detectMoves"`, `id="whitespace"`, `id="ignoreCase"`,
-		`id="ignoreEOL"`, `id="ignoreTrailingEOL"`, `id="moveMinLines"`, `id="contextLines"`,
+		`id="lineFilters"`, `id="detectMoves"`, `id="whitespaceScale"`, `id="ignoreCase"`,
+		`id="moveMinLines"`, `id="contextLines"`,
 	} {
 		if !strings.Contains(dialog, id) {
 			t.Errorf("%s left the settings dialog; it is a tuning value or the source of truth", id)
@@ -65,7 +65,7 @@ func TestConditionToolbarIsPermanentAndReflectsPolicy(t *testing.T) {
 		"function syncConditionToolbar(",
 		"function applyConditionToolbar(",
 		"readConditionPolicy({",
-		"writeConditionPolicy(control, value)",
+		"writeConditionPolicy(control, value, currentConditionPolicy())",
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js is missing condition-toolbar wiring %q", want)
@@ -83,7 +83,7 @@ func TestConditionToolbarIsPermanentAndReflectsPolicy(t *testing.T) {
 	}
 	// The dialog edits the same controls, so a change there has to re-run too or
 	// the toolbar status and the shown result could disagree.
-	if !strings.Contains(app, `["ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters", "detectMoves"]`) {
+	if !strings.Contains(app, `["ignoreCase", "whitespaceScale", "lineFilters", "detectMoves"]`) {
 		t.Error("a comparison-condition change in Settings does not re-run the comparison")
 	}
 }

@@ -12,11 +12,16 @@ type InputInspection struct {
 	LeftHeader       []string `json:"left_header"`
 	RightHeader      []string `json:"right_header"`
 	ColumnCount      int      `json:"column_count"`
+	HasHeader        bool     `json:"has_header"`
 	LeftFormat       string   `json:"left_format"`
 	RightFormat      string   `json:"right_format"`
 	LeftParser       string   `json:"left_parser"`
 	RightParser      string   `json:"right_parser"`
 	ColumnsReordered bool     `json:"columns_reordered"`
+	// ColumnSetMatches reports whether both headers name the same set of
+	// columns, regardless of order. It lets a client distinguish "reordered"
+	// from "renamed or mismatched" without re-reading the inputs (#116).
+	ColumnSetMatches bool `json:"column_set_matches"`
 }
 
 func InspectInputs(cfg Config) (InputInspection, error) {
@@ -50,9 +55,11 @@ func InspectInputs(cfg Config) (InputInspection, error) {
 	return InputInspection{
 		Header: append([]string(nil), resolved.Header...), LeftHeader: append([]string(nil), leftInfo.Header...),
 		RightHeader: append([]string(nil), rightInfo.Header...), ColumnCount: resolved.ColumnCount,
+		HasHeader:  cfg.HasHeader,
 		LeftFormat: inputFormatLabel(leftSpec), RightFormat: inputFormatLabel(rightSpec),
 		LeftParser: parserLabel(leftSpec.Parser), RightParser: parserLabel(rightSpec.Parser),
 		ColumnsReordered: cfg.HasHeader && !reflect.DeepEqual(leftInfo.Header, rightInfo.Header),
+		ColumnSetMatches: cfg.HasHeader && sameHeaderSet(leftInfo.Header, rightInfo.Header),
 	}, nil
 }
 

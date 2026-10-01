@@ -15,14 +15,12 @@ const {
 test("the toolbar vocabulary is derived from the settings controls", () => {
   assert.deepEqual(
     readPolicy({
-      whitespace: "change",
+      whitespaceScale: "eol-change",
       ignoreCase: true,
-      ignoreEOL: true,
-      ignoreTrailingEOL: true,
       lineFilters: "alpha\n\n  beta  \n",
       detectMoves: true,
     }),
-    { whitespace: "change", case: "ignore", eol: "both", filters: 2, moves: "detect" },
+    { whitespace: "change", case: "ignore", eol: "eol", filters: 2, moves: "detect" },
   );
 });
 
@@ -32,10 +30,13 @@ test("a missing or nonsensical policy reads as the all-defaults state", () => {
   assert.deepEqual(readPolicy({ whitespace: "bogus", ignoreCase: false }), defaults);
 });
 
-test("the two EOL toggles collapse into the four states of one control", () => {
+test("the whitespace scale collapses the legacy toggles into one control", () => {
+  assert.equal(readPolicy({ whitespaceScale: "strict" }).eol, "as-is");
+  assert.equal(readPolicy({ whitespaceScale: "eol" }).eol, "eol");
+  assert.equal(readPolicy({ whitespaceScale: "eol-change" }).whitespace, "change");
+  assert.equal(readPolicy({ whitespaceScale: "eol-all" }).whitespace, "all");
+  // The legacy individual booleans are still understood.
   assert.equal(readPolicy({ ignoreEOL: true }).eol, "eol");
-  assert.equal(readPolicy({ ignoreTrailingEOL: true }).eol, "trailing");
-  assert.equal(readPolicy({ ignoreEOL: true, ignoreTrailingEOL: true }).eol, "both");
 });
 
 test("the line-filter count accepts the textarea, an array, or a number", () => {
@@ -46,10 +47,11 @@ test("the line-filter count accepts the textarea, an array, or a number", () => 
 });
 
 test("a toolbar change writes only the settings that control owns", () => {
-  assert.deepEqual(writePolicy("whitespace", "all"), { whitespace: "all" });
+  assert.deepEqual(writePolicy("whitespace", "all"), { whitespaceScale: "eol-all" });
   assert.deepEqual(writePolicy("case", "ignore"), { ignoreCase: true });
-  assert.deepEqual(writePolicy("eol", "trailing"), { ignoreEOL: false, ignoreTrailingEOL: true });
-  assert.deepEqual(writePolicy("eol", "both"), { ignoreEOL: true, ignoreTrailingEOL: true });
+  // Both rows write the shared scale, preserving the other dimension.
+  assert.deepEqual(writePolicy("eol", "eol", { whitespace: "change", eol: "as-is" }), { whitespaceScale: "eol-change" });
+  assert.deepEqual(writePolicy("eol", "as-is", { whitespace: "none", eol: "eol" }), { whitespaceScale: "strict" });
   assert.deepEqual(writePolicy("moves", "off"), { detectMoves: false });
 });
 
@@ -67,7 +69,7 @@ test("every toolbar row shows its current value, and filters are one row not N",
     return arg ? `${key}:${arg.count}` : key;
   };
   const rows = describeConditions(
-    readPolicy({ whitespace: "change", ignoreCase: true, ignoreEOL: true, lineFilters: "a\nb", detectMoves: true }),
+    readPolicy({ whitespaceScale: "eol-change", ignoreCase: true, lineFilters: "a\nb", detectMoves: true }),
     t,
   );
   assert.deepEqual(rows.map((row) => row.id), ["whitespace", "case", "eol", "filters", "moves"]);
@@ -88,8 +90,8 @@ test("a filter count of zero reads as off rather than an empty count", () => {
 
 test("the active set names exactly the non-default conditions", () => {
   assert.deepEqual(activeConditionIds(readPolicy()), []);
-  assert.deepEqual(activeConditionIds(readPolicy({ whitespace: "all", ignoreCase: true })), ["whitespace", "case"]);
-  assert.deepEqual(activeConditionIds(readPolicy({ ignoreTrailingEOL: true, lineFilters: "x", detectMoves: true })), ["eol", "filters", "moves"]);
+  assert.deepEqual(activeConditionIds(readPolicy({ whitespaceScale: "eol-all", ignoreCase: true })), ["whitespace", "case", "eol"]);
+  assert.deepEqual(activeConditionIds(readPolicy({ whitespaceScale: "eol", lineFilters: "x", detectMoves: true })), ["eol", "filters", "moves"]);
   assert.equal(isDefault(readPolicy()), true);
   assert.equal(isDefault(readPolicy({ detectMoves: true })), false);
 });

@@ -68,22 +68,29 @@ func TestConfirmDialogRestoresFocus(t *testing.T) {
 }
 
 // TestShortcutListIsGeneratedFromOneSource keeps the help from drifting away
-// from the handlers it documents.
+// from the handlers it documents. Since #285 the chords live in keymap.js and
+// the dialog renders the resolved bindings, so the defaults are checked in the
+// module and the wiring in app.js.
 func TestShortcutListIsGeneratedFromOneSource(t *testing.T) {
 	t.Parallel()
 	app := readWebAsset(t, "app.js")
-	if !strings.Contains(app, "const SHORTCUTS = [") {
-		t.Fatal("the shortcut list is not defined in one place")
+	module := readWebAsset(t, "keymap.js")
+
+	if !strings.Contains(app, "function showShortcuts(") {
+		t.Fatal("app.js does not build the shortcut dialog")
 	}
-	list := sectionBetween(t, app, "const SHORTCUTS = [", "];")
-	// The bindings the app actually installs must appear in the help.
-	for _, keys := range []string{"Alt+↓", "Ctrl+F", "Esc", "Alt+B"} {
-		if !strings.Contains(list, keys) {
-			t.Errorf("the shortcut help omits %s", keys)
+	help := renderFunctionBody(t, app, "function showShortcuts(")
+	if !strings.Contains(help, "SHORTCUT_ACTIONS") || !strings.Contains(help, "keyBindings") {
+		t.Error("the shortcut help does not render the live bindings")
+	}
+	// The bindings the app installs are the module's defaults.
+	for _, keys := range []string{"Alt+ArrowDown", "Ctrl+F", "Escape", "Alt+B"} {
+		if !strings.Contains(module, keys) {
+			t.Errorf("keymap.js omits the default binding %s", keys)
 		}
 	}
 	// Entries are i18n keys, not baked-in English.
-	if strings.Contains(list, "Next / previous difference") {
+	if strings.Contains(help, "Next / previous difference") {
 		t.Error("the shortcut help hardcodes English instead of using translation keys")
 	}
 }
