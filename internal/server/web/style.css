@@ -264,6 +264,24 @@ input[type="text"] {
    move detection is off, #124) so the dependency reads as inactive, matching
    button:disabled below. */
 .opt:has(input:disabled, select:disabled) { opacity: 0.5; }
+/* The input shape is a segmented control rather than a dropdown (#263): it is
+   the first of two orthogonal axes, and the options are few and read at a
+   glance. The reading axis lives on the result toolbar instead. */
+.input-shape {
+  display: flex; align-items: stretch; gap: 0; margin: 0; padding: 0; border: 0;
+}
+.input-shape label {
+  display: inline-flex; align-items: center; gap: 0.3rem; margin-left: -1px;
+  padding: 0.3rem 0.6rem; border: 1px solid var(--border);
+  color: var(--muted); font-size: var(--fs-label); cursor: pointer;
+}
+.input-shape label:first-of-type { border-radius: var(--radius-control) 0 0 var(--radius-control); margin-left: 0; }
+.input-shape label:last-of-type { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
+.input-shape label:has(input:checked) {
+  color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  position: relative; z-index: 1;
+}
+.input-shape input { margin: 0; }
 button {
   margin-left: auto; padding: 0.5rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--fg); font-weight: 600; cursor: pointer;

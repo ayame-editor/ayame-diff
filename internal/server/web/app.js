@@ -65,6 +65,14 @@ const {
 } = globalThis.AyameSuggest;
 const { resultLines: threeWayResultLines, panes: threeWayPanes } = globalThis.AyameThreeWayView;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
+// The two axes behind the flat `mode` value (#263): the input shape and the
+// reading. composeMode/decomposeMode keep the GUI from enumerating the cross
+// product the old dropdown exposed.
+const {
+  interpretationsFor,
+  composeMode,
+  decomposeMode,
+} = globalThis.AyameModeAxes;
 const {
   isJapaneseLegacy,
   encodingMismatch,
@@ -457,10 +465,6 @@ async function enterEditMode(options = {}) {
 // let the comparison run on what is now on disk, then re-open the panes on that
 // content so the user stays in the mode they chose.
 let editReloadPending = false;
-// The mode a refused switch has to be put back to.
-let editModeValue = "text";
-// Kept in step with the control wherever the app sets the mode itself.
-function rememberEditMode() { editModeValue = $("mode").value; }
 
 document.addEventListener("ayame:discard-unsaved-changes", () => {
   if (!editingEnabled()) return;
@@ -930,6 +934,8 @@ async function renderContinuous(data, body) {
   clearUnchangedContext();
   $("syncPanel").hidden = true; $("mergePanel").hidden = true;
   $("diffNav").hidden = false;
+  // Folder results have no reading axis (#263).
+  syncInterpretationVisibility();
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
   for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle", "confirmCounter", "prevUnconfirmed", "nextUnconfirmed"]) {
@@ -5361,6 +5367,22 @@ function csvAlignProposalCard(data) {
 // (#154).
 let csvView = null;
 
+// CSV results used to hide the whole result toolbar. The reading axis lives on
+// that toolbar now, so the bar stays and only the controls that describe a line
+// diff are tucked away, leaving the reading (and the copy-link) reachable
+// (#263).
+function showCSVToolbar() {
+  $("diffNav").hidden = false;
+  for (const id of [
+    "firstDiff", "prevDiff", "diffCounter", "nextDiff", "lastDiff",
+    "viewModeWrap", "contextToggle", "dirStatusWrap", "dirSearchWrap",
+    "dirContinuous", "backToFolder", "sidebarToggle", "addSync", "clearSync",
+    "editMode", "mergeMode",
+  ]) {
+    const node = $(id); if (node) node.hidden = true;
+  }
+}
+
 // renderCSV builds one page of the table (CSV_PAGE_SIZE rows), which is bounded
 // by construction, so unlike the text, three-way, folder and continuous paths it
 // does not slice: the remaining rows arrive one page at a time through
@@ -5373,7 +5395,7 @@ function renderCSV(data) {
   void refreshSuggestions();
   csvView = null;
   syncExportPatchVisibility();
-  minimapHasMarkers = false; $("diffNav").hidden = true; $("syncPanel").hidden = true; $("minimap").hidden = true;
+  minimapHasMarkers = false; showCSVToolbar(); $("syncPanel").hidden = true; $("minimap").hidden = true;
   // The rows this index pointed at are about to be replaced. Updating the merge
   // UI here would only toggle classes on nodes that are discarded below; the
   // call after the table is built is the one that matters (#154).
@@ -5790,6 +5812,9 @@ async function renderDirectory(data, body, state = {}) {
     const node = $(id); if (node) node.hidden = true;
   }
   syncExportPatchVisibility();
+  // A folder has no reading axis; make sure the control a previous file result
+  // may have shown is gone (#263).
+  syncInterpretationVisibility();
   $("mergePanel").hidden = true;
   const summary = $("summary"); summary.innerHTML = "";
   // The rows are marked + − ~ =, which nothing explained. Putting each marker on
@@ -7127,6 +7152,83 @@ async function runExportPatch() {
   }
 }
 
+// ---- two axes behind one mode (#263) ----
+// `#mode` is the flat value the API still takes. The visible controls are
+// projections of it: the input shape (what is compared) on the setup side, and
+// the reading (how it is read) on the result toolbar. Every path that sets
+// `#mode` runs through syncModeOpts, which reflects it back into both controls,
+// so the two axes can never drift from the value a request will send.
+function readInputShape() {
+  return document.querySelector('input[name="inputShape"]:checked')?.value || "two";
+}
+
+// readInterpretation clamps the toolbar value to what the shape supports, so a
+// reading left over from another shape can never be composed into a mode.
+function readInterpretation() {
+  const shape = readInputShape();
+  const value = $("interpretation").value;
+  return interpretationsFor(shape).includes(value) ? value : (interpretationsFor(shape)[0] || "");
+}
+
+// syncModeAxes reflects the canonical mode into the two visible controls.
+function syncModeAxes() {
+  const { shape, interpretation } = decomposeMode($("mode").value);
+  const shapeInput = document.querySelector(`input[name="inputShape"][value="${shape}"]`);
+  if (shapeInput) shapeInput.checked = true;
+  const select = $("interpretation");
+  if (!select) return;
+  const supported = new Set(interpretationsFor(shape));
+  for (const option of select.options) option.disabled = !supported.has(option.value);
+  select.value = supported.has(interpretation) ? interpretation : (interpretationsFor(shape)[0] || "text");
+  select.disabled = supported.size < 2;
+}
+
+// setMode writes the canonical value and keeps the visible axes in step.
+function setMode(mode) {
+  $("mode").value = mode;
+  syncModeAxes();
+}
+
+// syncInterpretationVisibility shows the reading control only where a reading
+// exists: a folder result compares names and bytes, not a file to interpret.
+function syncInterpretationVisibility() {
+  const { shape } = decomposeMode($("mode").value);
+  const wrap = $("interpretWrap");
+  if (wrap) wrap.hidden = interpretationsFor(shape).length === 0;
+  syncModeAxes();
+}
+
+// changeInputShape recomposes the mode after the user picks a different shape.
+// Like the old mode dropdown it only reconfigures the form; the user runs the
+// comparison with **Compare**, so picking a shape whose paths are not ready
+// does not fire a request that can only fail.
+async function changeInputShape() {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {
+    syncModeAxes();
+    await compare();
+    return;
+  }
+  setMode(composeMode(readInputShape(), readInterpretation()));
+  syncModeOpts();
+  stopFileWatch();
+}
+
+// changeInterpretation is the reading axis: it re-runs the comparison with the
+// same inputs so a new reading can be tried and reverted after a result exists
+// (#263). It is the whole point of moving the axis to the result toolbar.
+async function changeInterpretation() {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {
+    syncModeAxes();
+    await compare();
+    return;
+  }
+  setMode(composeMode(readInputShape(), $("interpretation").value));
+  syncModeOpts();
+  stopFileWatch();
+  if (hasComparisonResult()) await compare({ urlHistory: "replace" });
+  else scheduleComparisonURLReplace();
+}
+
 // downloadBlob hands a server-built attachment to the browser without leaving
 // an object URL behind.
 function downloadBlob(blob, filename) {
@@ -7195,6 +7297,8 @@ function syncModeOpts() {
 	$("dirOptions").hidden = !directory;
 	$("scratch").closest("label").hidden = structured;
 	if (structured && $("scratch").checked) { $("scratch").checked = false; applyScratch(); }
+	// Pasting text is a two-file text comparison with no shape to choose.
+	$("inputShapeGroup").hidden = $("scratch").checked;
 	for (const id of ["encoding", "window", "maxHunks", "maxLines", "word", "detectMoves", "moveMinLines", "patchFormat", "patchContext", "wrap", "syntax", "showWs"]) {
 		const node = $(id), holder = node?.closest("label") || node;
 		if (holder) holder.hidden = structured;
@@ -7210,6 +7314,7 @@ function syncModeOpts() {
 	}
 	syncMoveMinLines();
 	syncExportPatchVisibility();
+	syncInterpretationVisibility();
 	syncConditionToolbar();
 	if (csv) updateCSVReview();
 }
@@ -8116,23 +8221,14 @@ $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
 $("cancel").addEventListener("click", cancelCurrentOperation);
-// The refusal has to put the control back itself. The event object is not a
-// reliable handle by the time the dialog resolves, so the element is looked up
-// again rather than read off the event.
-// A refused switch has to undo what the change already set in motion: the other
-// change listeners ran before the question could be asked, so putting the value
-// back is not enough on its own. Nothing is lost either way — the buffers only
-// die when the user says so.
-$("mode").addEventListener("change", async () => {
-  if (editingEnabled() && !(await guardUnsavedEdits())) {
-    $("mode").value = editModeValue;
-    syncModeOpts();
-    await compare();
-    return;
-  }
-  editModeValue = $("mode").value;
-  syncModeOpts();
-});
+// The two axes (#263). A refused switch restores the controls from the
+// canonical mode rather than from a remembered value, so the radios and the
+// select always agree with what a request would send. Nothing is lost either
+// way — the buffers only die when the user says so.
+for (const input of document.querySelectorAll('input[name="inputShape"]')) {
+  input.addEventListener("change", changeInputShape);
+}
+$("interpretation").addEventListener("change", changeInterpretation);
 $("detectMoves").addEventListener("change", syncMoveMinLines);
 $("setup").addEventListener("input", syncExportPatchVisibility);
 $("setup").addEventListener("change", syncExportPatchVisibility);
@@ -8571,6 +8667,8 @@ function applyScratch() {
   const on = $("scratch").checked;
   syncLaunchPathsVisibility();
   $("scratchArea").hidden = !on;
+  // Pasting text is a two-file comparison; there is no shape to pick.
+  $("inputShapeGroup").hidden = on;
   syncCopyComparisonURLVisibility();
 }
 $("scratch").addEventListener("change", async () => {
@@ -8620,8 +8718,10 @@ if (comparisonURLHasState()) {
   if (launch.has("base")) $("base").value = launch.get("base");
   if (launch.has("old")) $("old").value = launch.get("old");
   if (launch.has("new")) $("new").value = launch.get("new");
-  if (URL_STATE_MODES.has(launch.get("mode"))) $("mode").value = launch.get("mode");
-  if (launch.has("base") || launch.has("old") || launch.has("new")) { csvInspection = null; syncModeOpts(); }
+  if (URL_STATE_MODES.has(launch.get("mode"))) setMode(launch.get("mode"));
+  if (launch.has("base") || launch.has("old") || launch.has("new")) csvInspection = null;
+  // Reflect whichever mode arrived (or the default) into both axes.
+  syncModeOpts();
   syncCompareReady();
   syncLaunchPathsVisibility();
   const launchReady = $("old").value && $("new").value && (!$("basePathRow").hidden ? $("base").value : true);

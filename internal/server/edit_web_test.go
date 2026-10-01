@@ -105,7 +105,10 @@ func TestUnsavedEditsAreVisibleAndGuarded(t *testing.T) {
   const value = input.value.trim();
   if (value === comparedPath || busyOperation) return;
   if (!(await guardUnsavedEdits())) {`,
-		`$("mode").addEventListener("change", async () => {
+		// The mode dropdown split into two axes (#263); both still guard.
+		`async function changeInputShape() {
+  if (editingEnabled() && !(await guardUnsavedEdits())) {`,
+		`async function changeInterpretation() {
   if (editingEnabled() && !(await guardUnsavedEdits())) {`,
 		`$("scratch").addEventListener("change", async () => {
   if (editingEnabled() && !(await guardUnsavedEdits())) {`,

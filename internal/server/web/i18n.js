@@ -107,9 +107,12 @@
       externalReloaded: "外部変更を反映して比較結果を更新しました。",
       watchFailed: (v) => `外部変更の監視を継続できません: ${v.message}`,
       hunks: "ハンク", added: "追加", deleted: "削除", modified: "変更",
-      // mode select + folder status-filter options, translated so JA follows (#125)
+      // mode / reading labels + folder status-filter options, translated so JA follows (#125).
+      // The flat mode dropdown became two axes (#263): these keys now label the
+      // reading choices and the folder shape.
       modeText: "テキスト", modeSorted: "ソート済み", modeCsv: "CSV / TSV",
       modeFolder: "フォルダ", modeThreeway: "3-way テキスト", modeThreewayCsv: "3-way CSV",
+      compareShape: "比べる対象", shapeTwoFiles: "ファイル2つ", shapeThreeFiles: "ファイル3つ", readAs: "読み方",
       statusDifferent: "差分あり", statusAll: "すべて",
       // summary labels shared by the CSV / folder / 3-way renderers (#125)
       changed: "変更", removed: "削除", same: "一致", left: "左", right: "右",
@@ -416,6 +419,7 @@
       hunks: "hunks", added: "added", deleted: "deleted", modified: "modified",
       modeText: "text", modeSorted: "sorted", modeCsv: "csv / tsv",
       modeFolder: "folder", modeThreeway: "3-way text", modeThreewayCsv: "3-way csv",
+      compareShape: "Compare", shapeTwoFiles: "2 files", shapeThreeFiles: "3 files", readAs: "Read as",
       statusDifferent: "different", statusAll: "all",
       changed: "changed", removed: "removed", same: "same", left: "left", right: "right",
       sideBase: "BASE", sideLeft: "LEFT", sideRight: "RIGHT",
