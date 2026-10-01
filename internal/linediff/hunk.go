@@ -51,6 +51,12 @@ type Hunk struct {
 	// MovePeer is the corresponding 0-based line in the opposite document.
 	MoveID   uint64
 	MovePeer uint64
+	// Downgraded marks a difference that the active ignore options consider
+	// equal: a whitespace-only (or case-only) line pair. It is set only when
+	// Options.MarkDowngraded is true. The caller may render it subdued and
+	// keep it out of navigation and the difference counts, so a dismissed
+	// difference stays visible instead of disappearing (#269).
+	Downgraded bool
 }
 
 // Result is the outcome of a diff: the surviving hunks (capped at the caller's
@@ -71,8 +77,16 @@ type Result struct {
 	Modified     uint64
 	MovedBlocks  uint64
 	MovedLines   uint64
+	// LargestHunk is the size, in lines, of the largest hunk: the greater of
+	// its old and new extents. It is computed for every hunk, including ones
+	// omitted from Hunks by MaxHunks, so it describes the whole file (#120).
+	LargestHunk uint64
 	// MoveDetectionSkipped is true when move detection was requested but the
 	// retained hunk set was truncated, so a complete answer was impossible.
 	MoveDetectionSkipped bool
 	IgnoredHunks         uint64
+	// DowngradedHunks counts hunks marked Hunk.Downgraded, including any that
+	// the max-hunk cap kept out of Hunks. They are deliberately not part of
+	// HunkCount or the Added/Deleted/Modified line statistics (#269).
+	DowngradedHunks uint64
 }
