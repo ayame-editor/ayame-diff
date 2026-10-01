@@ -266,6 +266,31 @@ recursively polling an arbitrarily large tree on every save would violate the
 bounded-resource guarantees. Opening a changed folder entry as a text
 comparison watches that file pair normally.
 
+### Theme and colours
+
+The View menu chooses a theme (system, light, dark) and a colour scheme
+(default, colorblind, or **custom**). **Customize colors…** opens an editor over
+the design tokens that drive the whole result: the ground and text colours, the
+accent and status ramp, the addition/deletion/change washes and their word
+highlights, and the font family and size tokens. Each edit is painted onto the
+page as it is made, so the comparison already on screen is the preview rather
+than a separate sample.
+
+A theme is a JSON object of token overrides with a base (system, light, or dark)
+and a name. **Save** stores it in the browser under that name and lists it in
+the editor; **Copy JSON** and **Import JSON** move a theme between machines, so
+a team can standardise a palette. **Reset to preset** returns to a shipped
+preset (Ayame Light/Dark, WinMerge, VS Code Dark+, Solarized Light, or High
+contrast).
+
+Under the token editor the dialog reports the WCAG contrast ratio of each
+foreground/background pair the palette implies — body text on the ground, the
+accent button label, and each diff foreground over its wash — and marks every
+pair below the AA threshold. A custom palette therefore cannot reintroduce the
+unreadable colour-on-colour case of #150 without a visible warning.
+
+Theme and colour choices are global browser preferences, shared by every tab.
+
 ### Comparison URLs and browser history
 
 After a successful file-backed comparison, the GUI stores the input paths,

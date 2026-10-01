@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -567,5 +569,83 @@ func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	}
 	if !strings.Contains(block, "color-mix(") {
 		t.Error("colorblind scheme must retain Ayame translucent washes")
+	}
+}
+
+// TestThemeModuleCoversTheEditablePalette checks the other direction from the
+// stylesheet assertions above: the token model the GUI edits has to name every
+// colour the diff depends on, and the contrast helpers #286 needs have to be
+// exported. The values themselves are pinned to tokens.css by
+// TestThemeModuleTokensMatchStylesheet just below.
+func TestThemeModuleCoversTheEditablePalette(t *testing.T) {
+	t.Parallel()
+	module := readWebAsset(t, "theme.js")
+	for _, want := range []string{
+		"--bg", "--fg", "--accent", "--danger", "--success", "--gold",
+		"--add-bg", "--add-fg", "--del-bg", "--del-fg",
+		"--chg-bg", "--chg-fg", "--word-add", "--word-del",
+		"--move-bg", "--move-fg", "--ui", "--mono", "--fs-data",
+	} {
+		if !strings.Contains(module, `"`+want+`"`) {
+			t.Errorf("theme.js does not model %s", want)
+		}
+	}
+	for _, helper := range []string{"function contrastRatio(", "function relativeLuminance(", "function checkContrast(", "function parseTheme(", "function effectiveTokens("} {
+		if !strings.Contains(module, helper) {
+			t.Errorf("theme.js is missing %q", helper)
+		}
+	}
+}
+
+// TestThemeModuleTokensMatchStylesheet is the sync guard: theme.js mirrors the
+// :root and :root[data-theme="dark"] blocks so the editor and the contrast
+// check can reason about a theme without reading CSS at runtime. If the
+// stylesheet moves and the model does not, the editor would offer to change a
+// value the page never uses. It runs theme.js under node to read the model
+// rather than parsing JavaScript as text.
+func TestThemeModuleTokensMatchStylesheet(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+	script := `
+const theme = require('./web/theme.js');
+process.stdout.write(JSON.stringify(theme.DEFAULTS));
+`
+	cmd := exec.Command(node, "-e", script)
+	cmd.Dir = "."
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("could not dump theme defaults: %v\n%s", err, output)
+	}
+	var defaults map[string]map[string]string
+	if err := json.Unmarshal(output, &defaults); err != nil {
+		t.Fatalf("theme defaults are not JSON: %v\n%s", err, output)
+	}
+	css := readWebAsset(t, "tokens.css")
+	for name, selector := range map[string]string{
+		"light": ":root {",
+		"dark":  `:root[data-theme="dark"] {`,
+	} {
+		declared := cssDeclarations(t, css, selector)
+		model := defaults[name]
+		if len(model) == 0 {
+			t.Fatalf("theme.js has no %s defaults", name)
+		}
+		checked := 0
+		for key, value := range declared {
+			want, ok := model[key]
+			if !ok {
+				continue
+			}
+			checked++
+			if want != value {
+				t.Errorf("theme.js %s %s = %q, but tokens.css says %q", name, key, want, value)
+			}
+		}
+		if checked < 5 {
+			t.Errorf("only %d %s tokens cross-checked; the selectors probably moved", checked, name)
+		}
 	}
 }

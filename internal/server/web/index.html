@@ -302,8 +302,10 @@
                 <select id="scheme">
                   <option value="default">default</option>
                   <option value="colorblind">colorblind</option>
+                  <option value="custom" data-i18n="themeCustom">custom</option>
                 </select>
               </label>
+              <button id="themeCustomize" type="button" data-i18n="themeCustomize">Customize colors…</button>
             </div>
           </details>
           <details class="menu" id="menuExport" hidden>
@@ -512,6 +514,40 @@
         <menu><button value="close" type="submit" class="primary" data-i18n="close">Close</button></menu>
       </form>
     </dialog>
+    <!-- Theme editor (#286). A custom theme is one more choice in the colours
+         menu; this dialog edits the design tokens behind it. Every edit is
+         applied to the page as it is made, so the open diff is the preview. -->
+    <dialog id="themeDialog" class="app-dialog theme-dialog" aria-labelledby="themeTitle">
+      <form method="dialog">
+        <header><strong id="themeTitle" data-i18n="themeDialogTitle">Customize colors</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header>
+      </form>
+      <div class="theme-body">
+        <div class="theme-controls">
+          <label class="opt"><span data-i18n="themePreset">Preset</span><select id="themePreset"></select></label>
+          <label class="opt"><span data-i18n="themeBase">Base</span><select id="themeBase">
+            <option value="system" data-i18n="themeSystem">match system</option>
+            <option value="light" data-i18n="themeLight">light</option>
+            <option value="dark" data-i18n="themeDark">dark</option>
+          </select></label>
+          <label class="opt"><span data-i18n="themeName">Theme name</span><input id="themeName" type="text" maxlength="120" autocomplete="off" spellcheck="false" /></label>
+          <button id="themeReset" type="button" data-i18n="themeReset">Reset to preset</button>
+          <button id="themeSave" type="button" class="primary" data-i18n="themeSave">Save</button>
+        </div>
+        <h3 data-i18n="themeTokens">Tokens</h3>
+        <div id="themeTokens" class="theme-tokens"></div>
+        <h3 data-i18n="themeContrast">Contrast ratio (WCAG)</h3>
+        <div id="themeContrast" class="theme-contrast" aria-live="polite"></div>
+        <h3 data-i18n="themeSavedThemes">Saved themes</h3>
+        <div id="themeSavedList" class="theme-saved"></div>
+        <h3 data-i18n="themeShare">Share</h3>
+        <textarea id="themeJSON" rows="4" spellcheck="false" data-i18n-placeholder="themeImportPlaceholder" placeholder="Paste theme JSON"></textarea>
+        <div class="theme-share-actions">
+          <button id="themeExport" type="button" data-i18n="themeExport">Copy JSON</button>
+          <button id="themeImport" type="button" data-i18n="themeImport">Import JSON</button>
+        </div>
+      </div>
+      <form method="dialog" class="settings-actions"><button value="close" data-i18n="close">Close</button></form>
+    </dialog>
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
     <script src="textwidth.js"></script>
@@ -545,6 +581,7 @@
     <script src="apierrors.js"></script>
     <script src="mergeselect.js"></script>
     <script src="encoding.js"></script>
+    <script src="theme.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are
