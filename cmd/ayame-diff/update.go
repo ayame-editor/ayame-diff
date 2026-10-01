@@ -43,12 +43,8 @@ Verifies the release's SHA-256 checksum before installing.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -57,7 +53,7 @@ Verifies the release's SHA-256 checksum before installing.`)
 	if checkOnly {
 		rel, err := deps.latestRelease(ctx)
 		if err != nil {
-			fmt.Fprintln(stderr, "error:", err)
+			reportError(stderr, err)
 			if errors.Is(err, context.Canceled) {
 				return exitInterrupt
 			}
@@ -72,7 +68,7 @@ Verifies the release's SHA-256 checksum before installing.`)
 	}
 
 	if err := deps.update(ctx, version, stdout); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		if errors.Is(err, context.Canceled) {
 			return exitInterrupt
 		}
@@ -111,12 +107,8 @@ detected and left to their package manager.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 
 	if mgr := deps.managedInstall(); mgr != "" {
@@ -132,7 +124,7 @@ detected and left to their package manager.`)
 		}
 	}
 	if err := deps.remove(stdout); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK

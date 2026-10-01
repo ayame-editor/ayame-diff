@@ -108,7 +108,14 @@ func TestAllComparePathsShareTheBusyContract(t *testing.T) {
 		if !strings.Contains(body, `$("cancel").hidden = false`) {
 			t.Errorf("%s does not offer Cancel", fn)
 		}
-		if !strings.Contains(body, "setInterval(tick") {
+		// The text comparison reports the pipeline's phases and their elapsed
+		// times through the shared progress model instead of a bare ticker
+		// (#297); the other paths keep the elapsed counter.
+		if fn == "async function runCompare(" {
+			if !strings.Contains(body, "createProgressTracker") || !strings.Contains(body, "comparisonStagePlan(") {
+				t.Errorf("%s shows no staged progress", fn)
+			}
+		} else if !strings.Contains(body, "setInterval(tick") {
 			t.Errorf("%s shows no elapsed time", fn)
 		}
 		if !strings.Contains(body, `err.name === "AbortError"`) {
