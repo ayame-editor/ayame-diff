@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -202,7 +203,7 @@ func TestRunCSVCellDiffTSVUsesToleranceAndRanking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(summary.ColumnChanges, []ColumnChange{{Index: 1, Name: "name", Count: 1}}) {
+	if !reflect.DeepEqual(summary.ColumnChanges, []ColumnChange{{Index: 1, Name: "name", Count: 1, Share: 1}}) {
 		t.Fatalf("column ranking=%+v", summary.ColumnChanges)
 	}
 	records := readDelimitedFile(t, outPath, '\t')
@@ -314,6 +315,60 @@ func TestRunCSVCellDiffPairsDuplicateKeysBySimilarity(t *testing.T) {
 	}
 }
 
+// TestRunCSVColumnStatistics covers the per-column breakdown added for #120:
+// every changed column, the share of changed rows it accounts for, and the
+// right-minus-left summary for numeric columns (sum/mean/min/max plus how many
+// moved up, down, or changed representation only).
+func TestRunCSVColumnStatistics(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath, outPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "diff.jsonl")
+	mustWriteFile(t, leftPath, "id,name,price,qty\n1,alpha,10,100\n2,beta,20,200\n3,gamma,5,50\n4,eps,1,1\n")
+	mustWriteFile(t, rightPath, "id,name,price,qty\n1,alpha,12.5,90\n2,beta,20,250\n3,delta,5,50\n4,eps,1.0,2\n")
+	cfg := testConfig(leftPath, rightPath, outPath)
+	cfg.KeyNames = []string{"id"}
+	cfg.CellDiff, cfg.OutputFormat = true, "jsonl"
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.ChangedRows != 4 {
+		t.Fatalf("ChangedRows=%d, want 4", summary.ChangedRows)
+	}
+	byName := map[string]ColumnChange{}
+	for _, column := range summary.ColumnChanges {
+		byName[column.Name] = column
+	}
+	if len(byName) != 3 {
+		t.Fatalf("columns=%+v, want name, price, qty", summary.ColumnChanges)
+	}
+	// qty changes twice (down 10, up 50), price once (+2.5) and once only in
+	// representation ("1" vs "1.0"), name once (non-numeric).
+	if qty := byName["qty"]; qty.Count != 3 || !closeFloat(qty.Share, 3.0/4.0) {
+		t.Fatalf("qty=%+v", qty)
+	}
+	if price := byName["price"]; price.Count != 2 || !closeFloat(price.Share, 0.5) {
+		t.Fatalf("price=%+v", price)
+	}
+	if name := byName["name"]; name.Count != 1 || name.Numeric != nil {
+		t.Fatalf("name=%+v, want non-numeric", name)
+	}
+	qty := byName["qty"].Numeric
+	if qty == nil || qty.Count != 3 || !closeFloat(qty.Sum, 41) || !closeFloat(qty.Mean, 41.0/3.0) ||
+		!closeFloat(qty.Min, -10) || !closeFloat(qty.Max, 50) || qty.Increased != 2 || qty.Decreased != 1 || qty.Unchanged != 0 {
+		t.Fatalf("qty numeric=%+v", qty)
+	}
+	price := byName["price"].Numeric
+	if price == nil || price.Count != 2 || !closeFloat(price.Sum, 2.5) || !closeFloat(price.Mean, 1.25) ||
+		!closeFloat(price.Min, 0) || !closeFloat(price.Max, 2.5) || price.Increased != 1 || price.Decreased != 0 || price.Unchanged != 1 {
+		t.Fatalf("price numeric=%+v", price)
+	}
+}
+
+func closeFloat(got, want float64) bool {
+	return math.Abs(got-want) < 1e-9
+}
+
 func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -367,6 +422,56 @@ func TestRunCSVReconcileUsesStableChoicesAndPreservesInputs(t *testing.T) {
 		if readErr != nil || string(got) != wantText {
 			t.Fatalf("input changed %s: %q err=%v", path, got, readErr)
 		}
+	}
+}
+
+// TestRunCSVReconcileAdoptsBothSides is the #271 contract for two-way CSV: a
+// difference may adopt both sides. A CHANGED pair then emits the left row and
+// then the right row; a one-sided difference emits whichever side exists.
+func TestRunCSVReconcileAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftPath, rightPath := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	mustWriteFile(t, leftPath, "id,name\n1,left\n2,left-only\n")
+	mustWriteFile(t, rightPath, "id,name\n1,right\n3,right-only\n")
+	diffPath := filepath.Join(dir, "diff.jsonl")
+	cfg := testConfig(leftPath, rightPath, diffPath)
+	cfg.KeyNames, cfg.CellDiff, cfg.OutputFormat = []string{"id"}, true, "jsonl"
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(diffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := make(map[string]string)
+	decoder := json.NewDecoder(file)
+	for {
+		var item jsonRecordDiff
+		if err := decoder.Decode(&item); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+		choices[item.ID] = "right,left" // deliberately reversed; order must not matter
+	}
+	_ = file.Close()
+	mergedPath := filepath.Join(dir, "merged.csv")
+	cfg = testConfig(leftPath, rightPath, mergedPath)
+	cfg.KeyNames, cfg.Reconcile, cfg.MergeChoices, cfg.OutputHeader = []string{"id"}, true, choices, true
+	cfg.OutputDelimiter = ','
+	summary, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.UnresolvedRows != 0 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	records := readDelimitedFile(t, mergedPath, ',')
+	want := [][]string{{"id", "name"}, {"1", "left"}, {"1", "right"}, {"2", "left-only"}, {"3", "right-only"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%#v want=%#v", records, want)
 	}
 }
 

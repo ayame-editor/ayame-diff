@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -36,12 +35,8 @@ func runShellInstallWithDeps(args []string, stdout, stderr io.Writer, deps shell
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "ayame-diff shell-install\n\nRegister current-user Explorer, Finder, or Linux file-manager integration.")
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "error: shell-install takes no arguments")
@@ -49,12 +44,12 @@ func runShellInstallWithDeps(args []string, stdout, stderr io.Writer, deps shell
 	}
 	env, err := deps.environment()
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	paths, err := deps.install(env)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	fmt.Fprintln(stdout, "file-manager integration installed")
@@ -77,12 +72,8 @@ func runShellUninstallWithDeps(args []string, stdout, stderr io.Writer, deps she
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "ayame-diff shell-uninstall\n\nRemove current-user file-manager integration.")
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "error: shell-uninstall takes no arguments")
@@ -90,11 +81,11 @@ func runShellUninstallWithDeps(args []string, stdout, stderr io.Writer, deps she
 	}
 	env, err := deps.environment()
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if err := deps.uninstall(env); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	fmt.Fprintln(stdout, "file-manager integration removed")
@@ -146,7 +137,7 @@ func runShellSelectWithDeps(args []string, stdout, stderr io.Writer, deps shellC
 	}
 	config, err := deps.configDir()
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	statePath := filepath.Join(config, "ayame-diff", "shell-selection.json")
@@ -158,12 +149,12 @@ func runShellSelectWithDeps(args []string, stdout, stderr io.Writer, deps shellC
 		return deps.runGUI([]string{previous.Path, args[0]}, stdout, stderr)
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	data, _ = json.Marshal(shellSelection{Path: args[0], Time: deps.now()})
 	if err := os.WriteFile(statePath, data, 0o600); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	fmt.Fprintln(stdout, "first path selected; choose the second path with Compare with Ayame Diff")
