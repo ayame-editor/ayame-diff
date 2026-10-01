@@ -273,6 +273,9 @@ func (s *Server) handleThreeWayTextMerge(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if s.mergeOutcome != nil {
+		s.mergeOutcome(req.Output, unresolved)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"output": req.Output, "conflicts": result.Conflicts,
 		"unresolved": unresolved, "conflictMarkers": markers,

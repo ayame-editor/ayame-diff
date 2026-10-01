@@ -1074,6 +1074,10 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 }
 .pane-head + .pane-head { border-left: 1px solid var(--border); }
 .pane-head-label { color: var(--muted); font-weight: 700; flex: none; }
+.pane-head-alias {
+  color: var(--fg); font-weight: 600; flex: none; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .pane-head-path {
   font-family: var(--mono); color: var(--fg);
   flex: 1 1 auto;

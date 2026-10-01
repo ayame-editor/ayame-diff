@@ -36,6 +36,22 @@ type guiCommandDeps struct {
 	listen      func(string, string) (net.Listener, error)
 	serve       func(net.Listener, http.Handler, <-chan struct{}) error
 	openBrowser func(string) error
+	// launchURL, when non-nil, replaces the default guiLaunchURL. The
+	// difftool/mergetool commands use it to add BASE, an output path, logical
+	// labels, and the three-way mode while reusing the same serve lifecycle.
+	launchURL func(baseURL, token string) string
+}
+
+// guiSessionRequest is one blocking browser session. The command that opens a
+// comparison fills how to bind and what URL to open; serveGUISession owns the
+// listen, lifecycle lease, and shutdown so `gui`, `difftool`, and `mergetool`
+// all wait for the tab identically.
+type guiSessionRequest struct {
+	addr         string
+	noOpen       bool
+	allowRemote  bool
+	launchURL    func(baseURL, token string) string
+	mergeOutcome func(output string, unresolved int)
 }
 
 func runGUIWithDeps(args []string, stdout, stderr io.Writer, deps guiCommandDeps) int {
@@ -64,32 +80,48 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		fmt.Fprintln(stderr, "error: gui accepts at most two paths: LEFT RIGHT")
 		return exitUsage
 	}
-	remote, err := remoteBind(addr)
+	paths := fs.Args()
+	if deps.launchURL == nil {
+		deps.launchURL = func(baseURL, token string) string {
+			return guiLaunchURL(baseURL, paths, token)
+		}
+	}
+	return serveGUISession(guiSessionRequest{
+		addr: addr, noOpen: noOpen, allowRemote: allowRemote, launchURL: deps.launchURL,
+	}, deps, stderr)
+}
+
+// serveGUISession binds, serves, and blocks until the browser tab closes (its
+// lifecycle lease expires), the user stops the server, or a signal arrives. It
+// returns the process exit code for that session.
+func serveGUISession(req guiSessionRequest, deps guiCommandDeps, stderr io.Writer) int {
+	remote, err := remoteBind(req.addr)
 	if err != nil {
 		reportError(stderr, err)
 		return exitUsage
 	}
-	if remote && !allowRemote {
+	if remote && !req.allowRemote {
 		fmt.Fprintln(stderr, "error: non-loopback listen addresses require --allow-remote")
 		return exitUsage
 	}
 
 	// Listen first: the Host allowlist and the launch URL both need the port
 	// actually bound, which the default "port 0" only reveals here.
-	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", addr)
+	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", req.addr)
 	if err != nil {
 		reportError(stderr, err)
 		return exitError
 	}
 	defer ln.Close()
 	if portFallback {
-		fmt.Fprintf(stderr, "warning: %s is unavailable; using %s\n", addr, ln.Addr())
+		fmt.Fprintf(stderr, "warning: %s is unavailable; using %s\n", req.addr, ln.Addr())
 	}
 	shutdownRequests, requestShutdown := newShutdownRequest()
 	handler, token, err := deps.newHandler(version, ln.Addr(), remote, server.LifecycleOptions{
 		Shutdown:            requestShutdown,
 		BrowserLeaseTimeout: guiBrowserLeaseTimeout,
 		BrowserCloseGrace:   guiBrowserCloseGrace,
+		MergeOutcome:        req.mergeOutcome,
 	})
 	if err != nil {
 		reportError(stderr, err)
@@ -98,9 +130,9 @@ addresses require the explicit --allow-remote safety opt-in.`)
 	if remote {
 		printRemoteWarning(stderr)
 	}
-	guiURL := guiLaunchURL(browserBaseURL(ln.Addr()), fs.Args(), token)
+	guiURL := req.launchURL(browserBaseURL(ln.Addr()), token)
 	fmt.Fprintf(stderr, "ayame-diff GUI at %s  (Stop server or Ctrl+C)\n", guiURL)
-	if !noOpen {
+	if !req.noOpen {
 		if err := deps.openBrowser(guiURL); err != nil {
 			fmt.Fprintf(stderr, "could not open a browser automatically (%v); open %s manually\n", err, guiURL)
 		}

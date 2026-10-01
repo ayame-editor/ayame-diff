@@ -60,6 +60,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, the
 ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
 ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # three-way comparison
+ayame-diff difftool [flags] LEFT RIGHT                # VCS two-file difftool target
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # VCS three-way mergetool target
 ayame-diff serve  [--addr host:port]                   # local web UI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the web UI in a browser
 ayame-diff update [--check]                            # check for or install the latest release

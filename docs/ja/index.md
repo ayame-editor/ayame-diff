@@ -60,6 +60,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # 両方をソート�
 ayame-diff dir    [flags] LEFT RIGHT                      # フォルダ/アーカイブ比較
 ayame-diff bin    [flags] LEFT RIGHT                      # バイナリ/16進比較
 ayame-diff 3way   [text|csv] [flags]                   # 3-way 比較
+ayame-diff difftool [flags] LEFT RIGHT                # VCS の2ファイル difftool
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # VCS の3-way mergetool
 ayame-diff serve  [--addr host:port]                   # ローカル Web UI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # Web UI をブラウザで開く
 ayame-diff update [--check]                            # 最新リリースの確認・導入

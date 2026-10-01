@@ -15,6 +15,8 @@ ayame-diff sorted [flags] LEFT RIGHT                      # sort both sides, the
 ayame-diff dir    [flags] LEFT RIGHT                      # directory/archive comparison
 ayame-diff bin    [flags] LEFT RIGHT                      # binary/hex comparison
 ayame-diff 3way   [text|csv] [flags]                   # BASE / LEFT / RIGHT comparison
+ayame-diff difftool [flags] LEFT RIGHT                # be a VCS two-file difftool target
+ayame-diff mergetool [flags] BASE LOCAL REMOTE        # be a VCS three-way mergetool target
 ayame-diff serve  [--addr host:port] [--allow-remote]  # local web GUI
 ayame-diff gui    [flags] [LEFT [RIGHT]]                  # open the GUI, optionally prefilled
 ayame-diff update [--check]                            # check for or install the latest release
@@ -450,6 +452,53 @@ region list was truncated.
 
 ---
 
+## `difftool` / `mergetool` — be the tool a VCS calls { #difftool-mergetool }
+
+`ayame-diff` does not read a repository, but a VCS or IDE can call it as an
+external diff or merge program (ADR 0004). These two commands exist for that
+direction and add what a called tool needs: Git's positional order, logical
+labels, a blocking GUI lifetime, and an exit code that says whether a merge
+actually resolved. See [File-manager and quick launch](shell-integration.md) for
+registering them with Git, SVN, and IDE external-tool settings.
+
+```bash
+# Two-file difftool (Git $LOCAL / $REMOTE)
+ayame-diff difftool "$LOCAL" "$REMOTE"
+ayame-diff difftool --label "HEAD~1:foo.txt" --label "HEAD:foo.txt" "$LOCAL" "$REMOTE"
+
+# Three-way mergetool: BASE LOCAL REMOTE, output to $MERGED
+ayame-diff mergetool --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+ayame-diff mergetool --order local-base-remote --output "$MERGED" "$LOCAL" "$BASE" "$REMOTE"
+
+# Browser GUI: blocks until its tab closes, so the caller waits
+ayame-diff difftool --wait "$LOCAL" "$REMOTE"
+ayame-diff mergetool --gui --output "$MERGED" "$BASE" "$LOCAL" "$REMOTE"
+```
+
+`--label` is repeatable and follows the positional order: two labels name LEFT
+and RIGHT for `difftool`, three name BASE, LOCAL, and REMOTE for `mergetool`. It
+replaces the temporary path Git shows with a name a reader recognizes. Labels
+appear in patch headers, in the `difftool` banner, and in the GUI pane headings.
+
+`--gui` opens the comparison in the browser; `--wait` does the same and is the
+explicit opt-in blocking form (it implies `--gui`). The process blocks until the
+browser tab closes, the user stops the server, or Ctrl+C arrives, so
+`git difftool` waits for the comparison instead of returning immediately.
+
+For `mergetool`, the exit code is 0 only when `--output` is written with no
+unresolved conflicts. It is 1 when a saved output still contains conflict
+markers, and 130 when the GUI session ended without saving anything (aborted).
+A caller therefore never mistakes "the file was saved" for "the conflicts are
+resolved". Terminal mode uses the merge engine's exact unresolved count; GUI
+mode receives the save's own unresolved count from the server.
+
+Each invocation starts and stops its own short-lived server. `git difftool`
+runs one file at a time, so sessions stay sequential; there is no cross-invocation
+server reuse. Set `git config --global difftool.prompt false` to skip the
+per-file prompt, and prefer a terminal `difftool` when you only need text output.
+
+---
+
 ## `update` — update a standalone installation { #update }
 
 `update` checks the latest GitHub release, downloads the archive for the current
@@ -521,6 +570,16 @@ With `3way text --merge-exit-code --output PATH`:
 - `0` — output written with no unresolved conflicts
 - `1` — output written with standard unresolved-conflict markers
 - `2` / `3` — usage or runtime/write error, as above
+
+With `mergetool`:
+
+- `0` — `--output` written with no unresolved conflicts
+- `1` — a saved `--output` still contains unresolved conflict markers
+- `130` — the GUI session ended without saving (aborted)
+- `2` / `3` — usage or runtime/write error, as above
+
+`difftool` reports `0` for a completed comparison (and never claims a merge
+outcome, since there is none).
 
 A usage error and a runtime failure are deliberately distinct, so a script can
 tell "you called it wrong" from "it could not finish". An internal crash is
