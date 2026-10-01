@@ -95,6 +95,33 @@ func TestRunTextDetectMoves(t *testing.T) {
 	}
 }
 
+func TestRunTextEastAsianAmbiguousWide(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "old.txt")
+	newPath := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(oldPath, []byte("○※α\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var wideOut, wideErr bytes.Buffer
+	if code := runText([]string{"--side-by-side", "--width", "60", "--east-asian-ambiguous-wide", oldPath, newPath}, &wideOut, &wideErr); code != 0 {
+		t.Fatalf("code = %d stderr=%q", code, wideErr.String())
+	}
+	if want := "- ○※α" + strings.Repeat(" ", 20) + " | + x\n"; !strings.Contains(wideOut.String(), want) {
+		t.Fatalf("wide side-by-side output missing %q:\n%s", want, wideOut.String())
+	}
+	var narrowOut, narrowErr bytes.Buffer
+	if code := runText([]string{"--side-by-side", "--width", "60", oldPath, newPath}, &narrowOut, &narrowErr); code != 0 {
+		t.Fatalf("code = %d stderr=%q", code, narrowErr.String())
+	}
+	if wideOut.String() == narrowOut.String() {
+		t.Fatal("--east-asian-ambiguous-wide did not change the side-by-side output")
+	}
+}
+
 func TestDiffFlagsFormat(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
