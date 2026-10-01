@@ -4,11 +4,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   VERSION,
+  HASH_KEY,
+  TABS_HASH_KEY,
   MAX_ENCODED_LENGTH,
   encodeComparisonState,
   decodeComparisonState,
   readComparisonState,
+  readTabState,
   buildComparisonURL,
+  buildTabStateURL,
   buildShareURL,
 } = require("../urlstate.js");
 
@@ -66,6 +70,58 @@ test("rejects malformed, unsupported, and oversized state", () => {
   assert.equal(decodeComparisonState(encodedUnsupported), null);
   assert.throws(
     () => encodeComparisonState({ ...sampleState(), controls: { huge: "x".repeat(MAX_ENCODED_LENGTH) } }),
+    (error) => error instanceof RangeError && error.code === "STATE_TOO_LARGE",
+  );
+});
+
+test("the tab set and the active comparison coexist in one fragment", () => {
+  const tabs = { v: 1, active: 1, tabs: [{ id: "tab-1", label: "a.txt ⇄ b.txt", state: sampleState(), scroll: null }] };
+  const withTabs = buildTabStateURL("http://127.0.0.1:9000/?token=secret#", tabs);
+  const withComparison = buildComparisonURL(withTabs, sampleState(), true);
+
+  const parsed = new URL(withComparison);
+  assert.equal(parsed.searchParams.get("token"), "secret");
+  assert.deepEqual(readComparisonState(withComparison), sampleState());
+  assert.deepEqual(readTabState(withComparison), tabs);
+  assert.ok(parsed.hash.includes(`${TABS_HASH_KEY}=`));
+  assert.ok(parsed.hash.includes(`${HASH_KEY}=`));
+});
+
+test("building the tab set preserves an existing comparison fragment", () => {
+  const comparison = buildComparisonURL("http://127.0.0.1:9000/#", sampleState(), true);
+  const both = buildTabStateURL(comparison, { v: 1, active: 0, tabs: [] }, true);
+  assert.deepEqual(readComparisonState(both), sampleState());
+  assert.deepEqual(readTabState(both), { v: 1, active: 0, tabs: [] });
+});
+
+test("clearing the tab set drops only that key", () => {
+  const both = buildTabStateURL(
+    buildComparisonURL("http://127.0.0.1:9000/#", sampleState(), true),
+    { v: 1, active: 0, tabs: [{ id: "tab-1", state: sampleState(), scroll: null }] },
+    true,
+  );
+  const cleared = buildTabStateURL(both, null, true);
+  assert.equal(readTabState(cleared), null);
+  assert.deepEqual(readComparisonState(cleared), sampleState());
+});
+
+test("a shared URL carries one comparison and never the open tab set", () => {
+  const tabs = { v: 1, active: 0, tabs: [{ id: "tab-1", state: sampleState(), scroll: null }] };
+  const start = buildTabStateURL(
+    "http://127.0.0.1:9000/?token=do-not-share",
+    tabs,
+  );
+  const shared = buildShareURL(start, sampleState());
+  const parsed = new URL(shared);
+  assert.equal(parsed.searchParams.has("token"), false);
+  assert.equal(readTabState(shared), null);
+  assert.deepEqual(readComparisonState(shared), sampleState());
+});
+
+test("an oversized tab set is reported rather than silently truncated", () => {
+  const huge = { v: 1, active: 0, tabs: [{ id: "tab-1", state: { controls: { blob: "x".repeat(MAX_ENCODED_LENGTH) } }, scroll: null }] };
+  assert.throws(
+    () => buildTabStateURL("http://127.0.0.1:9000/#", huge),
     (error) => error instanceof RangeError && error.code === "STATE_TOO_LARGE",
   );
 });

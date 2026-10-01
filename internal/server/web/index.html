@@ -17,6 +17,15 @@
     </header>
 
     <main>
+      <!-- Multiple comparisons as tabs (#281). The active comparison keeps its
+           own URL entry and back/forward history; each tab additionally
+           remembers its inputs, conditions and scroll position, so switching
+           back returns to the same view. The bar stays hidden until the first
+           comparison exists, then the setup form collapses as before. -->
+      <nav class="comparison-tabs" id="comparisonTabs" hidden>
+        <div class="tab-list" id="tabList" role="tablist" data-i18n-aria-label="comparisonTabs"></div>
+        <button id="newTab" type="button" class="tab-new" data-i18n-title="newTab" data-i18n-aria-label="newTab"><span aria-hidden="true">＋</span></button>
+      </nav>
       <!-- Initial-only path rail. After the first successful comparison the
            sticky pane headers become the editable path controls, so this rail
            disappears instead of duplicating the same fields above the result. -->
@@ -418,6 +427,7 @@
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="tabs.js"></script>
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
