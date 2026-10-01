@@ -1,14 +1,157 @@
 # Changelog
 
-## v0.8.17 - 2026-09-27
+## v0.8.17 - 2026-10-01
 
-- A three-way text merge can now be opened as a per-line result preview that
-  names each line's source in a KDiff3-style gutter — `B` base, `L` left, `R`
-  right, and `m` for a line typed into the preview, which is also washed grey so
-  it cannot be mistaken for an adopted line. The preview, the save and the save
-  report all come from the same merge, so they cannot disagree, and changing a
-  conflict choice refreshes it. The panel counts adopted and manually typed
-  lines, and the save reports the same breakdown. (#257)
+- A three-way result now names where every line came from. Each output line is
+  tagged with its origin — base, left, right, or a line typed by hand — and the
+  save report counts adopted versus manual lines, so a merge can be audited
+  without re-reading the inputs. The preview is a demand-driven server call,
+  fetched when it is opened and refreshed as choices change. (#257)
+- Unresolved three-way conflicts are listed instead of being silently resolved.
+  The list names and jumps to each undecided hunk, and an explicit target —
+  left, right, base, or conflict markers — decides what an undecided hunk
+  becomes when the merge is still saved. The saved status distinguishes "saved
+  clean" from "saved with markers left behind". (#272)
+- A merge hunk can adopt both sides. Clicking a chosen side toggles it, and the
+  adopted contributions are concatenated in canonical order, so a conflict can
+  keep the left and the right without leaving conflict markers. (#271)
+- Overwriting an input is previewed before it happens: a **Simulate** step lists
+  what will be written and which inputs will be overwritten, and only **Proceed**
+  writes the file. (#273)
+- The three-way view shows the common comparison (LEFT | RESULT | RIGHT) and
+  offers the ancestor column on demand, so BASE is present when it is wanted and
+  out of the way when it is not. The merged result is shown as its own pane and
+  updates per event as a choice changes. (#282)
+- The default keymap is designed and the merge flow is keyboard-complete:
+  conflict navigation (F8 / Shift+F8) is separate from difference navigation,
+  both sides can be adopted (Alt+A), auto-advance to the next unresolved conflict
+  is a toggle, and the merge can be saved from the keyboard (Ctrl+Shift+S). (#277)
+- Re-indentation no longer hides a real difference. An alignment whitespace
+  policy matches re-indented lines so they correspond, while the comparison
+  still reports the content difference, so a re-indented block reads as one hunk
+  rather than disappearing or exploding into one hunk per line. (#270)
+
+- CSV comparisons now state an equivalence verdict. A comparison says whether
+  the files are substantively equal or differ only in column/row order, and when
+  a realignment would make them match it offers the column alignment directly.
+  (#116)
+- Diff statistics are expanded with per-column and whole-file breakdowns, shown
+  as a **Statistics** panel above the rows. It reports the whole-file context —
+  changed line count, its share of the file, the largest hunk — alongside
+  per-kind totals, and a CSV result breaks the changes down by column, including
+  numeric column sums, averages, maxima and the count of increases, decreases
+  and formatting-only changes. The panel can be exported as CSV or JSON. (#120)
+- CSV result columns can be mapped and reordered by hand, so two files whose
+  columns are named differently can still be compared and merged column by
+  column. (#119)
+- A visual row/column filter builder is available for CSV comparisons, so a
+  filter is composed from conditions and groups instead of typed as a raw
+  expression, with validation and a condition count. (#129)
+- A CSV comparison can suggest the option changes that would make it match —
+  the ignore settings, key, or alignment that turn "differences" into "equal" —
+  and apply them. (#121)
+- The CSV memory budget and spill behavior are reported, and spill cancellation
+  is bounded, so a large comparison says how much memory it used and where it
+  spilled. (#138)
+
+- Hunk headers are readable: they carry the line ranges and the kind of change
+  instead of a bare number. (#266)
+- Truncated hunks can be lifted with a **Compute more** action rather than being
+  recomputed from the top. (#261)
+- Whitespace-only differences that were ignored are shown as downgraded hunks —
+  visible but not counted as differences — so an ignored change is still
+  auditable instead of vanishing. (#269)
+- A collapsed unchanged region says what it hides, naming the number of hidden
+  lines and their kind. (#268)
+- Hunk actions move into a hover/focus toolbar, so the row stays readable and
+  the actions appear where the reader is looking. (#293)
+- Diffs are readable without colour and keyboard-complete: change kinds are
+  carried by gutter glyphs and accessible names as well as the background wash,
+  and every hunk action is reachable from the keyboard. (#298)
+- The gutter shows change bars while a pane is edited, and Delete reverts a
+  locally changed line. (#292)
+- CJK columns are aligned with the CLI width model, so the browser and the
+  terminal agree on the width of East Asian characters. (#289)
+
+- A committed edit is rendered optimistically: the changed row is drawn at once
+  and reconciled with the recomputed comparison when it arrives, instead of the
+  whole result blanking. (#258)
+
+- Several comparisons can stay open as tabs. Each tab keeps its inputs, mode,
+  conditions and scroll position; the tab set is stored in the URL fragment so a
+  reload restores it, and Back returns to the tabs that belonged with a
+  comparison. (#281)
+- Comparison conditions are scoped to the session with an explicit default, so a
+  new comparison starts from a known policy instead of inheriting whatever the
+  last one used. (#262)
+- Conditions are also scoped per comparison and the word highlight is persisted,
+  so switching tabs does not leak one comparison's settings into another. (#260)
+
+- The detected encoding is shown in the pane headers and can be corrected there,
+  so a mis-detected file can be re-read without returning to the setup form.
+  (#278)
+- The mode dropdown is split into input-shape and reading axes: what is compared
+  (two files, three files, or a folder) is separate from how a result is read
+  (text, sorted, or CSV/TSV), and a reading is offered only where it means
+  something. (#263)
+- Whitespace and line-ending controls are unified into one monotonic scale
+  (strict → ignore EOL → ignore EOL and whitespace amount → ignore all
+  whitespace), so the two knobs can no longer be set to contradictory values.
+  (#259)
+- The result toolbar shows the comparison conditions that produced the result,
+  mirroring the settings dialog rather than holding a second copy of the state.
+  (#264)
+
+- Keyboard shortcuts are remappable, with `default` and `minimal` presets,
+  conflict detection that names both actions claiming a chord, refusal of chords
+  the browser reserves, reset-to-preset, and JSON export/import of the binding
+  set. (#285)
+- Theme tokens can be customized: named themes, per-token colour editing, and
+  contrast checks that warn when a token pair is unreadable. (#286)
+- Languages are derived from the catalog and honour their locale, so the UI
+  language follows the catalogue instead of a hard-coded list. (#144)
+
+- An auditable confirmation report can be exported: the compared inputs with
+  sizes, modification times, detected encodings and SHA-256 hashes; the applied
+  conditions; the difference totals; every ignored hunk with its reason; the
+  read/unread state; and the URL state needed to rerun the comparison. It can be
+  written as printable HTML, Markdown, or JSON, with compared content included
+  only on request. (#296)
+- Hunks carry explicit persisted confirmed marks, distinct from read-on-scroll:
+  the confirmed count tracks deliberate confirmation, the confirmed-only
+  navigation steps through what is left, and the marks are stored per comparison
+  and dropped when a hunk's content changes. (#288)
+
+- The file browser is keyboard-navigable and remembers recent places, so a path
+  can be reached without a mouse. (#103)
+- A folder comparison can be read as a flattened view with a **Location** column,
+  so nested files are listed in path order. (#275)
+
+- Syntax highlighting carries multi-line state (block comments, template
+  literals, raw and triple-quoted strings, heredocs) across consecutive rendered
+  lines, and falls back to the previous line-local colouring wherever that state
+  is not trustworthy. (#287)
+
+- An in-progress render can be cancelled and the slice budget is tested, so a
+  superseded comparison stops instead of finishing work whose result is
+  discarded. (#128)
+- Long comparisons are staged and stream a first page, with a warning before
+  truncation, so a large result is readable sooner and says when it is partial.
+  (#297)
+- End-to-end large-input benchmarks were added and long-line reading is bounded,
+  documenting the cost of a large comparison. (#279)
+
+- The CLI explains common failures in the user's language, with a one-line
+  remedy instead of a raw error string. (#94)
+- ayame-diff can act as a git difftool/mergetool target: `difftool` compares two
+  files and blocks until the GUI tab closes, and `mergetool` merges three with a
+  configurable side order, writing the result only when no unresolved conflicts
+  remain and reporting the outcome through its exit code. (#295)
+
+- The documentary findings for unverified UI research items were recorded. (#284)
+- The pre-comparison shaping decision was recorded as an ADR, and the
+  syntax-highlighting decision (stateful multi-line approximation now, no
+  tree-sitter grammar yet) was recorded as ADR 0006. (#126, #287)
 
 ## v0.8.16 - 2026-08-27
 
