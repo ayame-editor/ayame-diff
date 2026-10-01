@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 )
 
 // ColumnTolerance applies an absolute numeric tolerance to one CSV column.
@@ -18,14 +20,33 @@ type ColumnTolerance struct {
 	Value   float64 `json:"value"`
 }
 
+// ColumnPair is one canonical output column of an explicit left-to-right
+// mapping (#119). A negative index means that side has no such column, which
+// makes a one-sided column "missing tolerant": the other side contributes an
+// empty value. Ignore keeps the column in the row for display but excludes it
+// from comparison, like IgnoreColumnIndexes.
+//
+// ColumnMap names the columns in output order, so its length is also the
+// canonical column count. Left and right indexes may therefore come from
+// inputs with different physical column counts.
+type ColumnPair struct {
+	Left   int  `json:"left"`
+	Right  int  `json:"right"`
+	Ignore bool `json:"ignore,omitempty"`
+}
+
 type Config struct {
-	LeftPath, RightPath, OutputPath                        string
-	KeyNames                                               []string
-	KeyIndexes                                             []int
-	ExcludeKeyNames                                        []string
-	ExcludeKeyIndexes                                      []int
-	IndexBase                                              int
-	HasHeader, AlignColumnsByName                          bool
+	LeftPath, RightPath, OutputPath string
+	KeyNames                        []string
+	KeyIndexes                      []int
+	ExcludeKeyNames                 []string
+	ExcludeKeyIndexes               []int
+	IndexBase                       int
+	HasHeader, AlignColumnsByName   bool
+	// ColumnMap, when non-empty, replaces header-name alignment with an
+	// explicit left-to-right pairing (#119). It is validated against the
+	// inspected headers in buildSchema.
+	ColumnMap                                              []ColumnPair
 	LeftFormat, RightFormat, LeftDelimiter, RightDelimiter string
 	LeftParser, RightParser                                string
 	LazyQuotes, TrimLeadingSpace                           bool
@@ -47,14 +68,19 @@ type Config struct {
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
 	// Reconcile emits a complete key-sorted CSV/TSV using MergeChoices instead
-	// of a diff report. Choice keys are stable IDs from JSONL diff records.
-	Reconcile       bool                `json:"-"`
-	MergeChoices    map[string]string   `json:"-"`
-	MergeDefault    string              `json:"-"`
-	AllowUnresolved bool                `json:"-"`
-	OutputDelimiter rune                `json:"-"`
-	Log             io.Writer           `json:"-"`
-	OnProgress      func(ProgressEvent) `json:"-"`
+	// of a diff report. Choice keys are stable IDs from JSONL diff records. A
+	// value is a side ("left"/"right") or a comma-joined combination
+	// ("left,right") when a difference adopts both contributions (#271).
+	Reconcile       bool              `json:"-"`
+	MergeChoices    map[string]string `json:"-"`
+	MergeDefault    string            `json:"-"`
+	AllowUnresolved bool              `json:"-"`
+	// UnresolvedTarget picks which side an undecided reconcile row becomes when
+	// AllowUnresolved permits the write: "left" (default), "right", or "base" (#272).
+	UnresolvedTarget string              `json:"-"`
+	OutputDelimiter  rune                `json:"-"`
+	Log              io.Writer           `json:"-"`
+	OnProgress       func(ProgressEvent) `json:"-"`
 }
 
 // Resource limits are exported so CLI and GUI validation can share the
@@ -106,12 +132,37 @@ type Summary struct {
 	// instead of sorting entirely in memory, so the caller can tell the user the
 	// comparison stayed within budget by offloading (#138).
 	Spilled bool `json:"spilled,omitempty"`
+	// ChangedRows counts the CHANGED row pairs compared cell by cell. It is the
+	// denominator of ColumnChange.Share: the fraction of changed rows in which
+	// that column differs. Zero for a run without cell-level differences (#120).
+	ChangedRows uint64 `json:"changed_rows,omitempty"`
 }
 
+// ColumnChange is one column's share of the cell-level differences (#120).
 type ColumnChange struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	Count uint64 `json:"count"`
+	// Share is Count divided by Summary.ChangedRows: how concentrated the
+	// changes are in this column. Omitted when there are no changed rows.
+	Share float64 `json:"share,omitempty"`
+	// Numeric summarizes right-minus-left over the changed cells that parse as
+	// numbers on both sides. Nil for a column with no numeric changes.
+	Numeric *ColumnDelta `json:"numeric,omitempty"`
+}
+
+// ColumnDelta summarizes the numeric difference right minus left for one
+// column (#120): Sum/Mean/Min/Max over the delta and how many moved up, down,
+// or were numerically unchanged (for example "1" vs "1.0").
+type ColumnDelta struct {
+	Count     uint64  `json:"count"`
+	Sum       float64 `json:"sum"`
+	Mean      float64 `json:"mean"`
+	Min       float64 `json:"min"`
+	Max       float64 `json:"max"`
+	Increased uint64  `json:"increased"`
+	Decreased uint64  `json:"decreased"`
+	Unchanged uint64  `json:"unchanged"`
 }
 
 // Validate reports whether c can be resolved. It is idempotent and does not
@@ -131,6 +182,7 @@ func (c Config) resolve() (resolvedConfig, error) {
 	r.IgnoreColumnNames = append([]string(nil), c.IgnoreColumnNames...)
 	r.IgnoreColumnIndexes = append([]int(nil), c.IgnoreColumnIndexes...)
 	r.ColumnTolerances = append([]ColumnTolerance(nil), c.ColumnTolerances...)
+	r.ColumnMap = append([]ColumnPair(nil), c.ColumnMap...)
 	r.MergeChoices = make(map[string]string, len(c.MergeChoices))
 	for id, side := range c.MergeChoices {
 		r.MergeChoices[id] = side
@@ -140,6 +192,9 @@ func (c Config) resolve() (resolvedConfig, error) {
 		return resolvedConfig{}, fmt.Errorf("--left, --right, and --out are required")
 	}
 	if err := validateKeySelection(c); err != nil {
+		return resolvedConfig{}, err
+	}
+	if err := validateColumnMapShape(c.ColumnMap); err != nil {
 		return resolvedConfig{}, err
 	}
 	if !c.HasHeader && (len(c.KeyNames) > 0 || len(c.ExcludeKeyNames) > 0) {
@@ -193,9 +248,17 @@ func (c Config) resolve() (resolvedConfig, error) {
 	if r.MergeDefault != "" && r.MergeDefault != "left" && r.MergeDefault != "right" {
 		return resolvedConfig{}, fmt.Errorf("merge default must be left or right")
 	}
+	if r.UnresolvedTarget != "" && r.UnresolvedTarget != "left" && r.UnresolvedTarget != "right" {
+		return resolvedConfig{}, fmt.Errorf("unresolved target must be left or right")
+	}
 	for id, side := range r.MergeChoices {
-		if strings.TrimSpace(id) == "" || (side != "left" && side != "right") {
-			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q", id, side)
+		if strings.TrimSpace(id) == "" {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q", id)
+		}
+		// A choice is one side or an ordered combination such as "left,right"
+		// once a hunk adopts both contributions (#271).
+		if err := mergechoice.Validate(side, "left", "right"); err != nil {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q: %w", id, side, err)
 		}
 	}
 	if r.Reconcile {
@@ -284,6 +347,39 @@ func validateKeySelection(c Config) error {
 	excludeCount := len(c.ExcludeKeyNames) + len(c.ExcludeKeyIndexes)
 	if includeCount > 0 && excludeCount > 0 {
 		return fmt.Errorf("include and exclude key options cannot be combined")
+	}
+	return nil
+}
+
+// validateColumnMapShape checks the parts of an explicit column map that do not
+// depend on the inspected headers: indexes are -1 (absent) or non-negative, no
+// index repeats, and every canonical column names at least one side. The
+// per-side bounds are checked against the real headers in buildSchema.
+func validateColumnMapShape(mapping []ColumnPair) error {
+	leftSeen := make(map[int]struct{}, len(mapping))
+	rightSeen := make(map[int]struct{}, len(mapping))
+	for i, pair := range mapping {
+		if pair.Left < -1 {
+			return fmt.Errorf("column map entry %d has invalid left index %d", i, pair.Left)
+		}
+		if pair.Right < -1 {
+			return fmt.Errorf("column map entry %d has invalid right index %d", i, pair.Right)
+		}
+		if pair.Left == -1 && pair.Right == -1 {
+			return fmt.Errorf("column map entry %d must name a left or right column", i)
+		}
+		if pair.Left >= 0 {
+			if _, dup := leftSeen[pair.Left]; dup {
+				return fmt.Errorf("column map uses left column %d more than once", pair.Left)
+			}
+			leftSeen[pair.Left] = struct{}{}
+		}
+		if pair.Right >= 0 {
+			if _, dup := rightSeen[pair.Right]; dup {
+				return fmt.Errorf("column map uses right column %d more than once", pair.Right)
+			}
+			rightSeen[pair.Right] = struct{}{}
+		}
 	}
 	return nil
 }

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -49,8 +51,39 @@ func TestWebStylesUseAyameTokens(t *testing.T) {
 			t.Errorf("tokens.css missing %q", token)
 		}
 	}
-	if !strings.Contains(tokens, `"DejaVu Sans Mono", "Noto Sans Mono CJK JP", "MS Gothic"`) {
-		t.Error("canonical CJK mono fallback stack is missing")
+	if !strings.Contains(tokens, "--tab-size: 8") {
+		t.Error("tokens.css has no explicit tab width, so tabs render at the browser default with no way to align them with the CLI (#289)")
+	}
+	// The font stack must lead with a family that covers both Latin and CJK.
+	// CSS resolves fonts per character, so a Latin-only leader followed by a CJK
+	// face guarantees a line mixes two fonts whose advance widths are not 1:2 --
+	// the direct cause of drifting columns (#289). Both leading families below
+	// are true monospace CJK faces whose half-width Latin is exactly half a
+	// full-width cell.
+	cjkCapable := map[string]bool{"Noto Sans Mono CJK JP": true, "Source Han Mono JP": true, "MS Gothic": true}
+	latinOnly := map[string]bool{"SFMono-Regular": true, "Menlo": true, "Consolas": true, "DejaVu Sans Mono": true}
+	values := declarations(blockAfter(t, tokens, ":root {"))
+	stack := strings.Split(values["--mono"], ",")
+	for i := range stack {
+		stack[i] = strings.Trim(strings.TrimSpace(stack[i]), `"`)
+	}
+	if len(stack) == 0 || stack[0] == "" {
+		t.Fatal("tokens.css defines no --mono stack")
+	}
+	if !cjkCapable[stack[0]] {
+		t.Errorf("--mono leads with %q, which does not cover CJK; a Latin-first stack mixes fonts within one line (#289)", stack[0])
+	}
+	if stack[len(stack)-1] != "monospace" {
+		t.Errorf("--mono ends with %q, want the generic monospace fallback", stack[len(stack)-1])
+	}
+	seenCJK := false
+	for _, family := range stack {
+		if cjkCapable[family] {
+			seenCJK = true
+		}
+		if latinOnly[family] && !seenCJK {
+			t.Errorf("--mono lists Latin-only %q before any CJK-capable family, which guarantees mixed advance widths (#289)", family)
+		}
 	}
 	if strings.Index(index, `href="tokens.css"`) > strings.Index(index, `href="style.css"`) {
 		t.Error("tokens.css must load before the rules that consume it")
@@ -123,7 +156,7 @@ func TestCompleteMatchCardsIncludeScopeAndDistinguishTruncation(t *testing.T) {
 		`completeMatch: "✔ 完全一致"`, `completeMatch: "✔ Complete match"`,
 		"textMatchScope", "csvMatchScope", "threeWayTextMatchScope", "threeWayCSVMatchScope",
 		`if (data.truncated) result.append(resultStateCard(t("matchNotVerified")`,
-		`comparisonUsesRules(true) ? "filteredMatch" : "completeMatch"`,
+		`equivalenceTitleKey(data.verdict, comparisonUsesRules(true))`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("match result handling missing %q", want)
@@ -352,11 +385,18 @@ func TestQuickKeyboardAndLocalizedNavigationWiring(t *testing.T) {
 		`event.keyCode === 229`,
 		`["base", "old", "new", "oldText", "newText"]`,
 		`data-i18n-aria-label`,
-		`langButton: "日本語 → EN"`,
-		`langButton: "English → 日本語"`,
+		`syncLanguageOptions()`,
+		`document.documentElement.dir = direction(lang)`,
 	} {
 		if !strings.Contains(app, want) {
 			t.Errorf("app.js missing %q", want)
+		}
+	}
+	// The switcher is built from the catalog, so a third language needs no
+	// hardcoded pair in the UI (#144).
+	for _, gone := range []string{`lang === "ja" ? "en" : "ja"`, `langButton`} {
+		if strings.Contains(app, gone) {
+			t.Errorf("app.js still hardcodes the language pair: %q", gone)
 		}
 	}
 }
@@ -529,5 +569,83 @@ func TestColorblindSchemeKeepsSemanticDiffTokens(t *testing.T) {
 	}
 	if !strings.Contains(block, "color-mix(") {
 		t.Error("colorblind scheme must retain Ayame translucent washes")
+	}
+}
+
+// TestThemeModuleCoversTheEditablePalette checks the other direction from the
+// stylesheet assertions above: the token model the GUI edits has to name every
+// colour the diff depends on, and the contrast helpers #286 needs have to be
+// exported. The values themselves are pinned to tokens.css by
+// TestThemeModuleTokensMatchStylesheet just below.
+func TestThemeModuleCoversTheEditablePalette(t *testing.T) {
+	t.Parallel()
+	module := readWebAsset(t, "theme.js")
+	for _, want := range []string{
+		"--bg", "--fg", "--accent", "--danger", "--success", "--gold",
+		"--add-bg", "--add-fg", "--del-bg", "--del-fg",
+		"--chg-bg", "--chg-fg", "--word-add", "--word-del",
+		"--move-bg", "--move-fg", "--ui", "--mono", "--fs-data",
+	} {
+		if !strings.Contains(module, `"`+want+`"`) {
+			t.Errorf("theme.js does not model %s", want)
+		}
+	}
+	for _, helper := range []string{"function contrastRatio(", "function relativeLuminance(", "function checkContrast(", "function parseTheme(", "function effectiveTokens("} {
+		if !strings.Contains(module, helper) {
+			t.Errorf("theme.js is missing %q", helper)
+		}
+	}
+}
+
+// TestThemeModuleTokensMatchStylesheet is the sync guard: theme.js mirrors the
+// :root and :root[data-theme="dark"] blocks so the editor and the contrast
+// check can reason about a theme without reading CSS at runtime. If the
+// stylesheet moves and the model does not, the editor would offer to change a
+// value the page never uses. It runs theme.js under node to read the model
+// rather than parsing JavaScript as text.
+func TestThemeModuleTokensMatchStylesheet(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+	script := `
+const theme = require('./web/theme.js');
+process.stdout.write(JSON.stringify(theme.DEFAULTS));
+`
+	cmd := exec.Command(node, "-e", script)
+	cmd.Dir = "."
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("could not dump theme defaults: %v\n%s", err, output)
+	}
+	var defaults map[string]map[string]string
+	if err := json.Unmarshal(output, &defaults); err != nil {
+		t.Fatalf("theme defaults are not JSON: %v\n%s", err, output)
+	}
+	css := readWebAsset(t, "tokens.css")
+	for name, selector := range map[string]string{
+		"light": ":root {",
+		"dark":  `:root[data-theme="dark"] {`,
+	} {
+		declared := cssDeclarations(t, css, selector)
+		model := defaults[name]
+		if len(model) == 0 {
+			t.Fatalf("theme.js has no %s defaults", name)
+		}
+		checked := 0
+		for key, value := range declared {
+			want, ok := model[key]
+			if !ok {
+				continue
+			}
+			checked++
+			if want != value {
+				t.Errorf("theme.js %s %s = %q, but tokens.css says %q", name, key, want, value)
+			}
+		}
+		if checked < 5 {
+			t.Errorf("only %d %s tokens cross-checked; the selectors probably moved", checked, name)
+		}
 	}
 }
