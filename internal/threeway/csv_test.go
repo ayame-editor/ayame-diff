@@ -60,6 +60,49 @@ func TestCompareAndMergeCSV(t *testing.T) {
 	}
 }
 
+// TestWriteCSVMergeAdoptsBothSides is the #271 contract for three-way CSV: a
+// conflict choice may name both sides, emitting the left row and then the right
+// row.
+func TestWriteCSVMergeAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	for path, value := range map[string]string{base: "id,v\n1,b\n", left: "id,v\n1,l\n", right: "id,v\n1,r\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := threeWayTestConfig()
+	cfg.KeyNames = []string{"id"}
+	result, err := CompareCSV(context.Background(), base, left, right, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := map[string]string{}
+	for _, event := range result.Events {
+		if event.Kind == Conflict {
+			choices[event.ID] = "right,left"
+		}
+	}
+	output := filepath.Join(dir, "both.csv")
+	unresolved, err := WriteCSVMerge(base, output, result, choices, false)
+	if err != nil || unresolved != 0 {
+		t.Fatalf("unresolved=%d err=%v", unresolved, err)
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	records, err := csv.NewReader(file).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := [][]string{{"1", "l"}, {"1", "r"}}; !reflect.DeepEqual(records[1:], want) {
+		t.Fatalf("both rows=%#v want=%#v", records[1:], want)
+	}
+}
+
 func TestWriteCSVMergeRejectsUnresolved(t *testing.T) {
 	dir := t.TempDir()
 	base, left, right := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")

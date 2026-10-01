@@ -57,12 +57,8 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() > 2 {
 		fmt.Fprintln(stderr, "error: gui accepts at most two paths: LEFT RIGHT")
@@ -70,7 +66,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 	}
 	remote, err := remoteBind(addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitUsage
 	}
 	if remote && !allowRemote {
@@ -82,7 +78,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 	// actually bound, which the default "port 0" only reveals here.
 	ln, portFallback, err := listenWithPortFallback(deps.listen, "tcp", addr)
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	defer ln.Close()
@@ -96,7 +92,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		BrowserCloseGrace:   guiBrowserCloseGrace,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	if remote {
@@ -110,7 +106,7 @@ addresses require the explicit --allow-remote safety opt-in.`)
 		}
 	}
 	if err := deps.serve(ln, handler, shutdownRequests); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 	return exitOK

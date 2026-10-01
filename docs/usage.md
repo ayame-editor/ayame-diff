@@ -213,7 +213,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 | Flag | Output |
 |---|---|
 | *(none)* | Unified hunks (default). |
-| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. |
+| `--side-by-side` (alias `--side`) | Two-column left / right layout; set the total column width with `--width`. `--east-asian-ambiguous-wide` counts East Asian Ambiguous characters as two cells to match terminals that render them full-width. |
 | `--json` | Structured JSON with hunk kinds, line numbers and counts. |
 | `--summary` | A single summary line on stderr. |
 | `--format unified` / `-U N` | Applyable unified patch with N context lines (default 3). |
@@ -248,6 +248,7 @@ Clipboard content can also pass through `--pre` like file and stdin input.
 --max-lines N                maximum lines shown per hunk side (default 200)
 --window N                   resync look-ahead window when lines differ (default 128)
 --width N                    total width for --side-by-side (default 160)
+--east-asian-ambiguous-wide  count East Asian Ambiguous characters (○, ※, α) as two cells in --side-by-side
 ```
 
 Patch output is never truncated by `--max-hunks` or `--max-lines`. It preserves
@@ -504,6 +505,23 @@ A usage error and a runtime failure are deliberately distinct, so a script can
 tell "you called it wrong" from "it could not finish". An internal crash is
 reported as `3` with a stack trace on stderr; it never exits `2` and so is never
 mistaken for a usage error.
+
+---
+
+## Error messages { #error-messages }
+
+When a command fails, `ayame-diff` prints a short explanation and a one-line
+remedy on standard error: `error: The file was not found.` followed by
+`hint: Check the path. ...`. The message language follows the locale, in the
+order `LC_ALL`, `LC_MESSAGES`, `LANG`; a value beginning with `ja` selects
+Japanese, and anything else selects English. Common failures — a missing path,
+a permission error, a malformed flag value, malformed JSON, and an output that
+is also an input — are explained in plain language instead of the raw syscall,
+`strconv`, or `encoding/json` text.
+
+Exit codes and machine-readable output (`--json`, `--tsv`, `--summary-json`)
+are unaffected. Set `AYAME_DIFF_DEBUG` to any value to print the raw error text
+beneath the explanation when filing a bug report.
 
 ---
 

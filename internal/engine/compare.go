@@ -13,6 +13,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 )
 
 // maxSimilarityPairs bounds the O(L*R) column-similarity scoring used to pair
@@ -61,6 +63,9 @@ type reconcileConfig struct {
 	allowUnresolved bool
 }
 
+// choice returns the sides adopted for id and whether the row is unresolved.
+// The value is a side or a comma-joined combination ("left,right"), so callers
+// use mergechoice.Has rather than an equality check (#271).
 func (r reconcileConfig) choice(id string) (string, bool) {
 	if side := r.choices[id]; side != "" {
 		return side, false
@@ -255,7 +260,7 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				}
 				stats.UnresolvedRows++
 			}
-			if (side == diffLeft && choice == "left") || (side == diffRight && choice == "right") {
+			if mergechoice.Has(choice, string(side)) {
 				if err := writer.Write(rowFields); err != nil {
 					return err
 				}
@@ -302,16 +307,30 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				}
 				stats.UnresolvedRows++
 			}
-			record := leftRecord
-			if choice == "right" {
-				record = rightRecord
+			// Adopting both sides emits both rows: the left row first, then the
+			// right row, matching the canonical left→right order (#271).
+			writeLeft, writeRight := mergechoice.Has(choice, "left"), mergechoice.Has(choice, "right")
+			if !writeLeft && !writeRight {
+				// Unresolved without a recognized side falls back to left.
+				writeLeft = true
 			}
-			fields, err := decodeRecord(record)
-			if err != nil {
-				return err
+			if writeLeft {
+				fields, err := decodeRecord(leftRecord)
+				if err != nil {
+					return err
+				}
+				if err := writer.Write(fields); err != nil {
+					return err
+				}
 			}
-			if err := writer.Write(fields); err != nil {
-				return err
+			if writeRight {
+				fields, err := decodeRecord(rightRecord)
+				if err != nil {
+					return err
+				}
+				if err := writer.Write(fields); err != nil {
+					return err
+				}
 			}
 			stats.DiffRows += 2
 			return nil
