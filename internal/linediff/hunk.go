@@ -77,6 +77,10 @@ type Result struct {
 	Modified     uint64
 	MovedBlocks  uint64
 	MovedLines   uint64
+	// LargestHunk is the size, in lines, of the largest hunk: the greater of
+	// its old and new extents. It is computed for every hunk, including ones
+	// omitted from Hunks by MaxHunks, so it describes the whole file (#120).
+	LargestHunk uint64
 	// MoveDetectionSkipped is true when move detection was requested but the
 	// retained hunk set was truncated, so a complete answer was impossible.
 	MoveDetectionSkipped bool

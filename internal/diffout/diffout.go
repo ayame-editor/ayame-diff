@@ -55,6 +55,11 @@ type Options struct {
 	// hunk using git-style [-removed-] / {+added+} markers instead of plain
 	// -/+ lines. Ignored for the other formats.
 	Word bool
+	// EastAsianAmbiguousWide counts East Asian Ambiguous characters (○, ※,
+	// Greek letters, and the like) as two terminal cells in side-by-side
+	// output. It is the CLI half of the display setting the GUI exposes; the
+	// default is false, matching most non-CJK terminals.
+	EastAsianAmbiguousWide bool
 	// Patch metadata. Context defaults to 3 unless ContextSet is true. Labels
 	// are file-header paths; timestamps are omitted when zero.
 	Context            int
@@ -118,7 +123,7 @@ func Write(w io.Writer, summaryW io.Writer, old, new linediff.Lines, res linedif
 		}
 		return writeSummary(summaryW, res)
 	case SideBySide:
-		if err := writeSideBySide(w, old, new, res, maxLines, width); err != nil {
+		if err := writeSideBySide(w, old, new, res, maxLines, width, textwidth.Options{EastAsianAmbiguousWide: opts.EastAsianAmbiguousWide}); err != nil {
 			return err
 		}
 		return writeSummary(summaryW, res)
@@ -325,7 +330,7 @@ func renderWordLine(prefix byte, segs []worddiff.Segment, openMark, closeMark st
 	return b.String()
 }
 
-func writeSideBySide(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64, width int) error {
+func writeSideBySide(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64, width int, opts textwidth.Options) error {
 	if width < minWidth {
 		width = minWidth
 	}
@@ -364,8 +369,8 @@ func writeSideBySide(w io.Writer, old, new linediff.Lines, res linediff.Result, 
 			// Left column is padded to full width so the separator aligns;
 			// right column only needs truncation (nothing follows it).
 			fmt.Fprintf(bw, "%c %s | %c %s\n",
-				leftTag, textwidth.PadRight(textwidth.Truncate(leftText, column), column),
-				rightTag, textwidth.Truncate(rightText, column))
+				leftTag, textwidth.PadRightWithOptions(textwidth.TruncateWithOptions(leftText, column, opts), column, opts),
+				rightTag, textwidth.TruncateWithOptions(rightText, column, opts))
 		}
 		if paired > shown {
 			fmt.Fprintf(bw, "... %d more paired line(s)\n", paired-shown)

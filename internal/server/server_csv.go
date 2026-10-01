@@ -40,6 +40,7 @@ type csvRequest struct {
 	IgnoreColumnIndexes []int                    `json:"ignoreColumnIndexes"`
 	Tolerance           *float64                 `json:"tolerance"`
 	ColumnTolerances    []engine.ColumnTolerance `json:"columnTolerances"`
+	ColumnMap           []engine.ColumnPair      `json:"columnMap"`
 	Partitions          int                      `json:"partitions"`
 	ParseWorkers        int                      `json:"parseWorkers"`
 	Workers             int                      `json:"workers"`
@@ -76,6 +77,7 @@ func requestFromConfig(cfg engine.Config) csvRequest {
 		LeftParser: cfg.LeftParser, RightParser: cfg.RightParser, LazyQuotes: cfg.LazyQuotes, TrimLeadingSpace: cfg.TrimLeadingSpace,
 		IgnoreCase: cfg.IgnoreCase, Whitespace: cfg.IgnoreWhitespace, LineFilters: cfg.LineFilters,
 		IgnoreColumnNames: cfg.IgnoreColumnNames, IgnoreColumnIndexes: cfg.IgnoreColumnIndexes, Tolerance: tolerance, ColumnTolerances: cfg.ColumnTolerances,
+		ColumnMap:  cfg.ColumnMap,
 		Partitions: cfg.Partitions, ParseWorkers: cfg.ParseWorkers, Workers: cfg.Workers, Memory: cfg.MemoryText, PartitionBuffer: cfg.PartitionBufferText,
 		MergeFanIn: cfg.MergeFanIn, MaxRecordBytes: cfg.MaxRecordText, TempDir: cfg.TempDir, KeepTemp: cfg.KeepTemp,
 		Output: cfg.OutputPath, OutputFormat: cfg.OutputFormat, OutputHeader: cfg.OutputHeader,
@@ -96,12 +98,13 @@ type csvDifference struct {
 	ChangedColumns []csvCellChange `json:"changed_columns,omitempty"`
 }
 type csvResponse struct {
-	Header          []string               `json:"header"`
-	Inspection      engine.InputInspection `json:"inspection"`
-	Summary         engine.Summary         `json:"summary"`
-	Differences     []csvDifference        `json:"differences"`
-	Truncated       bool                   `json:"truncated"`
-	DifferenceCount int                    `json:"difference_count"`
+	Header          []string                  `json:"header"`
+	Inspection      engine.InputInspection    `json:"inspection"`
+	Summary         engine.Summary            `json:"summary"`
+	Verdict         engine.EquivalenceVerdict `json:"verdict"`
+	Differences     []csvDifference           `json:"differences"`
+	Truncated       bool                      `json:"truncated"`
+	DifferenceCount int                       `json:"difference_count"`
 }
 
 // clampMemoryBudget lowers an over-limit resident-memory request to the server
@@ -167,6 +170,7 @@ func csvConfig(req csvRequest, output string) engine.Config {
 		LeftParser: req.LeftParser, RightParser: req.RightParser, LazyQuotes: req.LazyQuotes, TrimLeadingSpace: req.TrimLeadingSpace,
 		IgnoreCase: req.IgnoreCase, IgnoreWhitespace: req.Whitespace, LineFilters: req.LineFilters,
 		IgnoreColumnNames: req.IgnoreColumnNames, IgnoreColumnIndexes: req.IgnoreColumnIndexes,
+		ColumnMap:        req.ColumnMap,
 		ColumnTolerances: req.ColumnTolerances, Partitions: req.Partitions, ParseWorkers: req.ParseWorkers, Workers: req.Workers,
 		MemoryText: req.Memory, PartitionBufferText: req.PartitionBuffer, MergeFanIn: req.MergeFanIn, MaxRecordText: req.MaxRecordBytes,
 		TempDir: req.TempDir, KeepTemp: req.KeepTemp, OutputHeader: false, CellDiff: true, OutputFormat: "jsonl",
@@ -197,12 +201,21 @@ func validateCSVKeys(w http.ResponseWriter, req csvRequest) bool {
 	return true
 }
 
+// inspectCSVForServer reads both headers with name alignment assumed. A
+// reordered header is information the client needs (to offer alignment), not an
+// error, so the inspection must succeed even for a configuration that would not
+// compare without it (#116).
+func inspectCSVForServer(cfg engine.Config) (engine.InputInspection, error) {
+	cfg.AlignColumnsByName = true
+	return engine.InspectInputs(cfg)
+}
+
 func (s *Server) handleCSVInspect(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeCSVRequest(w, r)
 	if !ok {
 		return
 	}
-	inspection, err := engine.InspectInputs(csvConfig(req, "inspect.tmp"))
+	inspection, err := inspectCSVForServer(csvConfig(req, "inspect.tmp"))
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
 		return
@@ -226,9 +239,17 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(dir)
 	output := filepath.Join(dir, "diff.jsonl")
 	cfg := csvConfig(req, output)
-	inspection, err := engine.InspectInputs(cfg)
+	inspection, err := inspectCSVForServer(cfg)
 	if err != nil {
 		writeClassifiedError(w, err, http.StatusBadRequest)
+		return
+	}
+	// A reordered header with alignment off would make the engine refuse to
+	// compare ("headers differ"). That is not a failure: the column set is the
+	// same, so answer with an explicit verdict and let the client enable
+	// alignment and compare again in one action (#116).
+	if req.HasHeader && !req.AlignColumnsByName && engine.ColumnsAlignable(inspection) {
+		writeJSON(w, http.StatusOK, csvResponse{Header: inspection.Header, Inspection: inspection, Verdict: engine.ReorderVerdict(inspection)})
 		return
 	}
 	summary, err := engine.Run(r.Context(), cfg)
@@ -285,6 +306,16 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 		}
 		response.Differences = append(response.Differences, difference)
 	}
+	// Only a no-difference result needs the row-order observation, and only
+	// then is the extra streaming pass worth its cost. If it cannot be read,
+	// fall back to making no row-order claim rather than failing the result.
+	rowOrderSame := true
+	if response.DifferenceCount == 0 {
+		if same, orderErr := engine.SameRowOrder(cfg); orderErr == nil {
+			rowOrderSame = same
+		}
+	}
+	response.Verdict = engine.BuildVerdict(summary, inspection, rowOrderSame)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -325,6 +356,7 @@ type csvMergeRequest struct {
 	Choices          map[string]string `json:"choices"`
 	DefaultChoice    string            `json:"defaultChoice"`
 	AllowUnresolved  bool              `json:"allowUnresolved"`
+	UnresolvedTarget string            `json:"unresolvedTarget"`
 	Overwrite        bool              `json:"overwrite"`
 	ConfirmOverwrite bool              `json:"confirmOverwrite"`
 }
@@ -347,6 +379,10 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 			"overwriting an input requires overwrite and explicit confirmation")
 		return
 	}
+	if !validUnresolvedTarget(req.UnresolvedTarget, "left", "right") {
+		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left or right")
+		return
+	}
 	target := req.Output
 	if overwriteInput {
 		temp, err := os.CreateTemp(filepath.Dir(req.Output), ".ayame-diff-csv-merge-*"+filepath.Ext(req.Output))
@@ -363,6 +399,7 @@ func (s *Server) handleCSVMerge(w http.ResponseWriter, r *http.Request) {
 	cfg.OutputFormat, cfg.OutputHeader = "tsv", req.HasHeader
 	cfg.Reconcile, cfg.MergeChoices, cfg.MergeDefault = true, req.Choices, req.DefaultChoice
 	cfg.AllowUnresolved = req.AllowUnresolved
+	cfg.UnresolvedTarget = req.UnresolvedTarget
 	if strings.HasSuffix(strings.TrimSuffix(strings.ToLower(req.Output), ".gz"), ".csv") {
 		cfg.OutputDelimiter = ','
 	} else {

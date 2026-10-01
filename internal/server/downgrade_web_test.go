@@ -51,7 +51,7 @@ func TestDowngradedDifferencesAreWiredIntoTheUI(t *testing.T) {
 		t.Error("patch export sends rendered hunk indexes without mapping them onto the real-only list")
 	}
 	// The text merge API has the same real-only index space.
-	if !strings.Contains(app, "essentialChoices(mergeChoices") {
+	if !strings.Contains(app, "essentialChoices(mergeSelection.toWire()") {
 		t.Error("text merge sends rendered hunk choices without mapping them onto the real-only list")
 	}
 
