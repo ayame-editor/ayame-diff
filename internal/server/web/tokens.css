@@ -2,7 +2,21 @@
    Synced deliberately by review, not mechanically; layouts remain product-specific. */
 :root {
   --ui: "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
-  --mono: "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono CJK JP", "MS Gothic", monospace;
+  /* One family must cover both Latin and CJK, because CSS resolves fonts per
+     character: a Latin-only face followed by a CJK face makes a single line mix
+     two fonts whose advance widths are not exactly 1:2, which is what breaks
+     column alignment (#289). Noto Sans Mono CJK JP is a true CJK monospace
+     (half-width Latin = exactly half a full-width CJK cell) and so is the
+     Windows-bundled MS Gothic; both are listed first so every character on a
+     line resolves through one of them. The Latin-only faces after the CJK ones
+     are an aesthetic fallback reached only when no all-in-one family is
+     installed, where alignment cannot be guaranteed -- see docs/gui.md. */
+  --mono: "Noto Sans Mono CJK JP", "Source Han Mono JP", "MS Gothic", "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  /* Tab width for diff text. The CLI passes tabs through rather than expanding
+     them (internal/textwidth counts a tab as zero cells), so this cannot be
+     "matched" to the CLI exactly; 8 is the terminal and browser default, and the
+     GUI makes it adjustable. See docs/gui.md. */
+  --tab-size: 8;
   /* Shared Ayame type scale: editor chrome and diff data use the same 13px base. */
   --fs-ui: 13px; --fs-data: 13px; --fs-label: 12px; --fs-caption: 11px;
   /* Canonical family names; --panel/--muted remain compatibility aliases. */
