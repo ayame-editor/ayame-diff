@@ -126,11 +126,20 @@ adds a **BASE** field), or a folder. Set the comparison options (encoding, resyn
 window, ignore-case, whitespace handling, EOL controls, **absorb re-indentation**
 to keep a re-indented file aligned, repeatable regex filters
 entered one per line), then **Compare**. The result is shown as a side-by-side
-grid with per-hunk headers, line numbers and word-level highlighting. **Syntax
-highlight** adds line-local coloring for common source, data, markup, and log
-formats; the file extension selects the language and the toggle is remembered in
-the browser. It operates only on rendered diff rows, so it does not scan or
-retain the complete input file. Choose **patch format** (`normal`, `context`, or
+grid with per-hunk headers, line numbers and word-level highlighting. **Syntax highlight** adds syntax coloring for common source,
+data, markup, and log formats; the file extension selects the language and the
+toggle is remembered in the browser. For languages whose multi-line constructs
+it models — block comments, JavaScript/TypeScript template literals, Go raw
+strings, Python triple-quoted strings, and shell heredocs — it carries state
+across consecutive rendered lines, so such a construct is colored through to its
+end. It operates only on rendered diff rows, so it does not scan or retain the
+complete input file: a construct that starts before the first rendered line of a
+hunk, or spans an omitted gap between hunks, is not tracked and left with the
+line-local coloring. When that accurate pass is unavailable — an unknown
+extension, a data/markup/log format, an older front end, or an error — the view
+falls back to the previous line-local highlighting, unchanged. See
+[ADR 0006](adr/0006-syntax-highlighting-treesitter.md) for why a tree-sitter
+grammar is not shipped yet. Choose **patch format** (`normal`, `context`, or
 `unified`) and a context-line count, then use **Export patch** to download an
 applyable `ayame.patch`. Patch export preserves CRLF and missing-final-newline
 markers and rejects binary/NUL input. Export is available in `text` mode only; a
