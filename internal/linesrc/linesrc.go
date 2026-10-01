@@ -50,6 +50,11 @@ type universalLineReader struct {
 	// window bounds how many lines are resident, but nothing bounded a single
 	// line, so a file with no line breaks was fully resident (#137).
 	maxLine int
+	// searched is how much of pending has already been proven free of a line
+	// terminator. nextLine and checkLineLength resume scanning there instead
+	// of re-reading the whole accumulated line on every fill, which made a
+	// single long line quadratic in its length (#279).
+	searched int
 }
 
 // nextLine advances past the next line and returns its bytes together with the
@@ -62,9 +67,11 @@ type universalLineReader struct {
 // allocations of pure garbage (#156).
 func (u *universalLineReader) nextLine() ([]byte, string, bool, error) {
 	for {
-		if index := bytes.IndexAny(u.pending, "\r\n"); index >= 0 {
+		if index := bytes.IndexAny(u.pending[u.searched:], "\r\n"); index >= 0 {
+			index += u.searched
 			// A CR at the buffer boundary needs one more byte to distinguish CRLF.
 			if u.pending[index] == '\r' && index+1 == len(u.pending) && !u.eof {
+				u.searched = index
 				if err := u.fill(); err != nil {
 					return nil, "", false, err
 				}
@@ -79,14 +86,20 @@ func (u *universalLineReader) nextLine() ([]byte, string, bool, error) {
 			}
 			line := u.pending[:index]
 			u.pending = u.pending[index+width:]
+			u.searched = 0
 			return line, ending, true, nil
 		}
+		// Everything so far is part of one line, so the next fill only has to
+		// scan the bytes it appends.
+		u.searched = len(u.pending)
 		if u.eof {
 			if len(u.pending) == 0 {
+				u.searched = 0
 				return nil, "", false, nil
 			}
 			line := u.pending
 			u.pending = nil
+			u.searched = 0
 			return line, "", true, nil
 		}
 		if err := u.fill(); err != nil {
@@ -146,14 +159,16 @@ func (u *universalLineReader) appendPending(chunk []byte) {
 
 // checkLineLength rejects a single line longer than maxLine. It measures the
 // first line in pending rather than all of pending, which can legitimately hold
-// several CR-delimited lines from one chunk.
+// several CR-delimited lines from one chunk. It resumes from searched because
+// everything before it was already proven to be one unterminated line, so the
+// first terminator cannot appear earlier (#279).
 func (u *universalLineReader) checkLineLength() error {
 	if u.maxLine <= 0 {
 		return nil
 	}
 	length := len(u.pending)
-	if index := bytes.IndexAny(u.pending, "\r\n"); index >= 0 {
-		length = index
+	if index := bytes.IndexAny(u.pending[u.searched:], "\r\n"); index >= 0 {
+		length = u.searched + index
 	}
 	if length > u.maxLine {
 		return &LineTooLongError{Limit: u.maxLine}

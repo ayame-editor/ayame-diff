@@ -8,11 +8,19 @@ either input by default.
 
 ## Text
 
-After a text comparison, each hunk has **Use left** and **Use right** actions.
-Use **All left** or **All right** for the whole result. Undo and redo store only
-hunk-choice maps, so large source files are not copied into browser history.
-`Alt+Left` and `Alt+Right` choose the side for the current hunk; the existing
-`Alt+Up` / `Alt+Down` shortcuts navigate.
+After a text comparison, each hunk has **Use left** and **Use right** toggles.
+Clicking a side you already chose clears it, so selecting and deselecting are
+the same gesture, and the pressed state shows what each hunk currently adopts.
+Turning on both sides adopts both contributions, concatenated left then right;
+there is no separate "both" button. **All left** or **All right** set every hunk
+at once. Undo and redo store only hunk-selection snapshots, so large source
+files are not copied into browser history. `Alt+Left` and `Alt+Right` toggle the
+side for the current hunk; the existing `Alt+Up` / `Alt+Down` shortcuts navigate.
+
+A three-way comparison offers **Use left**, **Use base**, and **Use right**
+toggles on each conflict. The adopted contributions are concatenated in the
+fixed order base, left, right, so "left + right" reads as the left side followed
+by the right side (the order the toggles were clicked does not matter).
 
 Saving recomputes the complete diff and streams unchanged/chosen ranges into a
 temporary sibling file. The temporary file is flushed before atomic rename.
@@ -21,10 +29,12 @@ range. Decoded non-UTF-8 input is saved as UTF-8.
 
 ## CSV / TSV
 
-Each logical keyed difference has a stable content-derived ID. Choose left or
-right for CHANGED pairs, LEFT_ONLY rows (keep/drop), and RIGHT_ONLY rows
-(drop/keep). Saving reruns the memory-bounded partition/sort pipeline and emits
-one complete, reconciled, key-sorted CSV or TSV including equal rows. Only the
+Each logical keyed difference has a stable content-derived ID. A CHANGED pair
+offers left and right toggles; turning on both keeps both rows, left then right.
+A LEFT_ONLY or RIGHT_ONLY row has content on only one side, so its toggles keep
+or drop that row instead of concatenating (the same keep/drop decision as
+before). Saving reruns the memory-bounded partition/sort pipeline and emits one
+complete, reconciled, key-sorted CSV or TSV including equal rows. Only the
 stable choice map is held in memory.
 
 The output delimiter follows the filename: `.csv` / `.csv.gz` uses comma;
