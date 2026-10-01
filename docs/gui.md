@@ -276,6 +276,45 @@ A large result is painted in slices rather than in one blocking pass, so
 scrolling and input stay responsive while it builds; **Cancel** stops a render
 that is already under way, not only a request still in flight.
 
+### Accessibility and keyboard use
+
+Nothing in the diff depends on seeing colour. Added lines carry `+` and deleted
+lines carry `-` in the gutter of both the side-by-side and unified views, and
+each hunk header names its kind (`+ Insert`, `− Delete`, `~ Replace`,
+`MOVED #…`). A three-way conflict carries `≠`. In forced-colours mode, where
+every wash is replaced by system colours, the glyph is still there: it is the
+marker, not the background, that says which line is which.
+
+Assistive technology receives the same fact in words. Each diff row is named
+`added`, `deleted` or `modified` alongside its line number, and each hunk is a
+labelled group. The application keeps a single polite live region for
+navigation feedback — the position after `Alt+↓`, a search step, or a merge
+choice — while a failure is announced assertively through the message lane. The
+visible counters (difference position, search hit count, unresolved count) are
+not live regions of their own; the controls that change them describe themselves
+with the count instead, so a keypress does not queue several announcements.
+
+The whole flow is keyboard-only. `Tab`/`Shift+Tab` reach every control,
+`Alt+↓`/`Alt+↑` (or `Alt+Home`/`Alt+End`) move between differences, `Alt+←`/
+`Alt+→` (and `Alt+B` in three-way) adopt a side, `Ctrl+F` searches, `Ctrl+S`
+saves an edited pane, and `Escape` closes the search and every dialog. The focus
+ring is visible on every control, including the diff rows and the minimap.
+
+Two limitations are worth stating. Off-screen hunks use CSS
+`content-visibility: auto` so that a very large diff does not lay out the whole
+document at once; some browsers also omit that off-screen content from the
+accessibility tree until it has been scrolled into view. Bring a hunk on screen
+with the difference navigation before reading it, since the position is
+announced as you move. The minimap is a compact overview, not a text document;
+it is keyboard operable as a scrollbar, but its markers carry no text.
+
+The markers, the live-region layout and the focus-ring coverage are pinned by
+automated tests that run in CI: Go tests read the served assets and a
+`node --test` suite executes the pure mapping. A full axe or Lighthouse pass
+would need a headless browser and a Node dependency the project does not carry,
+so it stays a manual check in the
+[GUI regression checklist](ui-regression-checklist.md).
+
 ### External changes
 
 **Auto-reload external changes** is enabled by default in the View menu for
