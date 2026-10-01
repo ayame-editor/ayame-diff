@@ -166,11 +166,19 @@ it was opened, the save is refused and offers to overwrite instead of discarding
 the other change silently. Leaving the page with unsaved lines warns first, and
 an external change no longer reloads over unsaved work: the reload bar asks.
 
-Every line you have typed into carries a mark in its gutter, so which lines are
-unsaved is readable in the result and not only in the pane header. Anything that
-would replace what is being edited — a different path, a mode switch, turning on
-pasted text — asks first and stays put if you decline; re-comparing and changing
-comparison or display options keep the buffers and do not ask.
+Two kinds of difference are on screen at once while editing, and they stay
+visually distinct. How the two compared files differ is the cell shading, plus
+the `-`/`+` marker in the unified view. A line whose text differs from the file
+the buffer loaded — something you typed this session — carries its own handle in
+the gutter: an accent bar with a glyph (`~`), not shading. Click a handle to put
+that whole run of lines back to what was loaded, or focus the line and press
+`Delete`. Saving clears the handles; discarding the edits clears them too, so no
+stale mark outlives the change it pointed at.
+
+Anything that would replace what is being edited — a different path, a mode
+switch, turning on pasted text — asks first and stays put if you decline;
+re-comparing and changing comparison or display options keep the buffers and do
+not ask.
 
 Editing changes lines; it does not add or remove them, and the comparison
 settings continue to apply as they do while reading.
