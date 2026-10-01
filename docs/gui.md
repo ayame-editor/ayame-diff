@@ -234,6 +234,10 @@ it is dismissed with its close button or with `Escape` while it holds focus. A
 message that repeats is counted on its existing line rather than stacking a
 duplicate, and each line carries the time it arrived.
 
+A large result is painted in slices rather than in one blocking pass, so
+scrolling and input stay responsive while it builds; **Cancel** stops a render
+that is already under way, not only a request still in flight.
+
 ### External changes
 
 **Auto-reload external changes** is enabled by default in the View menu for

@@ -688,11 +688,11 @@ async function renderContinuous(data, body) {
   const sections = [];
   continuousView = { entries, sections, loaded: new Set(), pending: new Map(), focus: 0, body, frame: 0 };
 
-  await renderInSlices(result, entries, (entry, index) => {
+  if (!(await renderInSlices(result, entries, (entry, index) => {
     const section = buildContinuousSection(entry, index);
     sections.push(section);
     return section;
-  });
+  }))) return;
 
   syncContinuousControls();
   updateContinuousCounter();
@@ -1572,7 +1572,7 @@ function scheduleComparisonURLReplace() {
 }
 
 async function waitForIdleOperation() {
-  if (currentAbort) currentAbort.abort();
+  cancelCurrentOperation();
   while (busyOperation) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -2278,13 +2278,29 @@ function comparisonUsesRules(csvMode = false) {
 // back to the browser, continue. Content appears progressively instead of all
 // at once at the end, and scrolling and typing keep working throughout.
 
-// renderBudgetMs is how long one slice may build before yielding. Comfortably
-// inside a frame, so a slice cannot itself cause a dropped frame.
-const RENDER_BUDGET_MS = 8;
+// The slice budget and the render gate are pure and live in renderqueue.js,
+// where node exercises them (#127, #128). RENDER_BUDGET_MS is how long one
+// slice may build before yielding; the budget is comfortably inside a frame, so
+// a slice cannot itself cause a dropped frame.
+const { createSliceBudget, createRenderGate } = globalThis.AyameRenderQueue;
+const RENDER_BUDGET_MS = globalThis.AyameRenderQueue.DEFAULT_BUDGET_MS;
 
-// renderToken invalidates an in-progress render when a newer one starts, so a
-// superseded render stops appending instead of interleaving with its successor.
-let renderToken = 0;
+// renderGate coalesces renders. A newer render supersedes the one in progress;
+// Cancel stops it outright. The two are distinct so a cancelled comparison is
+// not reported as a finished one.
+const renderGate = createRenderGate();
+
+// cancelRendering stops a render that is already painting. The request has
+// resolved by then, so aborting it does nothing; without this, Cancel during a
+// large render left the result to finish building (#128).
+function cancelRendering() { renderGate.cancel(); }
+
+// cancelCurrentOperation stops whatever is running: the request if one is in
+// flight, and the render if its response has arrived and is being painted.
+function cancelCurrentOperation() {
+  if (currentAbort) currentAbort.abort();
+  cancelRendering();
+}
 
 // yieldToBrowser hands the thread back, resuming on the next macrotask so the
 // browser can paint and process input in between.
@@ -2308,27 +2324,28 @@ function yieldToBrowser() {
 
 // renderInSlices appends items.length nodes to target, yielding between
 // slices. build(item, index) returns the node. Returns false if a newer render
-// superseded this one, in which case the caller must not run its finishing
-// steps.
+// superseded this one or the user cancelled it, in which case the caller must
+// not run its finishing steps.
 async function renderInSlices(target, items, build) {
   // The nodes any search hits pointed at are being replaced.
   clearSearchHits();
-  const token = ++renderToken;
+  const token = renderGate.begin();
+  const budget = createSliceBudget({ budgetMs: RENDER_BUDGET_MS, now: () => performance.now() });
   let index = 0;
   while (index < items.length) {
-    const started = performance.now();
     const frag = document.createDocumentFragment();
     // Always place at least one node, so a single very expensive item cannot
     // stall the loop forever.
     do {
       frag.append(build(items[index], index));
       index++;
-    } while (index < items.length && performance.now() - started < RENDER_BUDGET_MS);
+    } while (index < items.length && !budget.doneOne());
     target.append(frag);
     if (index >= items.length) break;
     setStatus(t("rendering", { done: fmt(index), total: fmt(items.length) }), "busy");
     await yieldToBrowser();
-    if (token !== renderToken) return false;
+    if (!renderGate.isCurrent(token)) return false;
+    budget.reset();
   }
   return true;
 }
@@ -2497,7 +2514,9 @@ function paneHeads(data = {}) {
 }
 
 // renderResult draws a diff response once. Display preferences only toggle
-// classes on the completed DOM via applyDisplayPreferences.
+// classes on the completed DOM via applyDisplayPreferences. It returns false
+// when the render was superseded or cancelled before it finished, so the caller
+// does not treat a stopped render as a completed comparison.
 async function renderResult(data) {
   applyDisplayPreferences();
   renderSummary(data);
@@ -2513,7 +2532,7 @@ async function renderResult(data) {
     clearUnchangedContext();
     const scope = t("textMatchScope", { old: fmt(data.old_lines), new: fmt(data.new_lines) });
     result.append(resultStateCard(t(comparisonUsesRules() ? "filteredMatch" : "completeMatch"), scope));
-    return;
+    return true;
   }
   prepareUnchangedContext(data);
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => {
@@ -2522,7 +2541,7 @@ async function renderResult(data) {
     if (index === data.hunks.length - 1) fragment.append(unchangedRegions[index + 1].node);
     return fragment;
   });
-  if (!complete) return;
+  if (!complete) return false;
   syncContextVisibility();
   const contextComplete = await loadInitialContext({ announce: true });
   if (contextComplete) setStatus("");
@@ -2532,6 +2551,7 @@ async function renderResult(data) {
   observeHunks();
   buildMinimap(data);
   updateMinimapViewport();
+  return true;
 }
 
 function mutateMerge(mutator) {
@@ -2689,8 +2709,9 @@ async function renderThreeWay(data, csvMode) {
   };
   // Sliced like the text path: a three-way result can carry as many events as
   // a diff carries hunks, and this loop appended straight into the live DOM
-  // rather than a fragment, so it was the heavier of the two (#127).
-  if (data.events.length && !(await renderInSlices(result, data.events, buildEvent))) return;
+  // rather than a fragment, so it was the heavier of the two (#127). Returns
+  // false when the render was stopped before it finished.
+  if (data.events.length && !(await renderInSlices(result, data.events, buildEvent))) return false;
   if (data.events.length) setStatus("");
   if (!data.events.length) {
     const scope = csvMode
@@ -2699,6 +2720,7 @@ async function renderThreeWay(data, csvMode) {
     result.append(resultStateCard(t(comparisonUsesRules(csvMode) ? "filteredMatch" : "completeMatch"), scope));
   }
   observeHunks(); updateThreeWayMergeUI(); buildMinimap(lastData); updateMinimapViewport();
+  return true;
 }
 function updateThreeWayMergeUI() {
 	$("allBase").hidden = false;
@@ -2732,7 +2754,8 @@ async function compareThreeWay(csvMode) {
     threeWayData = null; resetMergeSelection(csvMode ? "threeway-csv" : "threeway"); mergeUndo = []; mergeRedo = [];
     if (!$("mergeOutput").value) { const source = $("base").value.trim(); $("mergeOutput").value = source ? source.replace(/(\.[^./\\]+)?$/, ".merged$1") : (csvMode ? "merged.csv" : "merged.txt"); }
     clearInterval(timer);
-    await renderThreeWay(data, csvMode);
+    const rendered = await renderThreeWay(data, csvMode);
+    if (!rendered && renderGate.cancelled) { setStatus(t("cancelled"), ""); return false; }
     return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
@@ -3221,6 +3244,10 @@ function renderCSVSummary(data) {
 // (#154).
 let csvView = null;
 
+// renderCSV builds one page of the table (CSV_PAGE_SIZE rows), which is bounded
+// by construction, so unlike the text, three-way, folder and continuous paths it
+// does not slice: the remaining rows arrive one page at a time through
+// renderCSVRows, and nothing here blocks on the size of the whole difference.
 function renderCSV(data) {
   csvData = data;
   lastData = null;
@@ -3713,10 +3740,11 @@ async function renderDirectory(data, body, state = {}) {
       ...[...root.dirs.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => ({ dir: n })),
       ...root.files.sort((a, b) => a.name.localeCompare(b.name)).map((f) => ({ file: f })),
     ];
-    if (!(await renderInSlices(tree, top, (item) => (item.dir ? folderRow(item.dir, 0) : fileRow(item.file, 0))))) return;
+    if (!(await renderInSlices(tree, top, (item) => (item.dir ? folderRow(item.dir, 0) : fileRow(item.file, 0))))) return false;
     initDirKeyboard(tree, state.selectedPath);
   }
   setStatus("");
+  return true;
 }
 
 // initDirKeyboard gives the tree the one-tab-stop, arrow-driven model a tree is
@@ -3778,7 +3806,8 @@ async function compareDirectory() {
     const data = await resp.json(); if (!resp.ok) throw apiError(data, resp);
     if (!isCurrentRequest(generation)) return false;
     clearInterval(timer);
-    await renderDirectory(data, body);
+    const rendered = await renderDirectory(data, body);
+    if (!rendered && renderGate.cancelled) { setStatus(t("cancelled"), ""); return false; }
     return true;
   }
   catch (err) { if (err.name === "AbortError") setStatus(t("cancelled"), ""); else setStatus(String(err.message || err), "error"); return false; }
@@ -3832,7 +3861,13 @@ async function runCompare() {
     // Stop the elapsed ticker before rendering: renderResult yields between
     // slices, so the ticker would otherwise keep overwriting its progress.
     clearInterval(timer);
-    await renderResult(data);
+    const rendered = await renderResult(data);
+    // A render the user stopped is not a finished comparison: report the
+    // cancellation and leave the form open, like an aborted request (#128).
+    if (!rendered && renderGate.cancelled) {
+      setStatus(t("cancelled"), "");
+      return false;
+    }
     return true;
   } catch (err) {
     if (err.name === "AbortError") setStatus(t("cancelled"), "");
@@ -5076,7 +5111,7 @@ $("exportCSV").addEventListener("click", exportCSV);
 $("saveProject").addEventListener("click", saveProject);
 $("loadProject").addEventListener("click", loadProject);
 $("recentProjects").addEventListener("change", async () => { if ($("recentProjects").value !== "") { const body = recentComparisons()[Number($("recentProjects").value)]; if (body.mode === "dir") applyDirectoryProject(body); else await applyCSVProject(body); } });
-$("cancel").addEventListener("click", () => { if (currentAbort) currentAbort.abort(); });
+$("cancel").addEventListener("click", cancelCurrentOperation);
 // The refusal has to put the control back itself. The event object is not a
 // reliable handle by the time the dialog resolves, so the element is looked up
 // again rather than read off the event.
@@ -5502,7 +5537,7 @@ window.addEventListener("popstate", () => {
   const state = readComparisonState(location.href);
   if (!state) {
     comparisonURLRestoreGeneration++;
-    if (currentAbort) currentAbort.abort();
+    cancelCurrentOperation();
     if (comparisonURLHasState()) setStatus(t("urlStateInvalid"), "warning");
     else location.reload();
     return;
