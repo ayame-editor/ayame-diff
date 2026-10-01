@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
@@ -31,6 +33,21 @@ type partitionStats struct {
 	DiffRows       uint64
 	UnresolvedRows uint64
 	ColumnChanges  []uint64
+	// ChangedRows and ColumnDeltas back the per-column statistics added for
+	// #120. ChangedRows is the number of CHANGED row pairs compared cell by
+	// cell; ColumnDeltas has one entry per column when cell-level diffing ran.
+	ChangedRows  uint64
+	ColumnDeltas []columnDelta
+}
+
+// columnDelta is the partition-local accumulator behind ColumnDelta.
+type columnDelta struct {
+	count     uint64
+	sum       float64
+	min, max  float64
+	increased uint64
+	decreased uint64
+	unchanged uint64
 }
 
 type diffKind string
@@ -110,11 +127,71 @@ func (s *partitionStats) add(other partitionStats) {
 	s.ChangedRight += other.ChangedRight
 	s.DiffRows += other.DiffRows
 	s.UnresolvedRows += other.UnresolvedRows
+	s.ChangedRows += other.ChangedRows
 	if len(s.ColumnChanges) < len(other.ColumnChanges) {
 		s.ColumnChanges = append(s.ColumnChanges, make([]uint64, len(other.ColumnChanges)-len(s.ColumnChanges))...)
 	}
 	for i, count := range other.ColumnChanges {
 		s.ColumnChanges[i] += count
+	}
+	if len(s.ColumnDeltas) < len(other.ColumnDeltas) {
+		s.ColumnDeltas = append(s.ColumnDeltas, make([]columnDelta, len(other.ColumnDeltas)-len(s.ColumnDeltas))...)
+	}
+	for i, delta := range other.ColumnDeltas {
+		if delta.count == 0 {
+			continue
+		}
+		current := &s.ColumnDeltas[i]
+		if current.count == 0 {
+			*current = delta
+			continue
+		}
+		current.count += delta.count
+		current.sum += delta.sum
+		if delta.min < current.min {
+			current.min = delta.min
+		}
+		if delta.max > current.max {
+			current.max = delta.max
+		}
+		current.increased += delta.increased
+		current.decreased += delta.decreased
+		current.unchanged += delta.unchanged
+	}
+}
+
+// noteNumericDelta folds one changed cell pair into a column's delta summary.
+// A value that does not parse as a finite number on both sides is not numeric
+// evidence and is ignored, so a mostly-text column never gains a bogus delta.
+func noteNumericDelta(destination *columnDelta, oldValue, newValue string) {
+	oldNumber, err := strconv.ParseFloat(strings.TrimSpace(oldValue), 64)
+	if err != nil || math.IsNaN(oldNumber) || math.IsInf(oldNumber, 0) {
+		return
+	}
+	newNumber, err := strconv.ParseFloat(strings.TrimSpace(newValue), 64)
+	if err != nil || math.IsNaN(newNumber) || math.IsInf(newNumber, 0) {
+		return
+	}
+	delta := newNumber - oldNumber
+	if destination.count == 0 {
+		destination.min, destination.max = delta, delta
+	} else {
+		if delta < destination.min {
+			destination.min = delta
+		}
+		if delta > destination.max {
+			destination.max = delta
+		}
+	}
+	destination.count++
+	destination.sum += delta
+	switch {
+	case delta > 0:
+		destination.increased++
+	case delta < 0:
+		destination.decreased++
+	default:
+		destination.unchanged++
 	}
 }
 
@@ -216,12 +293,15 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 
 	var rowFields, output []string
 	var operations uint64
-	decodeRecord := func(record binRecord) ([]string, error) {
-		encoded := record.Row
+	// encodedRecordBytes picks the row or full-row payload for a stored record.
+	encodedRecordBytes := func(record binRecord) []byte {
 		if keyIsFullRow {
-			encoded = record.Key
+			return record.Key
 		}
-		return decodeRow(encoded, columnCount, nil)
+		return record.Row
+	}
+	decodeRecord := func(record binRecord) ([]string, error) {
+		return decodeRow(encodedRecordBytes(record), columnCount, nil)
 	}
 	writeEqual := func(record binRecord) error {
 		if !reconcile.enabled {
@@ -580,9 +660,27 @@ func compareSortedFiles(ctx context.Context, leftPath, rightPath, outputPath str
 				}
 				if len(stats.ColumnChanges) == 0 {
 					stats.ColumnChanges = make([]uint64, columnCount)
+					stats.ColumnDeltas = make([]columnDelta, columnCount)
 				}
 				for _, index := range changed {
 					stats.ColumnChanges[index]++
+				}
+				stats.ChangedRows++
+				if len(changed) > 0 {
+					// Only the changed cells are examined, and their bytes are
+					// borrowed from the record rather than copied: a mostly-text
+					// row pays nothing for the columns that did not change.
+					oldFields, err := decodeRowBytes(encodedRecordBytes(leftRecord.record), columnCount, nil)
+					if err != nil {
+						return err
+					}
+					newFields, err := decodeRowBytes(encodedRecordBytes(rightRecord.record), columnCount, nil)
+					if err != nil {
+						return err
+					}
+					for _, index := range changed {
+						noteNumericDelta(&stats.ColumnDeltas[index], string(oldFields[index]), string(newFields[index]))
+					}
 				}
 				if err := writePair(leftRecord.record, rightRecord.record, changed); err != nil {
 					return err

@@ -448,6 +448,37 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 }
 .summary .note-action:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
+/* Statistics panel (#120). It opens the result, before the rows, so the shape
+   of the change is readable without scrolling through it. The body scrolls
+   rather than capping the column list, so a wide file shows every column. */
+.stats-view {
+  margin-top: 0.8rem; border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px); background: var(--panel);
+}
+.stats-head {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border);
+}
+.stats-head strong { font-size: var(--fs-emphasis); }
+.stats-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+.stats-export {
+  margin: 0; padding: 0.2rem 0.55rem; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); font-weight: 600;
+}
+.stats-scroll { max-height: 16rem; overflow: auto; }
+.stats-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.stats-table th, .stats-table td {
+  padding: 0.2rem 0.6rem; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.stats-table thead th { position: sticky; top: 0; background: var(--panel); }
+.stats-table tbody th { font-weight: 600; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.stats-table td.stat-bar { width: 8rem; min-width: 4rem; }
+.stats-table .stat-bar-fill {
+  display: block; height: 0.5rem; min-width: 1px;
+  background: var(--chg-fg); border-radius: 999px;
+}
+
 .diff-nav {
   /* Left-aligned and wrapping. Centring made the controls drift with the width
      of whatever happened to be in the bar, so nothing kept a stable position. */

@@ -66,6 +66,12 @@ const {
   sectionAt,
 } = globalThis.AyameContinuous;
 const { createMessageLog } = globalThis.AyameMessages;
+const {
+  formatPercent: formatStatsPercent,
+  buildStats,
+  toCSV: statsToCSV,
+  toJSON: statsToJSON,
+} = globalThis.AyameStatsView;
 // Declared with the other module wiring: setStatus runs during start-up, before
 // the lane helpers further down the file are reached.
 const messageLog = createMessageLog({ onChange: renderMessages });
@@ -2572,6 +2578,157 @@ function paneHeads(data = {}) {
   return heads;
 }
 
+// ---- Statistics panel (#120) ----
+// The result opens with a breakdown of what changed, beyond the kind totals in
+// the status bar: every changed CSV column with its share and numeric delta, or
+// the whole-file context for a text diff. The exports reuse the summary already
+// in the browser, so downloading an artifact never re-runs the comparison.
+let statsDocument = null;
+
+function statsCell(text, className) {
+  const cell = document.createElement("td");
+  if (className) cell.className = className;
+  cell.textContent = text;
+  return cell;
+}
+
+function statsRow(label, cells) {
+  const row = document.createElement("tr");
+  const head = document.createElement("th");
+  head.scope = "row";
+  head.textContent = label;
+  row.append(head, ...cells);
+  return row;
+}
+
+function statsBarCell(fraction) {
+  const cell = document.createElement("td");
+  cell.className = "stat-bar";
+  const fill = document.createElement("span");
+  fill.className = "stat-bar-fill";
+  const value = Math.max(0, Math.min(1, Number(fraction) || 0));
+  fill.style.width = `${Math.round(value * 100)}%`;
+  cell.append(fill);
+  return cell;
+}
+
+// A delta carries its sign so an increase is distinguishable from a decrease;
+// -0 is normalized to 0 because the sum of opposite deltas can be negative zero.
+function statsDeltaText(value) {
+  const number = Number(value) || 0;
+  const rounded = Math.abs(number) < 1e-9 ? 0 : number;
+  return `${rounded > 0 ? "+" : ""}${Number(rounded.toFixed(6))}`;
+}
+
+function buildStatsTable(kind) {
+  const table = document.createElement("table");
+  table.className = "stats-table";
+  const head = document.createElement("thead");
+  const body = document.createElement("tbody");
+  table.append(head, body);
+  const headerRow = (labels) => {
+    const row = document.createElement("tr");
+    for (const label of labels) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      row.append(th);
+    }
+    return row;
+  };
+  if (kind === "csv") {
+    head.append(headerRow([t("statsColumn"), t("statsChanged"), t("statsShare"), "", t("statsDeltaSum"), t("statsDeltaMean"), t("statsDeltaMax"), t("statsDirection")]));
+    for (const column of statsDocument.columns) {
+      const cells = [
+        statsCell(column.count.toLocaleString()),
+        statsCell(formatStatsPercent(column.share, 1)),
+        statsBarCell(column.bar / 100),
+      ];
+      if (column.numeric) {
+        cells.push(
+          statsCell(statsDeltaText(column.numeric.sum)),
+          statsCell(statsDeltaText(column.numeric.mean)),
+          statsCell(statsDeltaText(column.numeric.max)),
+          statsCell(`${column.numeric.increased} / ${column.numeric.decreased} / ${column.numeric.unchanged}`),
+        );
+      } else {
+        for (let i = 0; i < 4; i++) cells.push(statsCell("—"));
+      }
+      body.append(statsRow(column.name, cells));
+    }
+    return table;
+  }
+  head.append(headerRow([t("statsMetric"), t("statsCount"), t("statsShare"), ""]));
+  const summary = statsDocument.summary;
+  const total = summary.total_lines || 0;
+  const rows = [
+    [t("hunks"), summary.hunk_count, null],
+    [t("added"), summary.added, summary.added],
+    [t("deleted"), summary.deleted, summary.deleted],
+    [t("modified"), summary.modified, summary.modified],
+  ];
+  if (summary.moved_blocks) rows.push([t("moved"), summary.moved_blocks, null]);
+  rows.push([t("statsChangedLines"), summary.changed_lines, summary.changed_lines]);
+  rows.push([t("statsLargestHunk"), summary.largest_hunk, null]);
+  for (const [label, value, counted] of rows) {
+    const share = counted === null || !total ? 0 : counted / total;
+    body.append(statsRow(label, [
+      statsCell(value.toLocaleString()),
+      statsCell(counted === null ? "—" : formatStatsPercent(share, 1)),
+      statsBarCell(share),
+    ]));
+  }
+  return table;
+}
+
+function statsPanel(kind, data) {
+  statsDocument = buildStats(kind, data);
+  const section = document.createElement("section");
+  section.className = "stats-view";
+  section.id = "statsView";
+  const head = document.createElement("header");
+  head.className = "stats-head";
+  const title = document.createElement("strong");
+  title.textContent = t("statisticsTitle");
+  const actions = document.createElement("span");
+  actions.className = "stats-actions";
+  for (const [format, label] of [["csv", t("statsExportCSV")], ["json", t("statsExportJSON")]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stats-export";
+    button.textContent = label;
+    button.addEventListener("click", () => exportStats(format));
+    actions.append(button);
+  }
+  head.append(title, actions);
+  const scroll = document.createElement("div");
+  scroll.className = "stats-scroll";
+  scroll.append(buildStatsTable(kind));
+  section.append(head, scroll);
+  return section;
+}
+
+function statsArtifactName(format) {
+  return `ayame-stats.${format}`;
+}
+
+function exportStats(format) {
+  if (!statsDocument) return;
+  const json = format === "json";
+  const name = statsArtifactName(json ? "json" : "csv");
+  const blob = new Blob([json ? statsToJSON(statsDocument) : statsToCSV(statsDocument)], {
+    type: `${json ? "application/json" : "text/csv"};charset=utf-8`,
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus(t("statsExported", name), "success");
+}
+
 // renderResult draws a diff response once. Display preferences only toggle
 // classes on the completed DOM via applyDisplayPreferences. It returns false
 // when the render was superseded or cancelled before it finished, so the caller
@@ -2589,6 +2746,7 @@ async function renderResult(data) {
   updateCounter();
   syncExportPatchVisibility();
   result.append(paneHeads(data));
+  result.append(statsPanel("text", data));
   if (!data.hunks.length) {
     clearUnchangedContext();
     const scope = t("textMatchScope", { old: fmt(data.old_lines), new: fmt(data.new_lines) });
@@ -3479,7 +3637,6 @@ function renderCSVSummary(data) {
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = fmt(Number(value || 0)); item.append(b, ` ${label}`); el.append(item); };
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
-  for (const column of (summary.column_changes || []).slice(0, 8)) add(column.name, column.count, "chg");
   // The counts alone leave the reader to decide whether anything is really
   // different. State the verdict in one line: real data differences, or none
   // apart from column/row order (#116).
@@ -3534,6 +3691,7 @@ function renderCSV(data) {
     return;
   }
   renderCSVSummary(data);
+  result.append(statsPanel("csv", data));
   if (!data.differences.length) {
     if (data.truncated) result.append(resultStateCard(t("matchNotVerified"), t("csvTruncated"), "partial"));
     else {
