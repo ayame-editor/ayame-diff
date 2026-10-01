@@ -12,10 +12,13 @@ After a text comparison, each hunk has **Use left** and **Use right** toggles.
 Clicking a side you already chose clears it, so selecting and deselecting are
 the same gesture, and the pressed state shows what each hunk currently adopts.
 Turning on both sides adopts both contributions, concatenated left then right;
-there is no separate "both" button. **All left** or **All right** set every hunk
-at once. Undo and redo store only hunk-selection snapshots, so large source
-files are not copied into browser history. `Alt+Left` and `Alt+Right` toggle the
-side for the current hunk; the existing `Alt+Up` / `Alt+Down` shortcuts navigate.
+**All left** or **All right** set every hunk at once. Undo and redo store only
+hunk-selection snapshots, so large source files are not copied into browser
+history. `Alt+Left` and `Alt+Right` toggle the side for the current hunk; the
+existing `Alt+Up` / `Alt+Down` shortcuts navigate and `Ctrl+Shift+S` saves the
+merge. In a three-way result `Alt+B` chooses BASE and `Alt+A` keeps both sides;
+`F8` / `Shift+F8` walk the conflicts only, and `Alt+Shift+A` turns on
+auto-advance to the next unresolved conflict after each choice (#277).
 
 A three-way comparison offers **Use left**, **Use base**, and **Use right**
 toggles on each conflict. The adopted contributions are concatenated in the

@@ -43,6 +43,27 @@ func TestMergeLinesAutomaticAndResolvedConflict(t *testing.T) {
 	}
 }
 
+// TestMergeLinesBothKeepsLeftThenRight pins the union choice added in #277: a
+// conflict resolved with "both" keeps left's lines followed by right's.
+func TestMergeLinesBothKeepsLeftThenRight(t *testing.T) {
+	base := linediff.SplitLines("base\n")
+	result, err := Compare(base, linediff.SplitLines("left\n"), linediff.SplitLines("right\n"), linediff.Options{Window: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 1 || result.Events[0].Kind != Conflict {
+		t.Fatalf("events=%+v", result.Events)
+	}
+	choices := map[int]string{result.Events[0].ID: "both"}
+	merged, unresolved, err := MergeLines(base, result, choices, false)
+	if err != nil || unresolved != 0 {
+		t.Fatalf("unresolved=%d err=%v", unresolved, err)
+	}
+	if !reflect.DeepEqual(merged, []string{"left", "right"}) {
+		t.Fatalf("merged=%q", merged)
+	}
+}
+
 // TestMergeLinesAdoptsBothSides is the #271 contract for three-way text: a
 // conflict choice may name more than one side, concatenated base→left→right
 // regardless of the order the choice lists them.

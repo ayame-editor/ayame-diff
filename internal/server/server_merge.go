@@ -142,7 +142,15 @@ func threeWayTextChoices(raw map[string]string) (map[int]string, error) {
 	choices := make(map[int]string, len(raw))
 	for idText, side := range raw {
 		id, parseErr := strconv.Atoi(idText)
-		if parseErr != nil || id < 0 || mergechoice.Validate(side, "base", "left", "right") != nil {
+		if parseErr != nil || id < 0 {
+			return nil, fmt.Errorf("invalid conflict choice")
+		}
+		// "both" is the older #277 spelling for adopting left then right; fold
+		// it into the comma-joined list the multi-side engine already accepts.
+		if side == "both" {
+			side = "left,right"
+		}
+		if mergechoice.Validate(side, "base", "left", "right") != nil {
 			return nil, fmt.Errorf("invalid conflict choice")
 		}
 		choices[id] = side

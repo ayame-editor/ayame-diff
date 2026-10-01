@@ -60,6 +60,52 @@ func TestCompareAndMergeCSV(t *testing.T) {
 	}
 }
 
+// TestWriteCSVMergeBothKeepsLeftAndRight pins the union choice added in #277:
+// resolving a CSV conflict with "both" keeps the left rows then the right rows.
+func TestWriteCSVMergeBothKeepsLeftAndRight(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv")
+	for path, value := range map[string]string{base: "id,v\n1,b\n", left: "id,v\n1,l\n", right: "id,v\n1,r\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := threeWayTestConfig()
+	cfg.KeyNames = []string{"id"}
+	result, err := CompareCSV(context.Background(), base, left, right, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices := map[string]string{}
+	for _, event := range result.Events {
+		if event.Kind == Conflict {
+			choices[event.ID] = "both"
+		}
+	}
+	if len(choices) != 1 {
+		t.Fatalf("want one conflict, events=%+v", result.Events)
+	}
+	output := filepath.Join(dir, "merged.csv")
+	unresolved, err := WriteCSVMerge(base, output, result, choices, false)
+	if err != nil || unresolved != 0 {
+		t.Fatalf("unresolved=%d err=%v", unresolved, err)
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	records, err := csv.NewReader(file).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"id", "v"}, {"1", "l"}, {"1", "r"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%#v want=%#v", records, want)
+	}
+}
+
 // TestWriteCSVMergeTargetSelectsImplicitSide covers #272: an unresolved CSV
 // conflict can be sent to left or right instead of always retaining BASE.
 func TestWriteCSVMergeTargetSelectsImplicitSide(t *testing.T) {

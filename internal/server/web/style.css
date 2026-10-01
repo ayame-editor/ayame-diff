@@ -588,6 +588,8 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .hunk.merge-left .choose-left, .hunk.merge-right .choose-right { background: var(--accent); color: var(--on-accent); }
 .hunk.merge-base { border-color: var(--gold); }
 .hunk.merge-base .choose-base { background: var(--gold); color: var(--on-accent); }
+.hunk.merge-both { box-shadow: inset 0 0 0 2px var(--accent); }
+.hunk.merge-both .choose-both { background: var(--accent); color: var(--on-accent); }
 /* A hunk can adopt base together with a side now (#271); keep the side border
    colors readable instead of letting merge-base's border-color win. */
 .hunk.merge-base.merge-left { border-left-color: var(--del-fg); }

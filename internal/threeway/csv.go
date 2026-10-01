@@ -546,8 +546,14 @@ func WriteCSVMergeTarget(basePath, output string, result CSVResult, choices map[
 		case Conflict:
 			// A conflict may adopt more than one contribution ("both"); the
 			// recognized sides are concatenated in the canonical base→left→right
-			// order regardless of the order the caller listed them (#271).
-			adopted := mergechoice.Parse(choices[event.ID], "base", "left", "right")
+			// order regardless of the order the caller listed them (#271). The
+			// older "both" token from #277 is folded into the left,right pair so
+			// both spellings keep working.
+			choice := choices[event.ID]
+			if choice == "both" {
+				choice = "left,right"
+			}
+			adopted := mergechoice.Parse(choice, "base", "left", "right")
 			if len(adopted) == 0 {
 				unresolved++
 				if !allowUnresolved {

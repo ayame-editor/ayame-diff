@@ -1,6 +1,14 @@
-// Keyboard shortcut bindings (#285). The chord syntax, the presets and the
-// conflict rules live here so they can be exercised under node --test without a
-// DOM; app.js owns what each action does and where the choice is persisted.
+// Keyboard shortcut bindings and the default map (#285, #277).
+//
+// The chord syntax, the presets, the conflict rules and the merge-flow advance
+// rules live here so they can be exercised under node --test without a DOM;
+// app.js owns what each action does and where the choice is persisted.
+//
+// #285 provides the remapping mechanism: presets, per-action overrides and the
+// storage format, resolved through mergeBindings. #277 provides the default map
+// itself, including the merge-flow actions (conflict navigation, side adoption,
+// auto-advance and save), which stay part of that default map and resolve through
+// the same preset/override layer.
 //
 // A "chord" is one physical key press: zero or more modifiers plus a key,
 // written canonically as "Ctrl+Alt+Shift+Key". Command (Meta) is folded into
@@ -14,17 +22,24 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  // The actions the dialog and the dispatcher share. Keeping the list here
-  // means resolveBindings can fill in an unbound entry for every action, so a
-  // preset that omits one disables it rather than leaving a stale chord.
+  // The actions the help dialog and the dispatcher share. The order is the order
+  // the help lists them, so it reads as the merge flow: navigate the result,
+  // navigate conflicts, choose a side, then save. Keeping the list here means
+  // mergeBindings can fill in an unbound entry for every action, so a preset that
+  // omits one disables it rather than leaving a stale chord.
   const ACTION_IDS = [
     "navigateNext",
     "navigatePrev",
     "firstDiff",
     "lastDiff",
+    "nextConflict",
+    "prevConflict",
     "chooseLeft",
     "chooseRight",
     "chooseBase",
+    "chooseBoth",
+    "toggleAutoAdvance",
+    "saveMerge",
     "search",
     "searchNext",
     "searchPrev",
@@ -33,14 +48,25 @@
     "revertLine",
   ];
 
+  // The WinMerge defaults are kept exactly for the four navigator keys and the
+  // side-adoption keys (Alt+Left/Right/B), so a WinMerge user does not relearn
+  // them. Conflict navigation is a separate task from difference navigation in a
+  // merge, so it gets its own binding; F8 / Shift+F8 follows DiffMerge, whose
+  // layout is the closest to this one. Ctrl+PageUp/PageDown (KDiff3) is not used:
+  // browsers reserve it for tab switching.
   const DEFAULT_BINDINGS = {
     navigateNext: "Alt+ArrowDown",
     navigatePrev: "Alt+ArrowUp",
     firstDiff: "Alt+Home",
     lastDiff: "Alt+End",
+    nextConflict: "F8",
+    prevConflict: "Shift+F8",
     chooseLeft: "Alt+ArrowLeft",
     chooseRight: "Alt+ArrowRight",
     chooseBase: "Alt+B",
+    chooseBoth: "Alt+A",
+    toggleAutoAdvance: "Alt+Shift+A",
+    saveMerge: "Ctrl+Shift+S",
     search: "Ctrl+F",
     searchNext: "Enter",
     searchPrev: "Shift+Enter",
@@ -50,8 +76,8 @@
   };
 
   // "minimal" keeps only the actions a reader needs to move and search; every
-  // other action is intentionally unbound. The content of the presets is a
-  // design decision tracked by #277; this is the mechanism.
+  // other action is intentionally unbound. The default preset is the merge-flow
+  // map above.
   const PRESETS = {
     default: DEFAULT_BINDINGS,
     minimal: {
@@ -192,6 +218,31 @@
     return conflicts;
   }
 
+  // nextUnresolved picks the next entry of `active` in `direction` (+1 / -1)
+  // whose value the `isResolved` predicate has not claimed, wrapping once. It
+  // returns null when every entry is resolved or the list is empty.
+  //
+  // `active` is the ordered list of positions that can be visited (a conflict
+  // index for a three-way result, a hunk index for a two-way diff). `current`
+  // does not have to be in the list; an unknown position starts the search at
+  // the beginning (forward) or end (backward). Auto-advance calls it with the
+  // position that was just adopted, which is now resolved, so the first match is
+  // the next unresolved one.
+  function nextUnresolved(active, current, isResolved, direction) {
+    const list = Array.isArray(active) ? active : [];
+    if (!list.length) return null;
+    const step = direction < 0 ? -1 : 1;
+    const resolved = typeof isResolved === "function" ? isResolved : function () { return false; };
+    let start = list.indexOf(current);
+    if (start < 0) start = step < 0 ? list.length : -1;
+    for (let count = 1; count <= list.length; count++) {
+      const pos = (((start + step * count) % list.length) + list.length) % list.length;
+      const value = list[pos];
+      if (!resolved(value)) return value;
+    }
+    return null;
+  }
+
   function normalizeValue(value) {
     return value == null || value === "" ? null : (formatChord(value) || null);
   }
@@ -246,5 +297,6 @@
     mergeBindings,
     serializeBindings,
     parseBindings,
+    nextUnresolved,
   };
 });

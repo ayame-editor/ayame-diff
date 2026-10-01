@@ -68,8 +68,8 @@ func TestConfirmDialogRestoresFocus(t *testing.T) {
 }
 
 // TestShortcutListIsGeneratedFromOneSource keeps the help from drifting away
-// from the handlers it documents. Since #285 the chords live in keymap.js and
-// the dialog renders the resolved bindings, so the defaults are checked in the
+// from the handlers it documents. The chords live in keymap.js (#285) and the
+// dialog renders the resolved bindings, so the defaults are checked in the
 // module and the wiring in app.js.
 func TestShortcutListIsGeneratedFromOneSource(t *testing.T) {
 	t.Parallel()
@@ -89,8 +89,20 @@ func TestShortcutListIsGeneratedFromOneSource(t *testing.T) {
 			t.Errorf("keymap.js omits the default binding %s", keys)
 		}
 	}
+	if !strings.Contains(app, "displayChord(keyBindings[action.id])") {
+		t.Error("the shortcut dialog does not render the bound chord")
+	}
+	if strings.Contains(app, "const SHORTCUTS = [") {
+		t.Error("app.js still carries a second shortcut list")
+	}
 	// Entries are i18n keys, not baked-in English.
 	if strings.Contains(help, "Next / previous difference") {
 		t.Error("the shortcut help hardcodes English instead of using translation keys")
+	}
+	// The bindings the app documents live in the tested default map.
+	for _, chord := range []string{"Alt+ArrowDown", "Alt+ArrowUp", "Alt+ArrowLeft", "Alt+ArrowRight", "Alt+B", "Ctrl+F", "Escape", "Ctrl+Enter"} {
+		if !strings.Contains(module, `"`+chord+`"`) {
+			t.Errorf("the default keymap is missing %s", chord)
+		}
 	}
 }

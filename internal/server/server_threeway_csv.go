@@ -66,8 +66,12 @@ func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// A choice is one side or an ordered combination ("left,right") so a
-	// conflict can adopt both contributions (#271).
+	// conflict can adopt both contributions (#271). The older "both" token from
+	// #277 is accepted too and folded to left,right by the engine.
 	for _, side := range req.Choices {
+		if side == "both" {
+			continue
+		}
 		if err := mergechoice.Validate(side, "base", "left", "right"); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid conflict choice")
 			return

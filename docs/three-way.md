@@ -77,8 +77,10 @@ Conflict events still offer BASE / LEFT / RIGHT, and the result column follows
 the choice in place. A conflict with no choice is tinted and badged as
 unresolved rather than shown as a finished result. All-conflict actions,
 undo/redo, and atomic save reuse the two-way merge safety model. Difference
-navigation works across three-way events; `Alt+Left` / `Alt+Right` chooses a
-side and `Alt+B` chooses BASE.
+navigation works across three-way events; `F8` / `Shift+F8` moves only between
+conflicts, `Alt+Left` / `Alt+Right` chooses a side, `Alt+B` chooses BASE, and
+`Alt+A` keeps both sides. `Ctrl+Shift+S` saves the merge and `Alt+Shift+A` turns
+on auto-advance to the next unresolved conflict after each choice (#277).
 
 A three-way text result can be opened as a per-line preview. Every row carries a
 gutter marker naming its source, following KDiff3's summary column: `B` base,

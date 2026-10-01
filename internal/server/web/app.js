@@ -133,6 +133,7 @@ const {
   findConflicts,
   mergeBindings,
   serializeBindings,
+  nextUnresolved,
 } = globalThis.AyameKeymap;
 const {
   describeGap,
@@ -1440,6 +1441,10 @@ function resetMergeSelection(kind) { mergeSelection = createMergeSelection(kind)
 // enters merge mode. setMergeMode syncs the body class the CSS keys off and the
 // toggle's aria-pressed; updateMergeUI decides when the toggle is offered (#100).
 let mergeMode = false;
+// Auto-advance (#277) is opt-in: after adopting a choice it jumps to the next
+// unresolved conflict, which turns adoption into a keyboard-only loop. Off by
+// default so a one-off choice does not move the page under the reader.
+let mergeAutoAdvance = false;
 function setMergeMode(on) {
   mergeMode = on;
   document.body.classList.toggle("merge-mode", on);
@@ -3474,8 +3479,16 @@ function mutateMerge(mutator) {
   announce($("mergeUnresolved").textContent);
 }
 // chooseMerge toggles one contribution: clicking a chosen side clears it, so
-// selecting and deselecting are the same gesture (P4Merge-style, #271).
-function chooseMerge(id, side) { mutateMerge(() => mergeSelection.toggle(id, side)); }
+// selecting and deselecting are the same gesture (P4Merge-style, #271). The
+// "both" side is #277's explicit union choice and selects left and right
+// together; auto-advance then jumps to the next unresolved conflict.
+function chooseMerge(id, side) {
+  mutateMerge(() => {
+    if (side === "both") mergeSelection.set(id, ["left", "right"]);
+    else mergeSelection.toggle(id, side);
+  });
+  if (mergeAutoAdvance) advanceAfterAdopt(id);
+}
 // syncMergeRow paints the adopted sides on one hunk or CSV row: the border
 // classes the CSS keys off and the buttons' aria-pressed state.
 function syncMergeRow(row, id) {
@@ -3486,6 +3499,12 @@ function syncMergeRow(row, id) {
     const button = row.querySelector(`.choose-${side}`);
     if (button) button.setAttribute("aria-pressed", adopted ? "true" : "false");
   }
+  // "both" is not a stored side; it is the union of left and right (#277), so
+  // its pressed state and the row's union highlight come from isBoth.
+  const both = row.querySelector(".choose-both");
+  const isBoth = mergeSelection.isBoth(id);
+  if (both) both.setAttribute("aria-pressed", isBoth ? "true" : "false");
+  row.classList.toggle("merge-both", isBoth);
 }
 
 // ---- Unresolved-difference list and implicit-resolution target (#272) ----
@@ -3624,8 +3643,63 @@ function reportMergeSaved(data, target, path) {
   if (implicit > 0) { setStatus(t("mergeSavedWithImplicit", { path, count: implicit, target: mergeTargetLabel(target) }), "warning"); return; }
   setStatus(t("mergeSaved", data.output), "success");
 }
+// mergeChoiceKey maps a position in the current result to the key mergeSelection
+// stores: a hunk index for a two-way text diff, an event/difference ID for a
+// three-way or CSV result.
+function mergeChoiceKey(index) {
+  if (threeWayData) return threeWayData.events[index]?.id ?? index;
+  if (csvData && $("mode").value === "csv") return csvData.differences[index]?.id ?? index;
+  return index;
+}
+
+// mergeIndexForKey is the inverse, used to know where auto-advance starts. It
+// returns -1 when the key is not part of the current result.
+function mergeIndexForKey(key) {
+  if (threeWayData) return threeWayData.events.findIndex((event) => String(event.id) === String(key));
+  if (csvData && $("mode").value === "csv") return csvData.differences.findIndex((item) => String(item.id) === String(key));
+  const index = Number(key);
+  return Number.isInteger(index) ? index : -1;
+}
+
+// mergeUnresolvedIndexes lists the positions auto-advance may visit: conflicts
+// for a three-way result, every difference for a two-way text diff. CSV rows are
+// not hunk elements, so they are left to the buttons.
+function mergeUnresolvedIndexes() {
+  if (threeWayData) return activeConflictIndexes();
+  if (csvData && $("mode").value === "csv") return [];
+  return activeHunkIndexes();
+}
+
+// advanceAfterAdopt moves to the next unresolved position after the one just
+// resolved. nextUnresolved wraps, so the loop keeps going instead of dead-ending
+// at the last conflict.
+function advanceAfterAdopt(key) {
+  const from = mergeIndexForKey(key);
+  if (from < 0) return;
+  const next = nextUnresolved(
+    mergeUnresolvedIndexes(),
+    from,
+    (index) => mergeSelection.selected(mergeChoiceKey(index)),
+    1,
+  );
+  if (next != null) jumpToHunk(next);
+}
+
+function setMergeAutoAdvance(on) {
+  mergeAutoAdvance = Boolean(on);
+  const box = $("mergeAutoAdvance");
+  if (box) box.checked = mergeAutoAdvance;
+  setStatus(t(mergeAutoAdvance ? "autoAdvanceOn" : "autoAdvanceOff"), "");
+}
+
+function mergePanelVisible() {
+  const panel = $("mergePanel");
+  return Boolean(panel) && !panel.hidden;
+}
 function updateMergeUI() {
 	$("mergeMode").hidden = true; // the merge-mode toggle is a text-diff affordance (#100)
+  const autoAdvanceBox = $("mergeAutoAdvance");
+  if (autoAdvanceBox) autoAdvanceBox.checked = mergeAutoAdvance;
 	if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) { updateThreeWayMergeUI(); return; }
 	$("allBase").hidden = true;
 	$("toggleBase").hidden = true; // BASE is a three-way-only column (#282)
@@ -3849,7 +3923,7 @@ async function renderThreeWay(data, csvMode) {
     box.setAttribute("role", "group");
     if (event.kind === "conflict") {
       const actions = document.createElement("span"); actions.className = "hunk-merge";
-      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint"); button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
+      for (const [side, label] of [["left", t("chooseLeft")], ["base", t("chooseBase")], ["right", t("chooseRight")], ["both", t("chooseBoth")]]) { const button = document.createElement("button"); button.type = "button"; button.className = `choose-${side}`; button.textContent = label; button.setAttribute("aria-pressed", "false"); button.title = t("mergeToggleHint"); button.onclick = () => chooseMerge(event.id, side); actions.append(button); }
       head.append(actions);
     }
     const grid = document.createElement("div"); grid.className = "three-grid";
@@ -4221,6 +4295,15 @@ function activeHunkIndexes() {
   return navigableIndexes(lastData?.hunks || [], ignoredHunks, eventKinds);
 }
 
+// activeConflictIndexes is the conflict-only subset of a three-way result. The
+// two lists are deliberately different: "next difference" and "next conflict" are
+// different tasks once a merge has several kinds of event.
+function activeConflictIndexes() {
+  if (!threeWayData) return [];
+  return (lastData?.hunks || []).map((_, index) => index)
+    .filter((index) => !ignoredHunks.has(index) && threeWayData.events[index]?.kind === "conflict");
+}
+
 function isConfirmed(index) {
   return confirmedSignatures.length > 0 && confirmedHunks.has(confirmedSignatures[index]);
 }
@@ -4319,6 +4402,14 @@ function resetConfirmations() {
 
 function stepHunk(delta) {
   const active = activeHunkIndexes();
+  if (!active.length) return;
+  const position = active.indexOf(currentHunk);
+  const next = position < 0 ? (delta < 0 ? active.length - 1 : 0) : Math.max(0, Math.min(active.length - 1, position + delta));
+  jumpToHunk(active[next]);
+}
+
+function stepConflict(delta) {
+  const active = activeConflictIndexes();
   if (!active.length) return;
   const position = active.indexOf(currentHunk);
   const next = position < 0 ? (delta < 0 ? active.length - 1 : 0) : Math.max(0, Math.min(active.length - 1, position + delta));
@@ -6848,19 +6939,26 @@ async function stopServer() {
   }
 }
 
-// ---- Keyboard shortcuts (#285) ----
+// ---- Keyboard shortcuts (#285, #277) ----
 // AyameKeymap owns the chord syntax, the presets and conflict detection; this
 // table says what each action's label is. Both the help dialog and the global
 // handlers read the resolved bindings, so a remap cannot leave the help
-// describing keys that no longer fire.
+// describing keys that no longer fire. The merge-flow actions (#277) are part of
+// the same table, so conflict navigation, side adoption, auto-advance and save
+// are remappable like everything else.
 const SHORTCUT_LABELS = {
   navigateNext: "shortcutNavigateNext",
   navigatePrev: "shortcutNavigatePrev",
   firstDiff: "shortcutFirst",
   lastDiff: "shortcutLast",
+  nextConflict: "shortcutNavigateConflictNext",
+  prevConflict: "shortcutNavigateConflictPrev",
   chooseLeft: "shortcutChooseLeft",
   chooseRight: "shortcutChooseRight",
   chooseBase: "shortcutChooseBase",
+  chooseBoth: "shortcutChooseBoth",
+  toggleAutoAdvance: "shortcutAutoAdvance",
+  saveMerge: "shortcutSaveMerge",
   search: "shortcutSearch",
   searchNext: "shortcutSearchNext",
   searchPrev: "shortcutSearchPrev",
@@ -8501,21 +8599,52 @@ $("mergeOutput").addEventListener("keydown", (event) => {
 // The preview is a demand-driven server call, so it is fetched when opened and
 // refreshed on choice changes, never on load (#257).
 $("mergeProvenance").addEventListener("toggle", () => { if ($("mergeProvenance").open) void refreshMergePreview(); });
+// Auto-advance is a merge-flow preference (#277), so its control follows the
+// resolved keymap actions rather than a fixed chord.
+const autoAdvanceToggle = $("mergeAutoAdvance");
+if (autoAdvanceToggle) autoAdvanceToggle.addEventListener("change", () => setMergeAutoAdvance(autoAdvanceToggle.checked));
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
   if (!lastData?.hunks?.length) return;
   const active = activeHunkIndexes();
-  let target = null;
-  if (matchesShortcut(event, "chooseLeft") || matchesShortcut(event, "chooseRight") || (threeWayData && matchesShortcut(event, "chooseBase"))) {
+  // Save the merge result. Ctrl+S stays with the editable panes, so the merge
+  // writer owns Ctrl+Shift+S; both are only useful when a merge is on screen.
+  // The output path comes from the same dialog the Save button uses.
+  if (matchesShortcut(event, "saveMerge") && mergePanelVisible() && !$("saveMerge").disabled) {
     event.preventDefault();
-    const index = currentHunk >= 0 ? currentHunk : active[0];
-    const key = threeWayData?.events?.[index]?.id ?? index;
-    const side = matchesShortcut(event, "chooseLeft") ? "left" : (matchesShortcut(event, "chooseRight") ? "right" : "base");
-    if (index != null) chooseMerge(key, side);
+    void (async () => { if (await askMergeOutput()) await saveMergeResult(); })();
     return;
-  } else if (matchesShortcut(event, "navigateNext")) { event.preventDefault(); stepHunk(1); return; }
-  else if (matchesShortcut(event, "navigatePrev")) { event.preventDefault(); stepHunk(-1); return; }
-  else if (matchesShortcut(event, "firstDiff")) target = active[0];
+  }
+  if (matchesShortcut(event, "toggleAutoAdvance") && mergePanelVisible()) {
+    event.preventDefault();
+    setMergeAutoAdvance(!mergeAutoAdvance);
+    return;
+  }
+  // Conflict navigation is separate from difference navigation (#277) and only
+  // means anything once a three-way result has conflicts to resolve.
+  if (threeWayData && matchesShortcut(event, "nextConflict")) { event.preventDefault(); stepConflict(1); return; }
+  if (threeWayData && matchesShortcut(event, "prevConflict")) { event.preventDefault(); stepConflict(-1); return; }
+  const chooseLeft = matchesShortcut(event, "chooseLeft");
+  const chooseRight = matchesShortcut(event, "chooseRight");
+  const chooseBase = Boolean(threeWayData) && matchesShortcut(event, "chooseBase");
+  const chooseBoth = Boolean(threeWayData) && matchesShortcut(event, "chooseBoth");
+  if (chooseLeft || chooseRight || chooseBase || chooseBoth) {
+    // A three-way result mixes conflicts with left-only/right-only/auto-merged
+    // events; a side is only meaningful for a conflict, so adoption stays on
+    // that subset even though difference navigation now visits every event.
+    const pool = threeWayData ? activeConflictIndexes() : active;
+    if (!pool.length) return;
+    event.preventDefault();
+    const index = pool.includes(currentHunk) ? currentHunk : pool[0];
+    const key = threeWayData?.events?.[index]?.id ?? index;
+    const side = chooseLeft ? "left" : chooseRight ? "right" : chooseBase ? "base" : "both";
+    chooseMerge(key, side);
+    return;
+  }
+  if (matchesShortcut(event, "navigateNext")) { event.preventDefault(); stepHunk(1); return; }
+  if (matchesShortcut(event, "navigatePrev")) { event.preventDefault(); stepHunk(-1); return; }
+  let target = null;
+  if (matchesShortcut(event, "firstDiff")) target = active[0];
   else if (matchesShortcut(event, "lastDiff")) target = active[active.length - 1];
   if (target != null) {
     event.preventDefault();
@@ -8604,7 +8733,8 @@ $("minimapViewport").addEventListener("keydown", (event) => {
   updateMinimapViewport();
 });
 // In-result search (#118). Ctrl+F is intercepted only when there is a result to
-// search; otherwise the browser's own find is left alone.
+// search; otherwise the browser's own find is left alone. The chords come from
+// the keymap so the help cannot describe a search key that no longer fires.
 document.addEventListener("keydown", (event) => {
   if (matchesShortcut(event, "search") && $("result").children.length) {
     event.preventDefault();
@@ -8645,9 +8775,10 @@ $("messages").addEventListener("keydown", (event) => {
 $("editMode").addEventListener("click", () => void toggleEditMode());
 // Ctrl+S saves the pane being edited. With edits on both sides and no editor
 // focused, the left one goes first, and a second press saves the right.
+// Ctrl+Shift+S is the merge writer (#277), so Shift must not fall through here.
 document.addEventListener("keydown", (event) => {
   if (!editingEnabled()) return;
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "s") return;
   event.preventDefault();
   const focused = lineEditor?.side || document.activeElement?.closest?.(".pane-head")?.classList.contains("new") && "new";
   const target = focused || editedSides()[0];
