@@ -67,19 +67,21 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	emitProgress(resolved, ProgressEvent{Phase: "assemble", Done: true, Elapsed: time.Since(assembleStarted)})
 
 	summary = Summary{
-		LeftRows:       leftRows,
-		RightRows:      rightRows,
-		EqualRows:      stats.EqualRows,
-		LeftOnly:       stats.LeftOnly,
-		RightOnly:      stats.RightOnly,
-		ChangedLeft:    stats.ChangedLeft,
-		ChangedRight:   stats.ChangedRight,
-		DiffRows:       stats.DiffRows,
-		Partitions:     resolved.Partitions,
-		Workers:        minInt(resolved.Workers, resolved.Partitions),
-		Elapsed:        time.Since(started).Round(time.Millisecond).String(),
-		UnresolvedRows: stats.UnresolvedRows,
-		ChangedRows:    stats.ChangedRows,
+		LeftRows:          leftRows,
+		RightRows:         rightRows,
+		EqualRows:         stats.EqualRows,
+		LeftOnly:          stats.LeftOnly,
+		RightOnly:         stats.RightOnly,
+		ChangedLeft:       stats.ChangedLeft,
+		ChangedRight:      stats.ChangedRight,
+		DiffRows:          stats.DiffRows,
+		Partitions:        resolved.Partitions,
+		Workers:           minInt(resolved.Workers, resolved.Partitions),
+		Elapsed:           time.Since(started).Round(time.Millisecond).String(),
+		UnresolvedRows:    stats.UnresolvedRows,
+		MemoryBudgetBytes: resolved.MemoryBytes,
+		Spilled:           stats.Spilled,
+		ChangedRows:       stats.ChangedRows,
 	}
 	for index, count := range stats.ColumnChanges {
 		if count > 0 {
@@ -284,20 +286,22 @@ func processPartition(ctx context.Context, index int, leftPart, rightPart string
 	if chunkBytes < minSortChunkBytes {
 		chunkBytes = minSortChunkBytes
 	}
-	leftSorted, err := makeSortedFile(ctx, leftPart, partitionWork, "left", chunkBytes, cfg.MergeFanIn, cfg.MaxRecordBytes)
+	leftSorted, leftSpilled, err := makeSortedFile(ctx, leftPart, partitionWork, "left", chunkBytes, cfg.MergeFanIn, cfg.MaxRecordBytes)
 	if err != nil {
 		return stats, "", fmt.Errorf("sort left: %w", err)
 	}
-	rightSorted, err := makeSortedFile(ctx, rightPart, partitionWork, "right", chunkBytes, cfg.MergeFanIn, cfg.MaxRecordBytes)
+	rightSorted, rightSpilled, err := makeSortedFile(ctx, rightPart, partitionWork, "right", chunkBytes, cfg.MergeFanIn, cfg.MaxRecordBytes)
 	if err != nil {
 		return stats, "", fmt.Errorf("sort right: %w", err)
 	}
+	spilled := leftSpilled || rightSpilled
 	stats, err = compareSortedFiles(ctx, leftSorted, rightSorted, outputPath, cfg.ComparisonHeader, keyIsFullRow, cfg.MaxRecordBytes, cfg.Comparison, cfg.CellDiff, cfg.OutputFormat, reconcileConfig{
 		enabled: cfg.Reconcile, choices: cfg.MergeChoices, defaultTo: cfg.MergeDefault, unresolvedTo: cfg.UnresolvedTarget, delimiter: cfg.OutputDelimiter, allowUnresolved: cfg.AllowUnresolved,
 	})
 	if err != nil {
 		return stats, "", fmt.Errorf("compare: %w", err)
 	}
+	stats.Spilled = spilled
 
 	if !cfg.KeepTemp {
 		_ = os.Remove(leftPart)

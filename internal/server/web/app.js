@@ -72,6 +72,7 @@ const {
 } = globalThis.AyameMergeProvenance;
 const { localChangeRegions, localChangeIndex, regionAt } = globalThis.AyameQuickDiff;
 const { csvPageCount, clampPage, visibleColumns, pagerState, pageSlice } = globalThis.AyameCSVView;
+const { memoryStatus } = globalThis.AyameMemoryBudget;
 const { equivalenceTitleKey, alignmentProposal } = globalThis.AyameEquivalence;
 const {
   requestFields: whitespaceRequestFields,
@@ -4818,6 +4819,14 @@ function renderCSVSummary(data) {
   const add = (label, value, cls = "") => { const item = document.createElement("span"); item.className = `stat ${cls}`; const b = document.createElement("b"); b.textContent = fmt(Number(value || 0)); item.append(b, ` ${label}`); el.append(item); };
   add(t("leftOnly"), summary.left_only, "del"); add(t("rightOnly"), summary.right_only, "add");
   add(t("changed"), Math.max(summary.changed_left || 0, summary.changed_right || 0), "chg"); add(t("equalRows"), summary.equal_rows);
+  const memory = memoryStatus(data.memory);
+  if (memory) {
+    const note = document.createElement("span");
+    note.className = "note";
+    note.textContent = t("memoryBudget", memory);
+    if (memory.spilled) note.textContent += " " + t("memorySpilled", { dir: memory.dir || t("systemTemp") });
+    el.append(note);
+  }
   // The counts alone leave the reader to decide whether anything is really
   // different. State the verdict in one line: real data differences, or none
   // apart from column/row order (#116).

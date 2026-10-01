@@ -101,10 +101,43 @@ type csvResponse struct {
 	Header          []string                  `json:"header"`
 	Inspection      engine.InputInspection    `json:"inspection"`
 	Summary         engine.Summary            `json:"summary"`
+	Memory          csvMemoryStatus           `json:"memory"`
 	Verdict         engine.EquivalenceVerdict `json:"verdict"`
 	Differences     []csvDifference           `json:"differences"`
 	Truncated       bool                      `json:"truncated"`
 	DifferenceCount int                       `json:"difference_count"`
+}
+
+// csvMemoryStatus is the resident-memory report for one CSV comparison (#138).
+// The engine's Summary already carries the budget it resolved and whether it
+// spilled; this adds the server-side cap and the directory spill files go to, so
+// the GUI can render "memory 512.0MiB / 8GiB, spilling to /tmp" instead of
+// leaving the user with only a status string.
+type csvMemoryStatus struct {
+	BudgetBytes int64  `json:"budget_bytes"`
+	Budget      string `json:"budget"`
+	Cap         string `json:"cap"`
+	Spilled     bool   `json:"spilled"`
+	SpillDir    string `json:"spill_dir,omitempty"`
+}
+
+// csvMemoryStatusFor combines the engine's resolved budget and spill flag with
+// the server cap and the parent directory spill files are written under.
+func csvMemoryStatusFor(req csvRequest, summary engine.Summary) csvMemoryStatus {
+	status := csvMemoryStatus{
+		BudgetBytes: summary.MemoryBudgetBytes,
+		Budget:      engine.FormatByteSize(uint64(summary.MemoryBudgetBytes)),
+		Cap:         serverMaxMemoryText,
+		Spilled:     summary.Spilled,
+	}
+	if summary.Spilled {
+		dir := strings.TrimSpace(req.TempDir)
+		if dir == "" {
+			dir = os.TempDir()
+		}
+		status.SpillDir = dir
+	}
+	return status
 }
 
 // clampMemoryBudget lowers an over-limit resident-memory request to the server
@@ -270,7 +303,7 @@ func (s *Server) handleCSVDiff(w http.ResponseWriter, r *http.Request) {
 	if maxRows > 5000 {
 		maxRows = 5000
 	}
-	response := csvResponse{Header: inspection.Header, Inspection: inspection, Summary: summary}
+	response := csvResponse{Header: inspection.Header, Inspection: inspection, Summary: summary, Memory: csvMemoryStatusFor(req, summary)}
 	// Counting distinct differences with a set grew without bound: the loop
 	// keeps draining the engine's output after maxRows, so a comparison of two
 	// large, maximally divergent files sized the set by the input rather than by

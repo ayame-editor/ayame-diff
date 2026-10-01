@@ -538,6 +538,14 @@ the content-based estimate of #116 is not part of this build, and the source
 line says so. A saved mapping lives in the project. Result table headers can
 also be dragged to reorder columns for reading, which changes presentation only.
 
+The summary also names the budget the comparison ran under and whether it had to
+spill. The `/api/csv/diff` response carries a `memory` object with the resolved
+`budget_bytes`, the server `cap`, and — only when the engine offloaded work to
+disk — the `spill_dir`; the CSV summary renders it as, for example,
+`memory 512.0MiB / limit 8GiB spilling to /tmp`. The comparison stays cancellable
+while it is spilling, and its temporary files are removed after success, failure,
+and cancellation.
+
 See the [GUI reachability and placement policy](gui-setup-parity.md) for the
 full mapping and the rules that keep advanced settings reachable without
 promoting every engine option onto the result screen.
@@ -772,8 +780,10 @@ answering `409` with code `stale_write` unless `force` is set.
 - `POST /api/csv/inspect` accepts CSV setup JSON and returns first-record schema
   inspection without scanning data rows.
 - `POST /api/csv/diff` runs the complete comparison and returns headers,
-  a summary with per-column counts, shares, and numeric deltas, and at most
-  `maxRows` logical JSON cell differences (`500` by default, hard cap `5,000`).
+  a summary with per-column counts, shares, and numeric deltas, at most
+  `maxRows` logical JSON cell differences (`500` by default, hard cap `5,000`),
+  and a `memory` object naming the resolved `budget_bytes`, the server `cap`,
+  the `spilled` flag, and (when a spill happened) the `spill_dir`.
 - `POST /api/csv/export` uses the same request plus `output`, `outputFormat`
   (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
 

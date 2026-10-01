@@ -125,6 +125,13 @@ type Summary struct {
 	Elapsed        string         `json:"elapsed"`
 	ColumnChanges  []ColumnChange `json:"column_changes,omitempty"`
 	UnresolvedRows uint64         `json:"unresolved_rows,omitempty"`
+	// MemoryBudgetBytes is the resident-memory budget the engine resolved and
+	// ran under (after any server-side cap), the denominator in "memory X / Y".
+	MemoryBudgetBytes int64 `json:"memory_budget_bytes,omitempty"`
+	// Spilled reports that at least one external sort had to build runs on disk
+	// instead of sorting entirely in memory, so the caller can tell the user the
+	// comparison stayed within budget by offloading (#138).
+	Spilled bool `json:"spilled,omitempty"`
 	// ChangedRows counts the CHANGED row pairs compared cell by cell. It is the
 	// denominator of ColumnChange.Share: the fraction of changed rows in which
 	// that column differs. Zero for a run without cell-level differences (#120).

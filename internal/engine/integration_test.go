@@ -49,6 +49,7 @@ func TestRunMixedTSVCSVWithDuplicateKeys(t *testing.T) {
 		LeftRows: 5, RightRows: 5, EqualRows: 2,
 		LeftOnly: 1, RightOnly: 1, ChangedLeft: 2, ChangedRight: 2,
 		DiffRows: 6, Partitions: 8, Workers: 2,
+		MemoryBudgetBytes: 64 << 20,
 	}
 	summary.Elapsed = ""
 	if !reflect.DeepEqual(summary, wantSummary) {
@@ -869,7 +870,7 @@ func TestExternalSortProducesOrderedRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sortedPath, err := makeSortedFile(context.Background(), partitionPath, filepath.Join(dir, "sort"), "test", 512, 3, 1024*1024)
+	sortedPath, _, err := makeSortedFile(context.Background(), partitionPath, filepath.Join(dir, "sort"), "test", 512, 3, 1024*1024)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,6 +33,9 @@ type partitionStats struct {
 	DiffRows       uint64
 	UnresolvedRows uint64
 	ColumnChanges  []uint64
+	// Spilled records that at least one side of this partition's external sort
+	// produced more than one run, i.e. it did not fit the resident budget (#138).
+	Spilled bool
 	// ChangedRows and ColumnDeltas back the per-column statistics added for
 	// #120. ChangedRows is the number of CHANGED row pairs compared cell by
 	// cell; ColumnDeltas has one entry per column when cell-level diffing ran.
@@ -131,6 +134,7 @@ func (s *partitionStats) add(other partitionStats) {
 	s.ChangedRight += other.ChangedRight
 	s.DiffRows += other.DiffRows
 	s.UnresolvedRows += other.UnresolvedRows
+	s.Spilled = s.Spilled || other.Spilled
 	s.ChangedRows += other.ChangedRows
 	if len(s.ColumnChanges) < len(other.ColumnChanges) {
 		s.ColumnChanges = append(s.ColumnChanges, make([]uint64, len(other.ColumnChanges)-len(s.ColumnChanges))...)
