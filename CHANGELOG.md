@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.17 - 2026-09-27
+
+- A three-way text merge can now be opened as a per-line result preview that
+  names each line's source in a KDiff3-style gutter — `B` base, `L` left, `R`
+  right, and `m` for a line typed into the preview, which is also washed grey so
+  it cannot be mistaken for an adopted line. The preview, the save and the save
+  report all come from the same merge, so they cannot disagree, and changing a
+  conflict choice refreshes it. The panel counts adopted and manually typed
+  lines, and the save reports the same breakdown. (#257)
+
 ## v0.8.16 - 2026-08-27
 
 - Text diffs now show unchanged context around each hunk instead of forcing a

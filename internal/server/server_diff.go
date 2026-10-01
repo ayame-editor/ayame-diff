@@ -174,6 +174,14 @@ type diffResponse struct {
 	MovedLines           uint64    `json:"moved_lines,omitempty"`
 	MoveDetectionSkipped bool      `json:"move_detection_skipped,omitempty"`
 	IgnoredHunks         uint64    `json:"ignored_hunks,omitempty"`
+	// ChangedLines/ChangedShare/LargestHunk describe the change against the
+	// whole file rather than only the retained hunks (#120). ChangedLines is
+	// Added+Deleted+Modified; ChangedShare divides it by the larger side so a
+	// small edit in a big file reads as small. LargestHunk counts the lines of
+	// the largest hunk, including any omitted by maxHunks.
+	ChangedLines uint64  `json:"changed_lines"`
+	ChangedShare float64 `json:"changed_share"`
+	LargestHunk  uint64  `json:"largest_hunk"`
 	// OldEncoding/NewEncoding report the concrete encoding each side was decoded
 	// from (#130). Populated for file inputs — where `encoding: auto` may have
 	// guessed shift_jis/euc-jp/utf-16 — so the UI can show what was detected and
@@ -528,6 +536,15 @@ func buildResponse(old, new linediff.Lines, res linediff.Result, maxLines uint64
 		MovedLines:           res.MovedLines,
 		MoveDetectionSkipped: res.MoveDetectionSkipped,
 		IgnoredHunks:         res.IgnoredHunks,
+		LargestHunk:          res.LargestHunk,
+	}
+	resp.ChangedLines = res.Added + res.Deleted + res.Modified
+	totalLines := res.OldLines
+	if res.NewLines > totalLines {
+		totalLines = res.NewLines
+	}
+	if totalLines > 0 {
+		resp.ChangedShare = float64(resp.ChangedLines) / float64(totalLines)
 	}
 	if er, ok := old.(encodingReporter); ok {
 		resp.OldEncoding = er.Encoding()

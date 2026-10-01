@@ -136,6 +136,26 @@ context-line count, then use **Export patch** to download an applyable
 rejects binary/NUL input. Export is available in `text` mode only; a patch of a
 sorted view would not apply safely to the original file.
 
+Every result opens with a **Statistics** panel that describes the change before
+the rows. A text or sorted result shows the whole-file context — the changed
+line count and its share of the file, and the largest hunk — alongside the
+per-kind totals. **Export CSV** downloads the panel as a long-format table
+(`section,column,metric,value`) and **Export JSON** downloads the same summary
+as JSON; both are built from the summary already in the browser, so exporting
+never re-runs the comparison.
+
+The same **Export** menu carries **Export report**, which writes a
+confirmation/verification record of the review: the compared inputs with their
+sizes, modification times, detected encodings and SHA-256 hashes; the applied
+comparison conditions (ignore settings, line filters, sync points, window and
+move detection); the difference totals; every ignored hunk with its reason; the
+read/unread review state; and the versioned URL state needed to rerun the
+comparison. Choose a printable, self-contained HTML report, Markdown, or JSON.
+The compared content is left out by default; tick **embed compared content**
+only when the report may be shared with what the files contain. Confirmed-hunk
+tracking arrives with #288, so a report from this build states plainly that no
+confirmed hunks are recorded.
+
 After a result appears, the initial path rail is removed from the work area.
 Each sticky pane header identifies its side and carries an editable path, a
 server-side browse button, detected encoding and line count where available.
@@ -166,14 +186,50 @@ it was opened, the save is refused and offers to overwrite instead of discarding
 the other change silently. Leaving the page with unsaved lines warns first, and
 an external change no longer reloads over unsaved work: the reload bar asks.
 
-Every line you have typed into carries a mark in its gutter, so which lines are
-unsaved is readable in the result and not only in the pane header. Anything that
-would replace what is being edited — a different path, a mode switch, turning on
-pasted text — asks first and stays put if you decline; re-comparing and changing
-comparison or display options keep the buffers and do not ask.
+Two kinds of difference are on screen at once while editing, and they stay
+visually distinct. How the two compared files differ is the cell shading, plus
+the `-`/`+` marker in the unified view. A line whose text differs from the file
+the buffer loaded — something you typed this session — carries its own handle in
+the gutter: an accent bar with a glyph (`~`), not shading. Click a handle to put
+that whole run of lines back to what was loaded, or focus the line and press
+`Delete`. Saving clears the handles; discarding the edits clears them too, so no
+stale mark outlives the change it pointed at.
+
+Anything that would replace what is being edited — a different path, a mode
+switch, turning on pasted text — asks first and stays put if you decline;
+re-comparing and changing comparison or display options keep the buffers and do
+not ask.
 
 Editing changes lines; it does not add or remove them, and the comparison
 settings continue to apply as they do while reading.
+
+### Display width and CJK alignment
+
+Columns line up only when a single font renders both the Latin and the CJK on a
+line, because CSS chooses fonts per character. If a Latin-only monospace face is
+listed before any CJK-capable one, a line such as `name 名前` uses two fonts whose
+advance widths need not be exactly 1:2, and the columns drift. The family stack
+therefore leads with faces that cover both scripts — `Noto Sans Mono CJK JP`,
+`Source Han Mono JP`, and the Windows-bundled `MS Gothic` — before the Latin-only
+fallbacks. If none of those is installed, a system cannot align mixed lines on
+its own; installing Noto Sans Mono CJK JP restores it.
+
+Two display settings refine this and share their meaning with the CLI:
+
+- **tab size** (`2`, `4`, or `8`, default `8`) is applied as a CSS `tab-size`
+  token. The CLI does not expand tabs: `internal/textwidth` counts a tab as
+  zero cells and a terminal expands it at its own tab stop, so there is no
+  single CLI tab width to match. The GUI makes the width explicit and defaults
+  to the common terminal value of 8.
+- **wide ○ ※ α** (`East Asian Ambiguous` characters) mirrors
+  `internal/textwidth`'s `Options.EastAsianAmbiguousWide` and the CLI's
+  `--east-asian-ambiguous-wide`. It is off by default, matching terminals that
+  render these as one cell; turn it on when the font renders them full-width.
+
+What is tested is the width/alignment decision both halves share, not the pixel
+result: the GUI's `textwidth.js` is checked against the CLI's `internal/diffout`
+output and `internal/textwidth` for the same input, but the glyph advances the
+browser actually paints still depend on the font installed.
 
 ### Progress and messages
 
@@ -185,6 +241,10 @@ success withdraws itself after a few seconds; a warning or a failure stays until
 it is dismissed with its close button or with `Escape` while it holds focus. A
 message that repeats is counted on its existing line rather than stacking a
 duplicate, and each line carries the time it arrived.
+
+A large result is painted in slices rather than in one blocking pass, so
+scrolling and input stay responsive while it builds; **Cancel** stops a render
+that is already under way, not only a request still in flight.
 
 ### External changes
 
@@ -222,8 +282,26 @@ ayame-diff normally first so the browser session has its own token.
 Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
 use an `.ayamediff` project for very large CSV column selections.
 
-Applied ignore settings are shown in the result summary. They affect matching
-only: rendered lines and exported patches retain the original text.
+### Multiple comparisons (tabs)
+
+Several comparisons can stay open at once. After the first successful
+comparison a tab bar appears above the paths; **＋** opens a new tab from the
+current comparison (change one side and Re-compare), and the **×** on a tab
+closes it. The active tab is highlighted, and closing the active tab activates
+its neighbour.
+
+Each tab keeps its own inputs, mode, comparison conditions, and scroll
+position. Switching tabs re-applies that state and recomputes the result rather
+than holding every diff in memory, so scroll position survives but a large
+comparison is paid for again when it is opened. The tab set is stored in the
+same URL fragment as the active comparison, so a reload restores the open tabs;
+each history entry carries its own set, so Back returns to the tabs that
+belonged with that comparison. **Copy link** still copies one comparison and
+never the reader's other tabs.
+
+Applied ignore settings are shown in the result summary and in the condition
+toolbar. They affect matching only: rendered lines and exported patches retain
+the original text.
 
 Browser-dropped files are copied to a private local cache. Each file is limited
 to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
@@ -240,6 +318,26 @@ click-to-jump, and overlays the current viewport. Left/right text stays vertical
 and horizontally synchronized because each hunk is rendered as one shared grid
 and scroll row rather than two independent panes.
 
+Beside read-on-scroll, each hunk has an explicit **Confirm** toggle. Scrolling
+past a hunk marks it read automatically; confirming is a deliberate action, and
+the `Confirmed N / M` counter tracks it. The `↑✓` / `↓✓` buttons step only
+through hunks that are not confirmed yet, while first/previous/next/last keep
+walking every difference. A confirmed hunk stays visible and still exports —
+confirmation is not ignoring — but its content is dimmed and its minimap marker
+is outlined. Confirmations are stored in `localStorage`, keyed by the
+comparison's paths and a signature of each hunk's kind, range, and changed
+lines: reopening the same comparison restores them, and a hunk whose compared
+content changed loses its confirmation.
+
+Shortcuts are data, not fixed strings: every action is bound in one table and
+the `?` help dialog is generated from it, so the help cannot describe keys that
+no longer fire. Open **Customize shortcuts** from that dialog to move an action
+to another chord, switch between the `default` and `minimal` presets, reset to
+the preset, or export the whole binding set as JSON. A chord two actions claim is
+reported with both names, and chords the browser reserves (such as `Ctrl+W`) are
+refused. The choice is stored in `localStorage`, so it applies to the whole
+browser rather than one comparison.
+
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
 dedicated purple color and an `↔` button jumps to the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the
@@ -255,6 +353,23 @@ demand, so opening one boundary does not send the whole unchanged file to the
 browser. In the side-by-side view, context lines remain editable on both sides
 when **Edit** is active.
 
+### Comparison conditions while reading
+
+The settings that change what counts as a difference are permanent in the result
+toolbar, each showing its current value so the policy the result was produced
+under is readable without opening a dialog: whitespace (**ignore amount**,
+**ignore all**), case, EOL (ignore EOL, ignore trailing EOL, or both), line
+filters with the number active, and move detection. The toolbar therefore
+doubles as a status display. Changing a row writes the matching control in
+**Comparison settings** and re-runs the comparison; because the inputs are
+unchanged it replaces the current history entry rather than pushing a new one.
+
+Only the toggles live in the toolbar. Values that tune how much is computed —
+**move min lines**, the **context** line count, and the line-filter definitions
+themselves — stay in **Comparison settings**, so the number of toolbar items is
+fixed and does not grow with the input. The line-filter row reports how many
+filters are active and opens that part of the dialog to edit them.
+
 ### Manual alignment and ignored differences
 
 When automatic resynchronization picks the wrong lines, click one line on each
@@ -268,7 +383,9 @@ Each hunk also has **Ignore this difference**. Ignored hunks remain visible as
 collapsed dashed headers, are excluded from next/previous navigation and unread
 counts, and can be restored. Patch export omits them and records the count in
 the `X-Ayame-Ignored-Hunks` response header, so the hidden decision remains
-auditable; use declarative line filters (#28) for a permanent rule.
+auditable; use declarative line filters (#28) for a permanent rule. **Export
+report** lists each ignored hunk with its coordinates and the reason
+`manually ignored during review`, so the header count is not the only record.
 
 ### CSV / TSV setup and table result
 
@@ -281,9 +398,14 @@ the same screen; **Review settings** summarizes the effective run.
 
 The result is paged in groups of 100 logical differences. Changed cells alone
 use the modification color, header badges show per-column change counts, and
-**changed columns only** hides wide unchanged columns. The server caps the
-browser response at 5,000 logical differences; **Run and export** writes the
-complete TSV (with `_changed_cols`) or JSON Lines result to a local path.
+**changed columns only** hides wide unchanged columns. The **Statistics** panel
+at the top of the result lists every changed column with its count and its share
+of the changed rows; a numeric column also reports the sum, mean, and maximum of
+right-minus-left and how many values rose, fell, or changed representation only.
+The list scrolls rather than being capped, and exports as CSV or JSON. The
+server caps the browser response at 5,000 logical differences; **Run and export**
+writes the complete TSV (with `_changed_cols`) or JSON Lines result to a local
+path.
 
 See the [GUI reachability and placement policy](gui-setup-parity.md) for the
 full mapping and the rules that keep advanced settings reachable without
@@ -460,6 +582,42 @@ The response is `text/x-diff` with `Content-Disposition: attachment`. Valid
 formats are `normal`, `context`, and `unified`; `context` is non-negative and
 defaults to 3 when omitted.
 
+### `POST /api/report`
+
+Builds the confirmation/verification report (#296). It accepts the same path,
+inline-text, mode, encoding and comparison fields as `/api/diff` (including
+`ignoredHunks`), plus:
+
+```json
+{
+  "old": "old.txt",
+  "new": "new.txt",
+  "format": "html",
+  "includeContent": false,
+  "readHunks": [0, 2],
+  "confirmedHunks": [0],
+  "comparisonState": { "v": 1, "mode": "text", "paths": {}, "controls": {} },
+  "reproduceURL": "http://127.0.0.1:9000/#compare=..."
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `format` | string | `json` (default), `markdown`, or `html`. |
+| `includeContent` | bool | Embed the hunk lines. Default `false`; the server never returns compared content unless this is set. |
+| `readHunks` | array | Hunk indexes the reviewer has read. |
+| `confirmedHunks` | array | Hunk indexes confirmed (#288). Omit it when the build has no confirmation tracking; the report then says so instead of guessing. |
+| `comparisonState` | object | The versioned URL state (`v`, `mode`, `paths`, `controls`) captured by the web UI. |
+| `reproduceURL` | string | A share URL without the API token, recorded verbatim. |
+
+The response is a `Content-Disposition: attachment` download named
+`ayame-report.json`, `ayame-report.md`, or `ayame-report.html`. The report
+records the inputs with sizes, modification times, detected encodings and
+SHA-256 hashes; the comparison conditions; the totals; every ignored hunk with
+its reason; the read/unread state; and the `#compare=` fragment that replays the
+comparison. It covers `text` and `sorted` comparisons; CSV, folder, and
+three-way reports are not implemented yet.
+
 ### CSV and file APIs
 
 `POST /api/file/read` returns a whole text file for editing — its lines, the
@@ -480,8 +638,8 @@ answering `409` with code `stale_write` unless `force` is set.
 - `POST /api/csv/inspect` accepts CSV setup JSON and returns first-record schema
   inspection without scanning data rows.
 - `POST /api/csv/diff` runs the complete comparison and returns headers,
-  summary/ranking, and at most `maxRows` logical JSON cell differences (`500`
-  by default, hard cap `5,000`).
+  a summary with per-column counts, shares, and numeric deltas, and at most
+  `maxRows` logical JSON cell differences (`500` by default, hard cap `5,000`).
 - `POST /api/csv/export` uses the same request plus `output`, `outputFormat`
   (`tsv` or `jsonl`), and `outputHeader`, and writes the complete local result.
 

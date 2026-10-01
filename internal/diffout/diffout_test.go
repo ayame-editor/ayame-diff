@@ -118,6 +118,31 @@ func TestSideBySideCJK(t *testing.T) {
 	}
 }
 
+func TestSideBySideEastAsianAmbiguousWide(t *testing.T) {
+	t.Parallel()
+	// East Asian Ambiguous characters are one cell by default and two when the
+	// locale says so (#289). Width 60 -> column 26 in both cases.
+	old := linediff.SplitLines("○※α\n")
+	nw := linediff.SplitLines("x\n")
+	res := linediff.Diff(old, nw, 200, 128)
+	render := func(opts Options) string {
+		var w, sw bytes.Buffer
+		opts.Format, opts.Width = SideBySide, 60
+		if err := Write(&w, &sw, old, nw, res, opts); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		return w.String()
+	}
+	narrow := render(Options{})
+	if want := "@@ -1,1 +1,1 Replace @@\n- ○※α" + strings.Repeat(" ", 23) + " | + x\n"; narrow != want {
+		t.Errorf("narrow out =\n%q\nwant\n%q", narrow, want)
+	}
+	wide := render(Options{EastAsianAmbiguousWide: true})
+	if want := "@@ -1,1 +1,1 Replace @@\n- ○※α" + strings.Repeat(" ", 20) + " | + x\n"; wide != want {
+		t.Errorf("wide out =\n%q\nwant\n%q", wide, want)
+	}
+}
+
 func TestSideBySideTruncationAndWidth(t *testing.T) {
 	t.Parallel()
 	// A wide CJK line must be truncated to exactly the column display width

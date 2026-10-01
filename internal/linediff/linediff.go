@@ -456,6 +456,13 @@ func removeSpace(s string) string {
 }
 
 func applyStats(res *Result, h Hunk) {
+	size := h.OldLen
+	if h.NewLen > size {
+		size = h.NewLen
+	}
+	if size > res.LargestHunk {
+		res.LargestHunk = size
+	}
 	switch h.Kind {
 	case Insert:
 		res.Added += h.NewLen
