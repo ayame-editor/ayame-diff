@@ -376,6 +376,12 @@ ayame-diff normally first so the browser session has its own token.
 Pasted scratch text is intentionally excluded. URL state is capped at 32 KiB;
 use an `.ayamediff` project for very large CSV column selections.
 
+Display preferences — wrap, word highlight, syntax highlighting, whitespace,
+theme, colours and the view — are stored once and apply to every comparison.
+Comparison conditions are stored per comparison, keyed by the mode and input
+paths, so reopening a comparison restores the conditions it was run with and a
+different pair starts from the defaults.
+
 ### Multiple comparisons (tabs)
 
 Several comparisons can stay open at once. After the first successful

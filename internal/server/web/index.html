@@ -437,7 +437,7 @@
 <details class="csv-advanced" id="compareConditions" open>
           <summary><span data-i18n="conditionsGroup">Comparison conditions</span><span class="details-badge" id="conditionsBadge" hidden></span></summary>
           <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
-          <p class="details-hint" data-i18n="conditionsScopeHint">Changes here apply to this comparison only, until you make them the default.</p>
+          <p class="details-hint" data-i18n="conditionsScopeHint">Changes here apply to this comparison only and are remembered for it; use Make default to apply them to new comparisons.</p>
           <div class="condition-scope">
             <span class="condition-scope-state" id="conditionScopeState" data-i18n="conditionScopeDefault">Default</span>
             <button id="makeConditionsDefault" type="button" data-i18n="makeConditionsDefault">Make default</button>
@@ -593,6 +593,7 @@
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="comparisonscope.js"></script>
     <script src="tabs.js"></script>
     <script src="directory.js"></script>
     <script src="continuous.js"></script>

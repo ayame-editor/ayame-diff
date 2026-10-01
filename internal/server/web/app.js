@@ -17,6 +17,16 @@ const {
   buildTabStateURL,
   buildShareURL,
 } = globalThis.AyameURLState;
+// #260: which settings are the reader's (global) and which belong to a
+// comparison, plus the helpers that keep the latter scoped to their identity.
+const {
+  COMPARISON_CONTROLS,
+  comparisonKey,
+  parseStore: parseConditionStore,
+  serializeStore: serializeConditionStore,
+  readConditions,
+  writeConditions,
+} = globalThis.AyameComparisonScope;
 const {
   STORAGE_KEY: CONDITION_DEFAULTS_KEY,
   capture: captureConditionValues,
@@ -1500,21 +1510,25 @@ async function armFileWatchFromCurrentState() {
 // paths do not enter access logs or Referer headers. The normal in-tab URL keeps
 // its API token so reload works; the explicit copy action always removes it.
 const URL_STATE_MODES = new Set(["text", "sorted", "csv", "threeway", "threeway-csv", "dir"]);
-const URL_STATE_CONTROL_IDS = [
-  "encoding", "numeric", "reverse",
-  "ignoreCase", "whitespaceScale", "lineFilters",
-  "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
-  "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
-  "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
-  "ignoreColumns", "tolerance", "columnTolerances", "csvMaxRows",
-  "memory", "tempDir", "partitions", "parseWorkers", "workers", "mergeFanIn",
-  "partitionBuffer", "maxRecordBytes", "keepTemp", "changedColumnsOnly",
-  "dirIncludes", "dirExcludes", "dirFilter", "dirFilterFile", "dirFilterSet",
-  "dirCompareBy", "dirHidden", "dirWorkers", "dirStatus",
-];
+// The per-comparison controls are classified once in comparisonscope.js, so the
+// URL state (#254) and the local per-comparison memory (#260) can never drift.
+const URL_STATE_CONTROL_IDS = COMPARISON_CONTROLS;
 let restoringComparisonURL = false;
 let comparisonURLReplaceTimer = 0;
 let comparisonURLRestoreGeneration = 0;
+
+// Per-comparison conditions (#260). Display preferences are global, but what a
+// comparison means is scoped to its identity — mode plus input paths, the same
+// identity the versioned URL fragment carries. Switching back to a comparison
+// restores the conditions it was run with instead of inheriting the last one's,
+// including entry points that never touch the URL.
+const CONDITION_STORE_KEY = "ayame-conditions";
+let activeComparisonKey = "";
+// The comparison controls' load-time values. A comparison with no memory resets
+// to these rather than inheriting whatever the previous comparison left behind.
+// (main's saved condition default is applied before this snapshot is taken, so
+// the baseline a fresh comparison resets to is that default.)
+const conditionBaseline = new Map();
 
 // ---- Multiple comparisons (#281) ----
 // Several comparisons stay open as tabs. The active tab is mirrored into the
@@ -1767,7 +1781,94 @@ async function applyComparisonState(state) {
     $("keyMode").value = keyMode;
     syncKeyMode();
   }
+  // The URL handed us a complete comparison, so it becomes the active scope and
+  // seeds the local memory. compare({urlHistory:"none"}) then sees the same
+  // identity and leaves these conditions alone.
+  adoptCurrentComparison();
   return syncCompareReady();
+}
+
+// ---- Per-comparison conditions (#260) ----
+// The local memory stores the same versioned state the URL fragment carries, so
+// a comparison can be restored through applyComparisonState — CSV key
+// selections and sync points included — without touching the address bar. The
+// identity is the mode plus the input paths, and display preferences are never
+// part of it.
+function captureConditionDefaults() {
+  for (const id of COMPARISON_CONTROLS) {
+    const node = $(id);
+    if (!node) continue;
+    conditionBaseline.set(id, node.type === "checkbox" ? node.checked : node.value);
+  }
+}
+
+function resetConditions() {
+  for (const [id, value] of conditionBaseline) {
+    const node = $(id);
+    if (!node) continue;
+    if (node.type === "checkbox") node.checked = value;
+    else node.value = value;
+  }
+  refreshConditionDependents();
+}
+
+// refreshConditionDependents brings the mode-specific visibility and the
+// "changed settings" badges back in step after conditions are swapped wholesale.
+function refreshConditionDependents() {
+  syncModeOpts();
+  syncCompareReady();
+  updateSetupSummary();
+  updateDetailsBadges();
+}
+
+function currentComparisonIdentity() {
+  if ($("scratch").checked) return "";
+  const mode = $("mode").value;
+  if (!URL_STATE_MODES.has(mode)) return "";
+  return comparisonKey(mode, { base: $("base").value, old: $("old").value, new: $("new").value });
+}
+
+// adoptCurrentComparison marks the form as belonging to the comparison now in
+// the inputs. Entry points that restore a complete state themselves — a URL
+// fragment, a loaded project — call this so a later Compare does not overwrite
+// what they set.
+function adoptCurrentComparison() {
+  const key = currentComparisonIdentity();
+  if (!key) return "";
+  activeComparisonKey = key;
+  storeComparisonState(key, captureComparisonState());
+  return key;
+}
+
+function conditionStore() {
+  try { return parseConditionStore(localStorage.getItem(CONDITION_STORE_KEY)); } catch (_) { return {}; }
+}
+
+function storeComparisonState(key, state) {
+  if (!key || !state) return;
+  const store = writeConditions(conditionStore(), key, state);
+  try { localStorage.setItem(CONDITION_STORE_KEY, serializeConditionStore(store)); } catch (_) { /* storage full or blocked */ }
+}
+
+// scopeConditionsForRun resolves the state a run should start from. The first
+// comparison of a visit keeps whatever the form shows — the user may have just
+// set it. Once a comparison is active, switching to a different one restores
+// that comparison's own remembered state, or the defaults when it has none: it
+// never quietly inherits the previous comparison's. keepConditions skips the
+// swap for a re-run that is the same comparison reversed (#90).
+async function scopeConditionsForRun(keepConditions) {
+  const key = currentComparisonIdentity();
+  if (!key) return "";
+  if (keepConditions || !activeComparisonKey || key === activeComparisonKey) {
+    activeComparisonKey = key;
+    return key;
+  }
+  const remembered = readConditions(conditionStore(), key);
+  if (!remembered || !(await applyComparisonState(remembered))) {
+    resetConditions();
+    activeComparisonKey = key;
+  }
+  return key;
 }
 
 function comparisonURLHasState() {
@@ -4674,6 +4775,9 @@ async function applyCSVProject(body) {
   const indexes = new Set([...(body.keyIndexes || []), ...(body.excludeKeyIndexes || [])]);
   document.querySelectorAll("#columnList input").forEach((input) => { input.checked = names.has(input.dataset.name) || indexes.has(Number(input.dataset.index)); });
   syncKeyMode(); updateCSVReview();
+  // A loaded project is a complete, deliberate state (#260); a later Compare
+  // must not replace it with whatever this identity was last remembered as.
+  adoptCurrentComparison();
   // A project is a session state, not the default: applying it updates the
   // scope indicator without touching what was saved as the default (#262).
   updateConditionScope();
@@ -4714,6 +4818,7 @@ function applyDirectoryProject(body) {
   $("dirFilter").value = body.filter || ""; $("dirFilterSet").value = (body.filterSets || []).join(", ");
   $("dirCompareBy").value = body.compareBy || "contents"; $("dirHidden").checked = Boolean(body.hidden); $("dirWorkers").value = body.workers || 8;
   if (body.projectPath) $("dirProjectPath").value = body.projectPath;
+  adoptCurrentComparison();
 }
 
 async function runSaveDirectoryProject() {
@@ -5103,6 +5208,9 @@ async function runCompare() {
 // edits, and the Enter key (#128).
 async function compare(options = {}) {
   if (busyOperation) return false;
+  // Resolve the conditions before the request body is built (#260): a
+  // comparison starts from its own remembered state, not the last one's.
+  const conditionKey = await scopeConditionsForRun(Boolean(options.keepConditions));
   const preparedWatch = options.watch || await prepareFileWatch();
   // A tab switch supplies its own anchor; otherwise keep the current position.
   const scrollAnchor = Object.prototype.hasOwnProperty.call(options, "scrollAnchor")
@@ -5115,6 +5223,7 @@ async function compare(options = {}) {
   if (result && $("result").children.length) {
     collapseSetupAfterCompare();
     rememberPaths();
+    storeComparisonState(conditionKey, captureComparisonState());
     const historyAction = options.urlHistory || (options.external ? "replace" : "push");
     updateComparisonURL(historyAction);
   }
@@ -5434,9 +5543,12 @@ function updateConditionScope() {
 }
 
 // syncConditionBaseline moves the "changed" baseline onto the new default, so
-// promoting one clears the badge instead of leaving it lit.
+// promoting one clears the badge instead of leaving it lit. It also refreshes
+// the per-comparison baseline (#260), so a comparison with no memory resets to
+// the promoted default rather than the values the page loaded with.
 function syncConditionBaseline() {
   captureControlDefaults($("compareConditions"));
+  captureConditionDefaults();
   updateDetailsBadges();
 }
 
@@ -5490,7 +5602,9 @@ function swapSides() {
   csvInspection = null;
   $("inspection").textContent = "";
   $("keySetup").hidden = true;
-  if (lastData || csvData || threeWayData || directoryData) compare();
+  // Same comparison, reversed (#90): the conditions should follow the sides
+  // rather than reset as though this were a different pair (#260).
+  if (lastData || csvData || threeWayData || directoryData) compare({ keepConditions: true });
 }
 
 // ---- In-app dialogs (#98, #99) ----
@@ -7346,6 +7460,10 @@ for (const control of $("csvOptions").querySelectorAll("input, select")) {
   control.addEventListener("change", updateDetailsBadges);
   control.addEventListener("input", updateDetailsBadges);
 }
+// The per-comparison defaults are captured here, before any URL restore or
+// autorun can touch the controls, so a comparison with no memory can reset to
+// them (#260).
+captureConditionDefaults();
 updateDetailsBadges();
 $("theme").addEventListener("change", () => {
   applyTheme($("theme").value);
@@ -7402,6 +7520,11 @@ $("syntax").addEventListener("change", () => {
   restoreResultScrollAnchor(scrollAnchor);
 });
 $("word").addEventListener("change", rerenderForDisplayChange);
+// #260: word highlight was the one display toggle that reset on every reload.
+// It joins the global display preferences, not the per-comparison conditions.
+$("word").addEventListener("change", () => {
+  localStorage.setItem("ayame-word", $("word").checked ? "1" : "0");
+});
 for (const input of document.querySelectorAll("#csvOptions input, #csvOptions select")) input.addEventListener("change", updateCSVReview);
 for (const id of URL_STATE_CONTROL_IDS) {
   const control = $(id);
@@ -7436,6 +7559,7 @@ applyTabSize(localStorage.getItem("ayame-tab-size") || 8);
 applyAmbiguousWide(localStorage.getItem("ayame-ambiguous-wide") === "1");
 $("showWs").checked = localStorage.getItem("ayame-showws") === "1";
 $("syntax").checked = localStorage.getItem("ayame-syntax") !== "0";
+$("word").checked = localStorage.getItem("ayame-word") !== "0";
 applyDisplayPreferences();
 $("lang").addEventListener("change", () => applyLang($("lang").value));
 $("stopServer").addEventListener("click", stopServer);
