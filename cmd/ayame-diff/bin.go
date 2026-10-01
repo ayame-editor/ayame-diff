@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -28,12 +27,8 @@ memory-bounded on large inputs.`)
 		fmt.Fprintln(fs.Output(), "\nOptions:")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		fmt.Fprintln(stderr, "error:", err)
-		return exitUsage
+	if code, done := parseFlagsOrExit(fs, args, stdout, stderr); done {
+		return code
 	}
 	if fs.NArg() != 2 {
 		fmt.Fprintln(stderr, "error: bin needs exactly two files: LEFT RIGHT")
@@ -50,7 +45,7 @@ memory-bounded on large inputs.`)
 
 	res, err := hexdiff.Compare(fs.Arg(0), fs.Arg(1), hexdiff.Options{MaxRegions: maxRegions, MaxRegionBytes: maxBytes})
 	if err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 
@@ -66,7 +61,7 @@ memory-bounded on large inputs.`)
 		fmt.Fprintf(bw, "  + %s\n", hexBytes(r.New, maxBytes))
 	}
 	if err := bw.Flush(); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		reportError(stderr, err)
 		return exitError
 	}
 

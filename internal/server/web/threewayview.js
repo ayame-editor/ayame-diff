@@ -20,6 +20,15 @@
     return Array.isArray(value) ? value.slice() : [];
   }
 
+  // The sides a choice value adopts, in canonical base→left→right order. A
+  // conflict may adopt more than one contribution ("both"), mirroring
+  // mergechoice.Parse on the server, so "left,right" concatenates left then
+  // right rather than picking one.
+  function adoptedSides(choice) {
+    const selected = new Set(String(choice || "").split(",").map((token) => token.trim()).filter(Boolean));
+    return ["base", "left", "right"].filter((side) => selected.has(side));
+  }
+
   // The lines a merge writes for one event, given the user's choice. This is
   // the same selection MergeLines makes: independent and identical changes
   // apply themselves, CSV merged groups use their combined rows, and a
@@ -28,12 +37,17 @@
   function resultLines(event, choice) {
     const kind = (event && event.kind) || "";
     if (kind === "conflict") {
-      switch (choice) {
-        case "left": return { lines: lines(event.left), unresolved: false };
-        case "right": return { lines: lines(event.right), unresolved: false };
-        case "base": return { lines: lines(event.base), unresolved: false };
-        default: return { lines: lines(event.base), unresolved: true };
+      const adopted = adoptedSides(choice);
+      if (adopted.length > 0) {
+        const merged = [];
+        for (const side of adopted) {
+          if (side === "base") merged.push(...lines(event.base));
+          else if (side === "left") merged.push(...lines(event.left));
+          else if (side === "right") merged.push(...lines(event.right));
+        }
+        return { lines: merged, unresolved: false };
       }
+      return { lines: lines(event.base), unresolved: true };
     }
     if (kind === "right_only") return { lines: lines(event.right), unresolved: false };
     if (kind === "merged") return { lines: lines(event.combined), unresolved: false };
