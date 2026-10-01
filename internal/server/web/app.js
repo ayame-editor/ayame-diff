@@ -54,6 +54,7 @@ const {
   calculateMinimapViewport,
   scrollTopForMinimapPointer,
 } = globalThis.AyameMinimap;
+const { isDowngraded, navigableIndexes, essentialIndex, essentialIndexes } = globalThis.AyameDowngrade;
 const { apiErrorKey } = globalThis.AyameAPIErrors;
 const { resultLines: threeWayResultLines, panes: threeWayPanes } = globalThis.AyameThreeWayView;
 const { createEditBuffer, editableComparison } = globalThis.AyameEditBuffer;
@@ -2491,6 +2492,12 @@ function renderHunk(h, index, confirm) {
     box.classList.add("moved");
     box.dataset.moveId = String(h.move_id);
   }
+  if (h.downgraded) {
+    // A dismissed whitespace/case-only difference: visible but subdued, and
+    // not a navigation target (#269).
+    box.classList.add("downgraded");
+    box.title = t("downgradedHint");
+  }
   const head = document.createElement("div");
   head.className = "hunk-head";
   const { text: headText } = AyameHunkHeader.header(h, t);
@@ -2498,6 +2505,12 @@ function renderHunk(h, index, confirm) {
   // non-colour signal the rows carry (#298), and marks a replace as "~" so it
   // is not mistaken for a stray delete plus insert.
   head.textContent = h.move_id ? headText : `${hunkMarker(h.kind)} ${headText}`;
+  if (h.downgraded) {
+    const mark = document.createElement("span");
+    mark.className = "hunk-downgraded";
+    mark.textContent = ` ${t("downgraded")}`;
+    head.append(mark);
+  }
   box.dataset.kind = h.move_id ? "moved" : h.kind;
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", head.textContent);
@@ -2506,55 +2519,63 @@ function renderHunk(h, index, confirm) {
   // is, instead of always-visible in the head (#293). A small handle stays
   // visible so they are discoverable; pointer hover, keyboard focus inside the
   // hunk, and a touch tap all reveal the same toolbar. The action set itself is
-  // pure and tested in hunkactions.js.
-  const toolbarId = `hunk-actions-${index}`;
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "hunk-toolbar-toggle";
-  toggle.textContent = "⋯";
-  toggle.title = t("hunkActions");
-  toggle.setAttribute("aria-label", t("hunkActions"));
-  toggle.setAttribute("aria-expanded", "false");
-  toggle.setAttribute("aria-controls", toolbarId);
-  toggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setHunkToolbarOpen(box, !box.classList.contains("toolbar-open"));
-  });
-  const toolbar = document.createElement("div");
-  toolbar.className = "hunk-toolbar";
-  toolbar.id = toolbarId;
-  toolbar.setAttribute("role", "group");
-  toolbar.setAttribute("aria-label", t("hunkActions"));
-  for (const action of hunkActions({
-    moved: Boolean(h.move_id),
-    ignored: ignoredHunks.has(index),
-    mergeable: $("mode").value === "text",
-  })) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = action.className;
-    button.textContent = action.glyph || t(action.labelKey);
-    button.title = t(action.labelKey);
-    button.setAttribute("aria-label", t(action.labelKey));
-    if (action.id === "move-jump") {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const peer = [...document.querySelectorAll(`.hunk[data-move-id="${h.move_id}"]`)]
-          .find((node) => Number(node.dataset.hunk) !== index);
-        if (peer) jumpToHunk(Number(peer.dataset.hunk));
+  // pure and tested in hunkactions.js. A dismissed (downgraded) hunk has no
+  // adopt/ignore affordances — it was already ignored by the comparison
+  // options (#269) — so its toolbar holds only the move jump, if any.
+  if (!h.downgraded || h.move_id) {
+    const toolbarId = `hunk-actions-${index}`;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "hunk-toolbar-toggle";
+    toggle.textContent = "⋯";
+    toggle.title = t("hunkActions");
+    toggle.setAttribute("aria-label", t("hunkActions"));
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", toolbarId);
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setHunkToolbarOpen(box, !box.classList.contains("toolbar-open"));
+    });
+    const toolbar = document.createElement("div");
+    toolbar.className = "hunk-toolbar";
+    toolbar.id = toolbarId;
+    toolbar.setAttribute("role", "group");
+    toolbar.setAttribute("aria-label", t("hunkActions"));
+    const actions = h.downgraded
+      ? hunkActions({ moved: Boolean(h.move_id), ignored: false, mergeable: false })
+        .filter((action) => action.id === "move-jump")
+      : hunkActions({
+        moved: Boolean(h.move_id),
+        ignored: ignoredHunks.has(index),
+        mergeable: $("mode").value === "text",
       });
-    } else if (action.id === "ignore") {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        toggleIgnoredHunk(index);
-      });
-    } else if (action.side) {
-      button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, action.side); });
+    for (const action of actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = action.className;
+      button.textContent = action.glyph || t(action.labelKey);
+      button.title = t(action.labelKey);
+      button.setAttribute("aria-label", t(action.labelKey));
+      if (action.id === "move-jump") {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const peer = [...document.querySelectorAll(`.hunk[data-move-id="${h.move_id}"]`)]
+            .find((node) => Number(node.dataset.hunk) !== index);
+          if (peer) jumpToHunk(Number(peer.dataset.hunk));
+        });
+      } else if (action.id === "ignore") {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleIgnoredHunk(index);
+        });
+      } else if (action.side) {
+        button.addEventListener("click", (event) => { event.stopPropagation(); chooseMerge(index, action.side); });
+      }
+      toolbar.append(button);
     }
-    toolbar.append(button);
+    if (ignoredHunks.has(index)) box.classList.add("ignored");
+    head.append(toggle, toolbar);
   }
-  if (ignoredHunks.has(index)) box.classList.add("ignored");
-  head.append(toggle, toolbar);
   if (confirm) {
     const confirmToggle = document.createElement("button");
     confirmToggle.type = "button";
@@ -2652,6 +2673,9 @@ function renderSummary(res) {
     stat("del", t("deleted"), res.deleted, "delete"),
     stat("chg", t("modified"), res.modified, "replace"),
   );
+  // Whitespace/case-only differences are dismissed from the counts above but
+  // still shown, so the summary has to name them separately (#269).
+  if (res.downgraded_hunks) el.append(stat("downgraded", t("downgradedCount"), res.downgraded_hunks));
   if (res.moved_blocks) el.append(stat("move", t("moved"), res.moved_blocks));
   if (res.move_detection_skipped) {
     const skipped = document.createElement("span");
@@ -3383,13 +3407,16 @@ function updateMergeUI() {
 	$("allBase").hidden = true;
 	$("toggleBase").hidden = true; // BASE is a three-way-only column (#282)
 	if ($("mode").value === "csv" && csvData) { updateCSVMergeUI(); return; }
-  const mergeable = Boolean(lastData?.hunks?.length) && $("mode").value === "text";
+  const mergeable = Boolean(lastData?.hunks?.some((hunk) => !isDowngraded(hunk))) && $("mode").value === "text";
   // Offer the toggle whenever a text diff can be merged, but keep the adopt
   // buttons (CSS) and the merge panel hidden until the user opts into merge mode.
   $("mergeMode").hidden = !mergeable;
   $("mergePanel").hidden = !(mergeable && mergeMode);
   if (!mergeable) return;
-  lastData.hunks.forEach((_, index) => syncMergeRow($(`hunk-${index}`), index));
+  lastData.hunks.forEach((hunk, index) => {
+    if (isDowngraded(hunk)) return;
+    syncMergeRow($(`hunk-${index}`), index);
+  });
   refreshMergeUnresolved();
   $("mergeUndo").disabled = mergeUndo.length === 0; $("mergeRedo").disabled = mergeRedo.length === 0;
 }
@@ -3425,6 +3452,17 @@ function redoMerge() {
   mergeUndo.push(mergeSelection.clone());
   mergeSelection = mergeRedo.pop(); updateMergeUI();
   announce($("mergeUnresolved").textContent);
+}
+// mergeSelection's wire choices index the rendered hunk list, which may include
+// dismissed hunks; the merge API computes over real differences only, so remap
+// the keys before sending them (#269).
+function essentialChoices(wire, hunks) {
+  const out = {};
+  for (const [index, side] of Object.entries(wire || {})) {
+    const rank = essentialIndex(hunks || [], Number(index));
+    if (rank >= 0) out[rank] = side;
+  }
+  return out;
 }
 
 // ---- Simulate / Do impact preview (#273) ----
@@ -3494,7 +3532,7 @@ async function saveTextMerge(previewConfirmed) {
   const impact = buildMergeImpact("text", unresolved);
   const confirmOverwrite = previewConfirmed || !overwrite || await askConfirm(mergeImpactPrompt(impact), mergeImpactRows(impact));
   if (!confirmOverwrite) return;
-  const body = { ...requestBody(), output, choices: mergeSelection.toWire(), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
+  const body = { ...requestBody(), output, choices: essentialChoices(mergeSelection.toWire(), lastData?.hunks), allowUnresolved, unresolvedTarget: allowUnresolved ? target : "", overwrite, confirmOverwrite };
   $("saveMerge").disabled = true;
   try {
     const response = await apiFetch("/api/merge/text", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -3955,7 +3993,8 @@ function updateCounter() {
 }
 
 function activeHunkIndexes() {
-  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index) && (!threeWayData || threeWayData.events[index]?.kind === "conflict"));
+  const eventKinds = threeWayData ? threeWayData.events.map((event) => event.kind) : null;
+  return navigableIndexes(lastData?.hunks || [], ignoredHunks, eventKinds);
 }
 
 function isConfirmed(index) {
@@ -4062,10 +4101,21 @@ function stepHunk(delta) {
   jumpToHunk(active[next]);
 }
 
+// scrollToHunk moves a hunk into view without making it the current navigation
+// target. Used for dismissed differences, which are visible but not differences
+// (#269).
+function scrollToHunk(index) {
+  $(`hunk-${index}`)?.scrollIntoView({ block: "center" });
+}
+
 function jumpToHunk(index) {
   const total = lastData?.hunks?.length || 0;
   if (!total || ignoredHunks.has(index)) return;
   index = Math.max(0, Math.min(total - 1, index));
+  if (isDowngraded(lastData.hunks[index])) {
+    scrollToHunk(index);
+    return;
+  }
   document.querySelector(".hunk.current")?.classList.remove("current");
   document.querySelectorAll(".minimap-marker.current").forEach((marker) => marker.classList.remove("current"));
   currentHunk = index;
@@ -4128,13 +4178,14 @@ function buildMinimap(data) {
     kind: h.minimap_kind || h.kind,
     moved: Boolean(h.move_id),
     ignored: ignoredHunks.has(index),
+    downgraded: isDowngraded(h),
     displayLength: Math.max(h.display_len || 0, h.old_len || 0, h.new_len || 0, 1),
   })), trackPixels);
 
   for (const segment of segments) {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}`;
+    marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}${segment.downgraded ? " downgraded" : ""}`;
     if (readHunks.has(segment.index)) marker.classList.add("read");
     if (isConfirmed(segment.index)) marker.classList.add("confirmed");
     if (currentHunk === segment.index) marker.classList.add("current");
@@ -4208,6 +4259,8 @@ function observeHunks() {
       if (!entry.isIntersecting || entry.intersectionRatio < 0.55) continue;
       const index = Number(entry.target.dataset.hunk);
       if (ignoredHunks.has(index)) continue;
+      // Read tracking is for differences; a dismissed hunk is not one (#269).
+      if (isDowngraded(lastData?.hunks?.[index])) continue;
       if (!readHunks.has(index)) {
         readHunks.add(index);
         entry.target.classList.add("read");
@@ -6083,7 +6136,7 @@ function jumpToKind(kind) {
   const hunks = lastData?.hunks || [];
   const matches = [];
   for (let i = 0; i < hunks.length; i++) {
-    if (hunks[i].kind === kind && !ignoredHunks.has(i)) matches.push(i);
+    if (hunks[i].kind === kind && !ignoredHunks.has(i) && !isDowngraded(hunks[i])) matches.push(i);
   }
   if (!matches.length) return;
   if (kind !== lastJumpKind) lastJumpIndex = -1;
@@ -6278,7 +6331,7 @@ async function runExportPatch() {
   if (!validateInputs(body)) return;
   body.patchFormat = $("patchFormat").value;
   body.context = Math.max(0, Number($("patchContext").value) || 0);
-  body.ignoredHunks = [...ignoredHunks].sort((a, b) => a - b);
+  body.ignoredHunks = essentialIndexes(lastData?.hunks || [], [...ignoredHunks].sort((a, b) => a - b));
   $("exportPatch").disabled = true;
   setStatus(t("exporting"), "busy");
   try {
@@ -6660,8 +6713,12 @@ function buildSidebar(data) {
     button.type = "button";
     button.className = `sidebar-item ${hunk.kind}`;
     button.dataset.hunk = String(index);
+    if (isDowngraded(hunk)) {
+      button.classList.add("downgraded");
+      button.title = t("downgradedHint");
+    }
     const mark = document.createElement("span");
-    mark.className = "sidebar-mark"; mark.textContent = hunkMarker(hunk.kind) || "~";
+    mark.className = "sidebar-mark"; mark.textContent = isDowngraded(hunk) ? "≈" : (hunkMarker(hunk.kind) || "~");
     mark.setAttribute("aria-hidden", "true");
     const line = document.createElement("span");
     line.className = "sidebar-line"; line.textContent = String(hunk.new_start + 1);
@@ -7401,11 +7458,12 @@ $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);
 // The units "All left / All right / All base" apply to: every hunk of the
-// active comparison, conflicts only for three-way.
+// active comparison, conflicts only for three-way. Dismissed (downgraded) text
+// hunks are not real differences, so they are not merge units (#269).
 function mergeUnitIds() {
   if (threeWayData && ($("mode").value === "threeway" || $("mode").value === "threeway-csv")) return threeWayData.events.filter((item) => item.kind === "conflict").map((item) => item.id);
   if ($("mode").value === "csv" && csvData) return csvData.differences.map((item) => item.id);
-  return (lastData?.hunks || []).map((_, index) => index);
+  return (lastData?.hunks || []).map((_, index) => index).filter((index) => !isDowngraded(lastData.hunks[index]));
 }
 function chooseAllMerge(side) {
   return () => {

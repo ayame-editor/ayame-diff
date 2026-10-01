@@ -207,6 +207,9 @@ func writeJSON(w io.Writer, res linediff.Result) error {
 func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, maxLines uint64, word bool) error {
 	bw := bufio.NewWriter(w)
 	for _, h := range res.Hunks {
+		if h.Downgraded {
+			continue
+		}
 		writeHeader(bw, h)
 
 		if word && h.Kind == linediff.Replace {
@@ -239,6 +242,9 @@ func writeUnified(w io.Writer, old, new linediff.Lines, res linediff.Result, max
 func writeNormal(w io.Writer, old, new linediff.Lines, res linediff.Result) error {
 	bw := bufio.NewWriter(w)
 	for _, h := range res.Hunks {
+		if h.Downgraded {
+			continue
+		}
 		switch h.Kind {
 		case linediff.Delete:
 			fmt.Fprintf(bw, "%sd%d\n", normalRange(h.OldStart, h.OldLen), h.NewStart)
@@ -339,6 +345,9 @@ func writeSideBySide(w io.Writer, old, new linediff.Lines, res linediff.Result, 
 
 	bw := bufio.NewWriter(w)
 	for _, h := range res.Hunks {
+		if h.Downgraded {
+			continue
+		}
 		writeHeader(bw, h)
 
 		paired := max(h.OldLen, h.NewLen)
