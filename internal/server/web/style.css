@@ -33,6 +33,9 @@
   /* Disclosure marks and similar glyphs, sized against the label beside them
      rather than the root — hence em, not rem. */
   --fs-glyph: 0.8em;
+  /* The glyph inside a gutter change handle (#292): smaller than the caption,
+     because it has to sit inside the handle bar without widening it. */
+  --fs-gutter: 0.62rem;
 }
 
 /* Visible to assistive technology only: a control whose visible label would
@@ -108,6 +111,42 @@ body.drag-active::after {
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
+/* Comparison tabs (#281). A single horizontally scrolling row: many open
+   comparisons must never wrap and take a second row away from the diff. */
+.comparison-tabs {
+  display: flex; align-items: stretch; gap: 0.35rem;
+  flex: 0 0 auto; min-width: 0; margin-bottom: 0.4rem;
+}
+.tab-list {
+  display: flex; align-items: stretch; gap: 0.25rem;
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin;
+}
+.tab {
+  display: flex; align-items: center; min-width: 0; max-width: 16rem;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: var(--panel);
+}
+.tab.active {
+  border-color: var(--accent); background: var(--bg-elevated);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: transparent; border: 0; color: var(--fg-dim);
+  padding: 0.25rem 0.5rem; font-size: var(--fs-label);
+}
+.tab.active .tab-label { color: var(--fg); font-weight: 600; }
+.tab-close {
+  flex: 0 0 auto; background: transparent; border: 0; color: var(--fg-dim);
+  padding: 0.1rem 0.45rem; font-size: var(--fs-label); line-height: 1;
+}
+.tab-close:hover { color: var(--danger); }
+.tab-new {
+  flex: 0 0 auto; background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-control); color: var(--fg-dim);
+  padding: 0.2rem 0.6rem; font-size: var(--fs-label); line-height: 1;
+}
+.tab-new:hover { color: var(--accent-bright); border-color: var(--accent); }
 /* No centred 1200px column. Horizontal space is the scarce resource in a diff
    tool — it decides whether a side-by-side line wraps, how many folder columns
    fit, how much of a CSV row is visible — and this runs locally in a window the
@@ -350,13 +389,35 @@ button:active:not(:disabled) {
   border-radius: 50%; animation: status-spin 0.75s linear infinite;
 }
 .file-diff-error { margin: 0.5rem 0.7rem; color: var(--del-fg); }
-/* An edited line carries its own gutter mark, so unsaved work is visible in
-   the result and not only in the pane header (#256). */
-.cell.edited > .ln { position: relative; color: var(--chg-fg); font-weight: 600; }
-.cell.edited > .ln::after {
-  content: "*"; position: absolute; right: -0.35em; top: 0;
-  color: var(--chg-fg);
+/* Gutter change bars (#292). While a pane is being edited two signals share
+   the gutter, and neither relies on colour alone. The comparison's own
+   difference keeps its cell shading plus the -/+ marker in the unified view;
+   a line that differs from the file the buffer loaded gets a distinct accent
+   handle carrying a glyph, which is also the control that reverts that run.
+   The handle is a child of .ln, so .ln has to be the positioning context. */
+.cell.selectable-line > .ln { position: relative; }
+/* A thin stripe repeats the comparison's own palette in the gutter: it is the
+   same difference the cell shading shows, not the session's edit. It appears
+   only while editing, so reading a diff is unchanged. */
+body.editing .cell.add > .ln::before,
+body.editing .cell.del > .ln::before,
+body.editing .cell.chg > .ln::before {
+  content: ""; position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 3px;
+  border-radius: 0 2px 2px 0; opacity: 0.5;
 }
+body.editing .cell.add > .ln::before { background: var(--add-fg); }
+body.editing .cell.del > .ln::before { background: var(--del-fg); }
+body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
+.cell.local-change > .ln { color: var(--fg); font-weight: 600; }
+.gutter-change {
+  position: absolute; left: -0.5rem; top: 0; bottom: 0; width: 0.85rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent); color: var(--on-accent);
+  font-family: var(--ui); font-size: var(--fs-gutter); font-weight: 700; line-height: 1;
+  cursor: pointer; user-select: none;
+}
+.gutter-change:hover { filter: brightness(1.15); }
 
 .external-change-bar {
   display: flex; align-items: center; gap: 0.55rem;
@@ -378,6 +439,14 @@ button:active:not(:disabled) {
 .summary .note { color: var(--muted); }
 /* A left/right encoding mismatch is a likely cause of garbled output (#130). */
 .summary .note.encoding-mismatch { color: var(--danger); font-weight: 700; }
+/* The truncation notice carries one action that lifts the cap for the reader,
+   so they never have to pick a number themselves (#261). */
+.summary .note-action {
+  margin: 0; padding: 0.1rem 0.55rem; border: 1px solid var(--border);
+  background: transparent; color: var(--accent); font: inherit;
+  font-size: var(--fs-caption); border-radius: var(--radius-control); cursor: pointer;
+}
+.summary .note-action:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 /* Statistics panel (#120). It opens the result, before the rows, so the shape
    of the change is readable without scrolling through it. The body scrolls
@@ -450,11 +519,15 @@ button:active:not(:disabled) {
 .hunk.merge-left .choose-left, .hunk.merge-right .choose-right { background: var(--accent); color: var(--on-accent); }
 .hunk.merge-base { border-color: var(--gold); }
 .hunk.merge-base .choose-base { background: var(--gold); color: var(--on-accent); }
+/* A hunk can adopt base together with a side now (#271); keep the side border
+   colors readable instead of letting merge-base's border-color win. */
+.hunk.merge-base.merge-left { border-left-color: var(--del-fg); }
+.hunk.merge-base.merge-right { border-right-color: var(--add-fg); }
 .three-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: auto; }
 .three-pane { min-width: 0; border-right: 1px solid var(--border); }
 .three-pane:last-child { border-right: 0; }
 .three-pane h3 { position: sticky; top: 0; margin: 0; padding: 0.3rem 0.5rem; background: var(--panel); color: var(--muted); font-size: var(--fs-label); }
-.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); border-top: 1px solid var(--border); }
+.three-line { min-height: 1.5rem; padding: 0.12rem 0.5rem; white-space: pre-wrap; font: var(--fs-data) var(--mono); tab-size: var(--tab-size); -moz-tab-size: var(--tab-size); border-top: 1px solid var(--border); }
 .three-event.conflict { border-color: var(--danger); }
 .three-event.same_change { border-color: var(--accent); }
 .three-event.merged { border-color: var(--add-fg); }
@@ -464,6 +537,7 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 #diffCounter { min-width: 9rem; text-align: center; font-variant-numeric: tabular-nums; }
+#confirmCounter { min-width: 8rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
 /* The minimap column was 18px, below the ~24px a pointer can reliably hit.
    Keep the full-width target at narrow breakpoints too (#102). */
 .diff-layout { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: minmax(0, 1fr); gap: 0.55rem; align-items: start; }
@@ -491,6 +565,7 @@ button:active:not(:disabled) {
 /* Read and current are different states and must not be confused: read is
    history, current is where you are. */
 .sidebar-item.read .sidebar-line { opacity: 0.55; }
+.sidebar-item.confirmed .sidebar-mark { color: var(--accent); }
 .sidebar-item.ignored { text-decoration: line-through; opacity: 0.5; }
 .sidebar-item.current { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .sidebar-item.current .sidebar-line { color: var(--fg); opacity: 1; font-weight: 700; }
@@ -514,6 +589,7 @@ button:active:not(:disabled) {
 .minimap-marker.current { outline: var(--selection-ring-width) solid var(--accent); z-index: 2; }
 .minimap-marker:focus-visible { outline: var(--focus-ring); outline-offset: -2px; min-height: 8px; z-index: 4; }
 .minimap-marker.read { opacity: 0.38; }
+.minimap-marker.confirmed { box-shadow: inset 0 0 0 1px var(--accent); }
 .minimap-viewport {
   position: absolute; left: 0; right: 0; min-height: 8px; border: var(--selection-ring-width) solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent); cursor: grab; z-index: 1;
@@ -609,6 +685,7 @@ button:active:not(:disabled) {
 .menu-panel .opt { font-size: var(--fs-label); }
 .menu-panel .opt select { width: 100%; }
 .menu-panel button { margin: 0; width: 100%; }
+.menu-panel .report-hint { margin: 0; font-size: var(--fs-caption); color: var(--muted); }
 /* Icon-only controls: the label survives as the tooltip and the accessible name. */
 .icon-btn { min-width: 2rem; padding: 0.25rem 0.5rem; }
 .opt.inline { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-label); }
@@ -650,6 +727,13 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
 .app-dialog menu { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0; padding: 0; }
 .app-dialog menu button { margin: 0; }
 .app-dialog menu button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.confirm-details {
+  margin: 0 0 1rem; padding-inline-start: 1.25rem; max-height: 40vh; overflow: auto;
+  text-align: start; color: var(--fg);
+}
+.confirm-details li { margin: 0.15rem 0; overflow-wrap: anywhere; }
+.confirm-details .impact-overwrite { color: var(--del-fg); }
+.confirm-details .impact-info { color: var(--muted); }
 .shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.9rem; margin: 0 0 1rem; }
 .shortcuts dt { font-family: var(--mono); color: var(--accent-bright); white-space: nowrap; }
 .shortcuts dd { margin: 0; }
@@ -727,6 +811,16 @@ button.stat-jump:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--
   float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
   background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
 }
+/* Explicit confirmation (#288). The button reads as a toggle (pressed state and
+   its own label), and a confirmed hunk is demoted without disappearing: it still
+   exports, unlike an ignored hunk, which is a different decision. */
+.hunk-confirm {
+  float: right; margin: -0.15rem 0 0 0.35rem; padding: 0.08rem 0.45rem;
+  background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: var(--fs-caption);
+}
+.hunk-confirm[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.hunk.confirmed { border-left: 4px solid var(--accent); }
+.hunk.confirmed .rows { opacity: 0.6; }
 .filter-input { min-width: 18rem; }
 .filter-input textarea { width: 100%; min-height: 2.6rem; resize: vertical; }
 .filters-active { flex-basis: 100%; }
@@ -798,6 +892,7 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
   display: grid; grid-template-columns: var(--diff-gutter) 1fr; gap: var(--diff-gap);
   padding: 0.1rem 0.5rem; font-family: var(--mono);
   font-size: var(--fs-data); white-space: pre-wrap; word-break: break-word;
+  tab-size: var(--tab-size); -moz-tab-size: var(--tab-size);
   border-top: 1px solid var(--border);
 }
 .cell:first-child { border-right: 1px solid var(--border); }
@@ -855,6 +950,8 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .result-match strong { color: var(--add-fg); }
 .result-partial { border-color: var(--gold); background: var(--chg-bg); }
 .result-partial strong { color: var(--chg-fg); }
+.csv-align-columns { margin-top: 0.7rem; }
+.summary .note.csv-verdict-differences { color: var(--del-fg); font-weight: 700; }
 .initial-empty { margin-top: 0.4rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--panel); }
 .initial-empty strong { color: var(--fg); font-size: var(--fs-emphasis); }
 .initial-empty p { margin: 0.35rem 0 0; }
@@ -895,9 +992,16 @@ input.pane-head-path:hover, input.pane-head-path:focus { border-color: var(--bor
 .file-browser header button { margin-left: auto; padding: 0.2rem 0.55rem; }
 .browser-path input { flex: 1; }
 .browser-path button { margin: 0; padding: 0.35rem 0.7rem; }
-.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 7rem); padding: 0.45rem; }
-.browser-entries button { margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
+.browser-tools { display: flex; align-items: center; gap: 0.5rem; padding: 0 0.65rem 0.65rem; border-bottom: 1px solid var(--border); }
+.browser-tools button { margin: 0; padding: 0.3rem 0.7rem; }
+.browser-tools .browser-recent { flex: 1; min-width: 0; }
+.browser-tools .browser-recent select { width: 100%; }
+.browser-tools input[type="search"] { flex: 1; min-width: 8rem; }
+.browser-entries { display: grid; align-content: start; overflow: auto; height: calc(100% - 10.5rem); padding: 0.45rem; }
+.browser-entries button { display: flex; align-items: baseline; gap: 0.75rem; margin: 0; padding: 0.38rem 0.55rem; text-align: left; background: transparent; color: var(--fg); font-weight: 500; }
 .browser-entries button:hover { background: var(--bg); }
+.browser-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-entry-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
 #chooseFolder { margin: 0.45rem; }
 /* Folder result tree (#104). Rows were a flat list that faked depth with a left
    padding and put the whole path in every row; folding was impossible and the

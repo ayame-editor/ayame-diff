@@ -12,11 +12,20 @@
     <header class="topbar">
       <h1>ayame-diff</h1>
       <span class="tag" id="version">web</span>
-      <button id="lang" class="lang" type="button" data-i18n="langButton" data-i18n-aria-label="langSwitchLabel">日本語 → EN</button>
+      <select id="lang" class="lang" data-i18n-aria-label="langSwitchLabel" aria-label="Display language"></select>
       <button id="stopServer" class="stop-server" type="button" data-i18n="stopServer" data-i18n-title="stopServer" data-i18n-aria-label="stopServer">サーバーを停止</button>
     </header>
 
     <main>
+      <!-- Multiple comparisons as tabs (#281). The active comparison keeps its
+           own URL entry and back/forward history; each tab additionally
+           remembers its inputs, conditions and scroll position, so switching
+           back returns to the same view. The bar stays hidden until the first
+           comparison exists, then the setup form collapses as before. -->
+      <nav class="comparison-tabs" id="comparisonTabs" hidden>
+        <div class="tab-list" id="tabList" role="tablist" data-i18n-aria-label="comparisonTabs"></div>
+        <button id="newTab" type="button" class="tab-new" data-i18n-title="newTab" data-i18n-aria-label="newTab"><span aria-hidden="true">＋</span></button>
+      </nav>
       <!-- Initial-only path rail. After the first successful comparison the
            sticky pane headers become the editable path controls, so this rail
            disappears instead of duplicating the same fields above the result. -->
@@ -196,7 +205,10 @@
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
         <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff"><span aria-hidden="true">↑</span></button>
+        <button id="prevUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="prevUnconfirmed" data-i18n-aria-label="prevUnconfirmed" hidden><span aria-hidden="true">↑✓</span></button>
         <span id="diffCounter" aria-live="polite"></span>
+        <span id="confirmCounter" aria-live="polite" hidden></span>
+        <button id="nextUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="nextUnconfirmed" data-i18n-aria-label="nextUnconfirmed" hidden><span aria-hidden="true">↓✓</span></button>
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
@@ -226,6 +238,14 @@
               <label class="opt check"><input id="wrap" type="checkbox" checked /><span data-i18n="wrap">wrap</span></label>
               <label class="opt check"><input id="syntax" type="checkbox" checked /><span data-i18n="syntax">syntax highlight</span></label>
               <label class="opt check"><input id="showWs" type="checkbox" /><span data-i18n="showWs">show whitespace</span></label>
+              <label class="opt"><span data-i18n="tabSize">tab size</span>
+                <select id="tabSize">
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="8" selected>8</option>
+                </select>
+              </label>
+              <label class="opt check"><input id="ambiguousWide" type="checkbox" /><span data-i18n="ambiguousWide">wide ○ ※ α</span></label>
               <label class="opt check"><input id="autoReload" type="checkbox" checked /><span data-i18n="autoReload">auto-reload external changes</span></label>
               <hr />
               <label class="opt"><span data-i18n="theme">theme</span>
@@ -256,6 +276,17 @@
               <label class="opt" id="patchContextWrap"><span data-i18n="patchContext">patch context</span><input id="patchContext" type="number" value="3" min="0" /></label>
               <hr />
               <button id="exportPatch" type="button" data-i18n="exportPatch" hidden>Export patch</button>
+              <hr />
+              <label class="opt"><span data-i18n="reportFormat">report format</span>
+                <select id="reportFormat">
+                  <option value="html">HTML</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="json">JSON</option>
+                </select>
+              </label>
+              <label class="opt check"><input id="reportIncludeContent" type="checkbox" /><span data-i18n="reportIncludeContent">embed compared content</span></label>
+              <p class="report-hint" data-i18n="reportSensitiveHint">Reports leave the compared content out by default. Include it only when the file may be shared with what it contains.</p>
+              <button id="exportReport" type="button" data-i18n="exportReport" hidden>Export report</button>
             </div>
           </details>
         </div>
@@ -285,6 +316,7 @@
         <span id="mergeUnresolved" aria-live="polite"></span>
         <input id="mergeOutput" type="text" placeholder="/path/to/merged.txt" spellcheck="false" />
         <label class="opt check"><input id="mergeOverwrite" type="checkbox" /><span data-i18n="overwriteInput">overwrite input</span></label>
+        <button id="simulateMerge" type="button" data-i18n="simulateMerge">Preview impact</button>
         <button id="saveMerge" type="button" data-i18n="saveMerge">Save merge</button>
       </section>
       <div class="diff-layout">
@@ -326,14 +358,13 @@
           <p class="details-hint" data-i18n="conditionsHint">These change what counts as a difference, so a change re-runs the comparison.</p>
           <div class="opts">
             <label class="opt check"><input id="ignoreCase" type="checkbox" /><span data-i18n="ignoreCase">ignore case</span></label>
-            <label class="opt check"><input id="ignoreEOL" type="checkbox" /><span data-i18n="ignoreEOL">ignore EOL</span></label>
-            <label class="opt check"><input id="ignoreTrailingEOL" type="checkbox" /><span data-i18n="ignoreTrailingEOL">ignore trailing EOL</span></label>
             <label class="opt">
-                        <span data-i18n="whitespace">whitespace</span>
-                        <select id="whitespace">
-                          <option value="none">none</option>
-                          <option value="change">change</option>
-                          <option value="all">all</option>
+                        <span data-i18n="whitespaceScale">whitespace / EOL</span>
+                        <select id="whitespaceScale">
+                          <option value="strict" data-i18n="wsScaleStrict">strict (ignore nothing)</option>
+                          <option value="eol" data-i18n="wsScaleEOL">ignore line endings</option>
+                          <option value="eol-change" data-i18n="wsScaleEOLChange">ignore line endings and whitespace amount</option>
+                          <option value="eol-all" data-i18n="wsScaleEOLAll">ignore line endings and all whitespace</option>
                         </select>
                       </label>
             <label class="opt filter-input"><span data-i18n="lineFilters">line filters</span><textarea id="lineFilters" rows="2" data-i18n-placeholder="lineFiltersPlaceholder" placeholder="1行に1つの正規表現" spellcheck="false"></textarea></label>
@@ -364,14 +395,21 @@
 	<dialog id="fileBrowser" class="file-browser">
 	  <form method="dialog"><header><strong data-i18n="chooseFile">Choose a file</strong><button value="cancel" data-i18n-title="close" data-i18n-aria-label="close" title="閉じる" aria-label="閉じる"><span aria-hidden="true">×</span></button></header></form>
 	  <div class="browser-path"><button id="browserUp" type="button" data-i18n-title="parentFolder" data-i18n-aria-label="parentFolder" title="親フォルダ" aria-label="親フォルダ"><span aria-hidden="true">↑</span></button><input id="browserPath" spellcheck="false" /><button id="browserGo" type="button" data-i18n="open">Open</button></div>
+	  <div class="browser-tools">
+	    <button id="browserHome" type="button" data-i18n="browserHome" data-i18n-title="browserHomeTitle">Home</button>
+	    <button id="browserRoot" type="button" data-i18n="browserRoot" data-i18n-title="browserRootTitle">Root</button>
+	    <label class="browser-recent"><select id="browserRecent" data-i18n-title="browserRecent" data-i18n-aria-label="browserRecent"><option value=""></option></select></label>
+	    <input id="browserFilter" type="search" data-i18n-placeholder="browserFilterPlaceholder" data-i18n-title="browserFilter" data-i18n-aria-label="browserFilter" placeholder="Filter" autocomplete="off" spellcheck="false" />
+	  </div>
 	  <button id="chooseFolder" type="button" data-i18n="chooseFolder">Choose this folder</button>
-	  <div id="browserEntries" class="browser-entries"></div>
+	  <div id="browserEntries" class="browser-entries" role="listbox" data-i18n-aria-label="browserEntriesLabel" tabindex="-1"></div>
 	</dialog>
 
     <dialog id="confirmDialog" class="app-dialog" aria-labelledby="confirmTitle">
       <form method="dialog">
         <h2 id="confirmTitle" data-i18n="confirmTitle">Confirm</h2>
         <p id="confirmMessage"></p>
+        <ul id="confirmDetails" class="confirm-details" hidden></ul>
         <menu>
           <button id="confirmCancel" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
           <button id="confirmOk" value="ok" type="submit" class="primary" data-i18n="confirmProceed">Proceed</button>
@@ -387,20 +425,31 @@
     </dialog>
     <script src="syntax.js"></script>
     <script src="worddiff.js"></script>
+    <script src="textwidth.js"></script>
     <script src="modes.js"></script>
+    <script src="whitespace-scale.js"></script>
     <script src="minimap.js"></script>
     <script src="scrollanchor.js"></script>
     <script src="filewatch.js"></script>
     <script src="urlstate.js"></script>
+    <script src="tabs.js"></script>
     <script src="directory.js"></script>
     <script src="continuous.js"></script>
     <script src="csvview.js"></script>
+    <script src="renderqueue.js"></script>
+    <script src="equivalence.js"></script>
     <script src="unchanged.js"></script>
+    <script src="truncation.js"></script>
+    <script src="hunkheader.js"></script>
+    <script src="confirmed.js"></script>
+    <script src="simulate.js"></script>
     <script src="statsview.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
+    <script src="quickdiff.js"></script>
     <script src="apierrors.js"></script>
+    <script src="mergeselect.js"></script>
     <script src="app.js"></script>
     <!-- Status bar. The counts and the detected encodings used to sit in a band
          above the toolbar, taking a row from the result to say things that are

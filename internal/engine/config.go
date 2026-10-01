@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 )
 
 // ColumnTolerance applies an absolute numeric tolerance to one CSV column.
@@ -47,7 +49,9 @@ type Config struct {
 	ToleranceSet                                           bool
 	ColumnTolerances                                       []ColumnTolerance
 	// Reconcile emits a complete key-sorted CSV/TSV using MergeChoices instead
-	// of a diff report. Choice keys are stable IDs from JSONL diff records.
+	// of a diff report. Choice keys are stable IDs from JSONL diff records. A
+	// value is a side ("left"/"right") or a comma-joined combination
+	// ("left,right") when a difference adopts both contributions (#271).
 	Reconcile       bool                `json:"-"`
 	MergeChoices    map[string]string   `json:"-"`
 	MergeDefault    string              `json:"-"`
@@ -212,8 +216,13 @@ func (c Config) resolve() (resolvedConfig, error) {
 		return resolvedConfig{}, fmt.Errorf("merge default must be left or right")
 	}
 	for id, side := range r.MergeChoices {
-		if strings.TrimSpace(id) == "" || (side != "left" && side != "right") {
-			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q", id, side)
+		if strings.TrimSpace(id) == "" {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q", id)
+		}
+		// A choice is one side or an ordered combination such as "left,right"
+		// once a hunk adopts both contributions (#271).
+		if err := mergechoice.Validate(side, "left", "right"); err != nil {
+			return resolvedConfig{}, fmt.Errorf("invalid merge choice %q=%q: %w", id, side, err)
 		}
 	}
 	if r.Reconcile {
