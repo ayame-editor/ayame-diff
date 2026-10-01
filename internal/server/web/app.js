@@ -18,6 +18,17 @@ const {
   buildShareURL,
 } = globalThis.AyameURLState;
 const {
+  STORAGE_KEY: CONDITION_DEFAULTS_KEY,
+  capture: captureConditionValues,
+  apply: applyConditionValues,
+  changes: changedConditionIds,
+  isDefault: conditionsAreDefault,
+  resolve: resolveConditionDefaults,
+  promote: promoteConditionDefaults,
+  serialize: serializeConditionDefaults,
+  parse: parseConditionDefaults,
+} = globalThis.AyameConditionScope;
+const {
   emptyDoc: emptyTabDoc,
   activeTab: activeTabOf,
   addTab: addTabToDoc,
@@ -232,6 +243,9 @@ function applyLang(next) {
 	refreshContextTranslations();
 	syncConditionToolbar();
 	renderRecentComparisons();
+	// The scope chip is set from a message function, not a fixed data-i18n
+	// string, so re-resolve it after the catalog swap.
+	updateConditionScope();
 	renderTabs();
 }
 
@@ -4395,6 +4409,9 @@ async function applyCSVProject(body) {
   const indexes = new Set([...(body.keyIndexes || []), ...(body.excludeKeyIndexes || [])]);
   document.querySelectorAll("#columnList input").forEach((input) => { input.checked = names.has(input.dataset.name) || indexes.has(Number(input.dataset.index)); });
   syncKeyMode(); updateCSVReview();
+  // A project is a session state, not the default: applying it updates the
+  // scope indicator without touching what was saved as the default (#262).
+  updateConditionScope();
 }
 
 async function runSaveProject() {
@@ -5040,7 +5057,10 @@ function scheduleSearch() {
 const defaultControlValues = new Map();
 
 function captureControlDefaults(root) {
-  for (const control of root.querySelectorAll("input, select")) {
+  // textarea is included because the comparison-condition group has the
+  // line-filter box; without it a filter typed there would never light the
+  // group's badge (#262).
+  for (const control of root.querySelectorAll("input, select, textarea")) {
     if (!control.id) continue;
     defaultControlValues.set(control.id, control.type === "checkbox" ? control.checked : control.value);
   }
@@ -5048,7 +5068,7 @@ function captureControlDefaults(root) {
 
 function changedControlCount(root) {
   let changed = 0;
-  for (const control of root.querySelectorAll("input, select")) {
+  for (const control of root.querySelectorAll("input, select, textarea")) {
     if (!control.id || !defaultControlValues.has(control.id)) continue;
     const initial = defaultControlValues.get(control.id);
     const now = control.type === "checkbox" ? control.checked : control.value;
@@ -5058,6 +5078,8 @@ function changedControlCount(root) {
 }
 
 // updateDetailsBadges keeps each collapsed group honest about what it hides.
+// The condition scope rides along because the badge and the scope chip both
+// describe "differs from the default" and must never disagree.
 function updateDetailsBadges() {
   for (const [groupID, badgeID] of [["csvAdvanced", "csvAdvancedBadge"], ["csvParsing", "csvParsingBadge"], ["engineTuning", "engineTuningBadge"], ["compareConditions", "conditionsBadge"], ["resultDisplay", "resultDisplayBadge"]]) {
     const group = $(groupID), badge = $(badgeID);
@@ -5066,8 +5088,98 @@ function updateDetailsBadges() {
     badge.textContent = changed ? t("changedSettings", { count: changed }) : "";
     badge.hidden = changed === 0;
   }
+  updateConditionScope();
   syncConditionToolbar();
 }
+
+// ---- Comparison conditions: session override vs. saved default (#262) ----
+// The "Comparison conditions" controls start from a default stored on its own.
+// A change while comparing applies to that comparison only; nothing is written
+// to storage until "Make default" is pressed, so a one-off tweak can never
+// become the next visit's default by accident. This is Beyond Compare's
+// session-scope dropdown reduced to the two scopes a single-page tool needs;
+// URL and project state are just another session override, which is why loading
+// one leaves the saved default alone.
+function readConditionControlValue(id) {
+  const node = $(id);
+  if (!node) return "";
+  return node.type === "checkbox" ? node.checked : node.value;
+}
+
+function writeConditionControlValue(control, value) {
+  const node = $(control.id);
+  if (!node) return;
+  if (control.type === "checkbox") node.checked = Boolean(value);
+  else node.value = String(value);
+}
+
+function currentConditions() {
+  return captureConditionValues(readConditionControlValue);
+}
+
+// Snapshot the factory defaults first, then resolve the saved default against
+// them and put the result into the controls before anything captures a
+// baseline.
+const factoryConditionDefaults = currentConditions();
+let conditionDefaults = resolveConditionDefaults(
+  factoryConditionDefaults,
+  loadSavedConditionDefaults(),
+  null,
+);
+
+function loadSavedConditionDefaults() {
+  let text = null;
+  try { text = localStorage.getItem(CONDITION_DEFAULTS_KEY); } catch (_) { text = null; }
+  return parseConditionDefaults(text, factoryConditionDefaults);
+}
+
+// updateConditionScope names the scope in effect and keeps "Make default" and
+// "Reset to default" enabled only while they would do something.
+function updateConditionScope() {
+  const current = currentConditions();
+  const changed = changedConditionIds(current, conditionDefaults);
+  const chip = $("conditionScopeState");
+  if (chip) {
+    chip.textContent = changed.length
+      ? t("conditionScopeSession", { count: changed.length })
+      : t("conditionScopeDefault");
+    chip.classList.toggle("customized", changed.length > 0);
+  }
+  $("compareConditions")?.classList.toggle("session-customized", changed.length > 0);
+  const atDefault = conditionsAreDefault(current, conditionDefaults);
+  const make = $("makeConditionsDefault");
+  const reset = $("resetConditionsDefault");
+  if (make) make.disabled = atDefault;
+  if (reset) reset.disabled = atDefault;
+}
+
+// syncConditionBaseline moves the "changed" baseline onto the new default, so
+// promoting one clears the badge instead of leaving it lit.
+function syncConditionBaseline() {
+  captureControlDefaults($("compareConditions"));
+  updateDetailsBadges();
+}
+
+function makeConditionsDefault() {
+  conditionDefaults = promoteConditionDefaults(currentConditions(), conditionDefaults);
+  try {
+    localStorage.setItem(CONDITION_DEFAULTS_KEY, serializeConditionDefaults(conditionDefaults));
+  } catch (_) {
+    setStatus(t("conditionsDefaultUnavailable"), "error");
+    return false;
+  }
+  syncConditionBaseline();
+  setStatus(t("conditionsDefaultSaved"), "success");
+  return true;
+}
+
+function resetConditionsToDefault() {
+  applyConditionValues(conditionDefaults, writeConditionControlValue);
+  syncConditionBaseline();
+  setStatus(t("conditionsDefaultReset"), "");
+}
+
+applyConditionValues(conditionDefaults, writeConditionControlValue);
 
 // swapSides exchanges the two inputs (#90). Every comparison tool has this and
 // ayame-diff did not: reversing a comparison meant retyping both paths.
@@ -6486,6 +6598,8 @@ $("encoding").addEventListener("change", clearEncodingOverrides);
 $("newTab").addEventListener("click", openTab);
 $("setupToggle").addEventListener("click", () => setSetupCompact(!$("setup").classList.contains("compact")));
 $("openSettings").addEventListener("click", () => $("settingsDialog").showModal());
+$("makeConditionsDefault").addEventListener("click", makeConditionsDefault);
+$("resetConditionsDefault").addEventListener("click", resetConditionsToDefault);
 $("backToFolder").addEventListener("click", returnToFolder);
 $("copyComparisonURL").addEventListener("click", copyComparisonURL);
 // Every input that decides whether a comparison is possible re-checks it.
