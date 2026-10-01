@@ -100,7 +100,6 @@ test("status and path search filter the flat entries before building the tree", 
   );
 });
 
-<<<<<<< HEAD
 test("the flat view lists files in path order without mutating the input", () => {
   const entries = [
     { path: "src/z.go", status: "changed" },
