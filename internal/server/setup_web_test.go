@@ -112,9 +112,11 @@ func TestVisibleSideTerminologyIsConsistent(t *testing.T) {
 	for _, want := range []string{
 		`sideBase: "ベース", sideLeft: "左", sideRight: "右"`,
 		`sideBase: "BASE", sideLeft: "LEFT", sideRight: "RIGHT"`,
-		`[t("sideBase"), event.base]`,
-		`[t("sideLeft"), event.left]`,
-		`[t("sideRight"), event.right]`,
+		// The three-way panes label themselves from the role, so the visible
+		// vocabulary follows the translation (#111, #282).
+		`if (role === "base") return t("sideBase");`,
+		`if (role === "left") return t("sideLeft");`,
+		`if (role === "right") return t("sideRight");`,
 		`missing.push(t("sideLeft"))`,
 		`missing.push(t("sideRight"))`,
 	} {

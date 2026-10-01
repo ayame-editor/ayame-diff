@@ -35,7 +35,7 @@
   // it both for the URL state and for the per-comparison local memory.
   const COMPARISON_CONTROLS = Object.freeze([
     "encoding", "numeric", "reverse",
-    "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "lineFilters",
+    "ignoreCase", "ignoreEOL", "ignoreTrailingEOL", "whitespace", "whitespaceScale", "lineFilters",
     "detectMoves", "moveMinLines", "window", "maxHunks", "maxLines",
     "hasHeader", "alignColumns", "leftFormat", "rightFormat", "leftParser", "rightParser",
     "leftDelimiter", "rightDelimiter", "lazyQuotes", "trimLeadingSpace", "keyMode",
