@@ -309,6 +309,17 @@ click-to-jump, and overlays the current viewport. Left/right text stays vertical
 and horizontally synchronized because each hunk is rendered as one shared grid
 and scroll row rather than two independent panes.
 
+Beside read-on-scroll, each hunk has an explicit **Confirm** toggle. Scrolling
+past a hunk marks it read automatically; confirming is a deliberate action, and
+the `Confirmed N / M` counter tracks it. The `↑✓` / `↓✓` buttons step only
+through hunks that are not confirmed yet, while first/previous/next/last keep
+walking every difference. A confirmed hunk stays visible and still exports —
+confirmation is not ignoring — but its content is dimmed and its minimap marker
+is outlined. Confirmations are stored in `localStorage`, keyed by the
+comparison's paths and a signature of each hunk's kind, range, and changed
+lines: reopening the same comparison restores them, and a hunk whose compared
+content changed loses its confirmation.
+
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
 dedicated purple color and an `↔` button jumps to the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the

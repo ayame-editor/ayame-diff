@@ -51,6 +51,13 @@ const {
 } = globalThis.AyameUnchanged;
 const { nextMaxHunks } = globalThis.AyameTruncation;
 const {
+  comparisonIdentity,
+  hunkSignatures,
+  restoreSignatures,
+  unconfirmedIndexes,
+  confirmProgress,
+} = globalThis.AyameConfirmed;
+const {
   continuousEntries,
   windowAround,
   unloadTargets,
@@ -665,7 +672,7 @@ async function renderContinuous(data, body) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
-  for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle"]) {
+  for (const id of ["addSync", "clearSync", "viewModeWrap", "sidebarToggle", "confirmCounter", "prevUnconfirmed", "nextUnconfirmed"]) {
     const node = $(id); if (node) node.hidden = true;
   }
   // Navigation crosses file boundaries here, so the buttons that the tree hides
@@ -1095,6 +1102,16 @@ let contextRequestID = 0;
 let currentHunk = -1;
 let readHunks = new Set();
 let navObserver = null;
+// Explicit confirmed marks (#288) are a third state beside read and ignored.
+// confirmedSignatures holds one content-derived signature per current hunk and
+// confirmedHunks the signatures the user confirmed; storage is keyed by the
+// comparison identity so the same comparison resumes across sessions. Read-on-
+// scroll stays in readHunks and is never treated as confirmation.
+const CONFIRMED_STORAGE_KEY = "ayame-confirmed";
+const CONFIRMED_COMPARISONS_MAX = 200;
+let confirmedComparison = "";
+let confirmedSignatures = [];
+let confirmedHunks = new Set();
 let syncSelection = { old: null, new: null };
 let syncPoints = [];
 let ignoredHunks = new Set();
@@ -2110,12 +2127,13 @@ function syncContextVisibility() {
   button.hidden = !(Boolean(lastData?.hunks?.length) && (mode === "text" || mode === "sorted") && !continuousActive());
 }
 
-function renderHunk(h, index) {
+function renderHunk(h, index, confirm) {
   const box = document.createElement("div");
   box.className = "hunk";
   box.id = `hunk-${index}`;
   box.dataset.hunk = String(index);
   box.tabIndex = -1;
+  if (confirm?.confirmed) box.classList.add("confirmed");
   if (h.move_id) {
     box.classList.add("moved");
     box.dataset.moveId = String(h.move_id);
@@ -2151,6 +2169,21 @@ function renderHunk(h, index) {
     ignore.textContent = t("restoreHunk");
   }
   head.append(ignore);
+  if (confirm) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "hunk-confirm";
+    toggle.setAttribute("aria-pressed", confirm.confirmed ? "true" : "false");
+    const label = t(confirm.confirmed ? "unconfirmHunk" : "confirmHunk");
+    toggle.textContent = t(confirm.confirmed ? "confirmed" : "confirmHunk");
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      confirm.onToggle();
+    });
+    head.append(toggle);
+  }
   const mergeActions = document.createElement("span");
   mergeActions.className = "hunk-merge";
   for (const [side, label] of [["left", t("chooseLeft")], ["right", t("chooseRight")]]) {
@@ -2551,6 +2584,8 @@ async function renderResult(data) {
   const result = $("result");
   result.innerHTML = "";
   setupNavigation(data);
+  prepareConfirmations(data.hunks);
+  updateCounter();
   syncExportPatchVisibility();
   result.append(paneHeads(data));
   if (!data.hunks.length) {
@@ -2562,7 +2597,13 @@ async function renderResult(data) {
   prepareUnchangedContext(data);
   const complete = await renderInSlices(result, data.hunks, (hunk, index) => {
     const fragment = document.createDocumentFragment();
-    fragment.append(unchangedRegions[index].node, renderHunk(hunk, index));
+    fragment.append(
+      unchangedRegions[index].node,
+      renderHunk(hunk, index, {
+        confirmed: isConfirmed(index),
+        onToggle: () => toggleConfirmedHunk(index),
+      }),
+    );
     if (index === data.hunks.length - 1) fragment.append(unchangedRegions[index + 1].node);
     return fragment;
   });
@@ -2814,10 +2855,117 @@ function updateCounter() {
   });
   for (const button of [$("firstDiff"), $("prevDiff"), $("nextDiff"), $("lastDiff")])
     button.disabled = total === 0;
+  // Explicit confirmation is offered only for a rendered text diff: a three-way
+  // or folder result has no signature table, so those controls stay out of the
+  // way. The counter and the unconfirmed-only stepping are separate from the
+  // first/prev/next/last buttons, which keep walking every hunk as before.
+  const confirmable = confirmedSignatures.length > 0;
+  const unconfirmed = confirmable ? unconfirmedHunkIndexes().length : 0;
+  $("confirmCounter").hidden = !confirmable;
+  $("prevUnconfirmed").hidden = !confirmable;
+  $("nextUnconfirmed").hidden = !confirmable;
+  if (confirmable) $("confirmCounter").textContent = t("confirmCounter", confirmProgress(confirmedSignatures, confirmedHunks, active));
+  for (const button of [$("prevUnconfirmed"), $("nextUnconfirmed")]) button.disabled = unconfirmed === 0;
 }
 
 function activeHunkIndexes() {
   return (lastData?.hunks || []).map((_, index) => index).filter((index) => !ignoredHunks.has(index) && (!threeWayData || threeWayData.events[index]?.kind === "conflict"));
+}
+
+function isConfirmed(index) {
+  return confirmedSignatures.length > 0 && confirmedHunks.has(confirmedSignatures[index]);
+}
+
+function unconfirmedHunkIndexes() {
+  return activeHunkIndexes().filter((index) => !isConfirmed(index));
+}
+
+// Steps to the nearest unconfirmed hunk in the given direction, wrapping at the
+// ends. A hunk that is currently selected but already confirmed is skipped: the
+// search starts strictly beyond it, not from its position in the pending list.
+function stepUnconfirmed(delta) {
+  const pending = unconfirmedHunkIndexes();
+  if (!pending.length) return;
+  const ordered = delta < 0 ? [...pending].reverse() : pending;
+  const target = ordered.find((index) => (delta < 0 ? index < currentHunk : index > currentHunk));
+  jumpToHunk(target == null ? (delta < 0 ? pending[pending.length - 1] : pending[0]) : target);
+}
+
+function toggleConfirmedHunk(index) {
+  const signature = confirmedSignatures[index];
+  if (!signature) return;
+  const next = !confirmedHunks.has(signature);
+  if (next) confirmedHunks.add(signature); else confirmedHunks.delete(signature);
+  const box = $(`hunk-${index}`);
+  box?.classList.toggle("confirmed", next);
+  const button = box?.querySelector(".hunk-confirm");
+  if (button) {
+    const label = t(next ? "unconfirmHunk" : "confirmHunk");
+    button.setAttribute("aria-pressed", next ? "true" : "false");
+    button.textContent = t(next ? "confirmed" : "confirmHunk");
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+  document.querySelectorAll(`.minimap-marker[data-hunk="${index}"]`).forEach((marker) => marker.classList.toggle("confirmed", next));
+  $("sidebarList").querySelector(`.sidebar-item[data-hunk="${index}"]`)?.classList.toggle("confirmed", next);
+  persistConfirmed();
+  updateCounter();
+}
+
+// ---- Confirmed-mark persistence (#288) ----
+// The signatures are content-derived, so restoring intersects them with the
+// hunks actually being shown: a hunk whose lines changed has a different
+// signature and its confirmation is dropped rather than inherited.
+function readConfirmedStore() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CONFIRMED_STORAGE_KEY) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch (_) { return {}; }
+}
+
+function writeConfirmedStore(store) {
+  try { localStorage.setItem(CONFIRMED_STORAGE_KEY, JSON.stringify(store)); } catch (_) { /* storage full or blocked */ }
+}
+
+function persistConfirmed() {
+  if (!confirmedComparison) return;
+  const store = readConfirmedStore();
+  const kept = confirmedSignatures.filter((signature) => confirmedHunks.has(signature));
+  if (kept.length) store[confirmedComparison] = kept;
+  else delete store[confirmedComparison];
+  const comparisons = Object.keys(store);
+  if (comparisons.length > CONFIRMED_COMPARISONS_MAX) {
+    for (const key of comparisons.slice(0, comparisons.length - CONFIRMED_COMPARISONS_MAX)) delete store[key];
+  }
+  writeConfirmedStore(store);
+}
+
+function currentComparisonIdentity() {
+  const body = requestBody();
+  return comparisonIdentity({
+    mode: body.mode,
+    inline: body.inline,
+    old: body.old,
+    new: body.new,
+    base: $("base")?.value.trim() || "",
+    oldAbsent: body.oldAbsent,
+    newAbsent: body.newAbsent,
+    oldText: body.oldText,
+    newText: body.newText,
+  });
+}
+
+function prepareConfirmations(hunks) {
+  confirmedComparison = currentComparisonIdentity();
+  confirmedSignatures = hunkSignatures(hunks);
+  const stored = readConfirmedStore()[confirmedComparison];
+  confirmedHunks = new Set(Array.isArray(stored) ? restoreSignatures(confirmedSignatures, stored) : []);
+}
+
+function resetConfirmations() {
+  confirmedComparison = "";
+  confirmedSignatures = [];
+  confirmedHunks = new Set();
 }
 
 function stepHunk(delta) {
@@ -2895,6 +3043,7 @@ function buildMinimap(data) {
     marker.type = "button";
     marker.className = `minimap-marker ${segment.kind}${segment.moved ? " moved" : ""}${segment.ignored ? " ignored" : ""}`;
     if (readHunks.has(segment.index)) marker.classList.add("read");
+    if (isConfirmed(segment.index)) marker.classList.add("confirmed");
     if (currentHunk === segment.index) marker.classList.add("current");
     marker.dataset.hunk = String(segment.index);
     marker.dataset.priority = String(segment.priority);
@@ -2941,6 +3090,7 @@ function setupNavigation(data) {
   navObserver = null;
   currentHunk = -1;
   readHunks = new Set();
+  resetConfirmations();
   const hasHunks = data.hunks.length > 0;
   $("diffNav").hidden = !hasHunks;
   $("dirStatusWrap").hidden = true;
@@ -3637,7 +3787,7 @@ async function renderDirectory(data, body, state = {}) {
   $("diffNav").hidden = false;
   $("dirStatusWrap").hidden = false;
   $("dirSearchWrap").hidden = false;
-  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter", "viewModeWrap", "sidebarToggle"]) {
+  for (const id of ["firstDiff", "prevDiff", "nextDiff", "lastDiff", "addSync", "clearSync", "diffCounter", "viewModeWrap", "sidebarToggle", "confirmCounter", "prevUnconfirmed", "nextUnconfirmed"]) {
     const node = $(id); if (node) node.hidden = true;
   }
   syncExportPatchVisibility();
@@ -4814,6 +4964,7 @@ function markSidebarCurrent() {
     const index = Number(button.dataset.hunk);
     button.classList.toggle("current", index === currentHunk);
     button.classList.toggle("read", readHunks.has(index));
+    button.classList.toggle("confirmed", isConfirmed(index));
     button.classList.toggle("ignored", ignoredHunks.has(index));
   }
 }
@@ -5251,6 +5402,8 @@ $("lastDiff").addEventListener("click", () => {
   if (continuousActive()) { void continuousStep(1, { edge: "last" }); return; }
   const active = activeHunkIndexes(); if (active.length) jumpToHunk(active[active.length - 1]);
 });
+$("prevUnconfirmed").addEventListener("click", () => stepUnconfirmed(-1));
+$("nextUnconfirmed").addEventListener("click", () => stepUnconfirmed(1));
 $("dirContinuous").addEventListener("click", () => void toggleContinuousView());
 $("addSync").addEventListener("click", addSyncPoint);
 $("clearSync").addEventListener("click", clearSyncPoints);

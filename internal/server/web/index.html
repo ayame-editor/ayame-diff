@@ -205,7 +205,10 @@
       <nav class="diff-nav" id="diffNav" data-i18n-aria-label="differenceNavigation" aria-label="差分ナビゲーション" hidden>
         <button id="firstDiff" type="button" data-i18n-title="firstDiff" data-i18n-aria-label="firstDiff"><span aria-hidden="true">⇤</span></button>
         <button id="prevDiff" type="button" data-i18n-title="previousDiff" data-i18n-aria-label="previousDiff"><span aria-hidden="true">↑</span></button>
+        <button id="prevUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="prevUnconfirmed" data-i18n-aria-label="prevUnconfirmed" hidden><span aria-hidden="true">↑✓</span></button>
         <span id="diffCounter" aria-live="polite"></span>
+        <span id="confirmCounter" aria-live="polite" hidden></span>
+        <button id="nextUnconfirmed" type="button" class="unconfirmed-nav" data-i18n-title="nextUnconfirmed" data-i18n-aria-label="nextUnconfirmed" hidden><span aria-hidden="true">↓✓</span></button>
         <button id="nextDiff" type="button" data-i18n-title="nextDiff" data-i18n-aria-label="nextDiff"><span aria-hidden="true">↓</span></button>
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
@@ -435,6 +438,7 @@
     <script src="unchanged.js"></script>
     <script src="truncation.js"></script>
     <script src="hunkheader.js"></script>
+    <script src="confirmed.js"></script>
     <script src="i18n.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
