@@ -20,6 +20,7 @@ import (
 	"github.com/ayame-editor/ayame-diff/internal/atomicfile"
 	"github.com/ayame-editor/ayame-diff/internal/encoding"
 	"github.com/ayame-editor/ayame-diff/internal/engine"
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 )
 
 type CSVEvent struct {
@@ -509,9 +510,26 @@ func orderLikeBase(base, rows [][]string) [][]string {
 	return append(out, plan.tail...)
 }
 
-// WriteCSVMerge streams the base file, replacing only event key groups. CSV
+// WriteCSVMerge streams the base file, replacing only event key groups. A
+// conflict choice is a comma-joined list of sides concatenated in the canonical
+// base→left→right order, so "left,right" adopts both contributions (#271). CSV
 // conflicts default to BASE only after an explicit allowUnresolved decision.
 func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string]string, allowUnresolved bool) (unresolved int, resultErr error) {
+	return WriteCSVMergeTarget(basePath, output, result, choices, allowUnresolved, UnresolvedBase)
+}
+
+// WriteCSVMergeTarget is WriteCSVMerge with a selectable implicit-resolution
+// target for undecided conflicts: left, right, or base (#272). CSV has no line
+// markers, so "markers" is not a valid target here.
+func WriteCSVMergeTarget(basePath, output string, result CSVResult, choices map[string]string, allowUnresolved bool, target string) (unresolved int, resultErr error) {
+	if target == "" {
+		target = UnresolvedBase
+	}
+	switch target {
+	case UnresolvedLeft, UnresolvedRight, UnresolvedBase:
+	default:
+		return 0, fmt.Errorf("unresolvedTarget must be left, right, or base for CSV")
+	}
 	plans := make(map[string]*csvPlan, len(result.Events))
 	order := make([]string, 0, len(result.Events))
 	for _, event := range result.Events {
@@ -526,19 +544,35 @@ func WriteCSVMerge(basePath, output string, result CSVResult, choices map[string
 		case Merged:
 			rows = event.Combined
 		case Conflict:
-			switch choices[event.ID] {
-			case "left":
-				rows = event.Left
-			case "right":
-				rows = event.Right
-			case "base":
-				rows = event.Base
-			default:
+			// A conflict may adopt more than one contribution ("both"); the
+			// recognized sides are concatenated in the canonical base→left→right
+			// order regardless of the order the caller listed them (#271).
+			adopted := mergechoice.Parse(choices[event.ID], "base", "left", "right")
+			if len(adopted) == 0 {
 				unresolved++
 				if !allowUnresolved {
 					return unresolved, fmt.Errorf("%d CSV conflicts are unresolved", unresolved)
 				}
-				rows = event.Base
+				switch target {
+				case UnresolvedLeft:
+					rows = event.Left
+				case UnresolvedRight:
+					rows = event.Right
+				default:
+					rows = event.Base
+				}
+			} else {
+				rows = nil
+				for _, side := range adopted {
+					switch side {
+					case "base":
+						rows = append(rows, event.Base...)
+					case "left":
+						rows = append(rows, event.Left...)
+					case "right":
+						rows = append(rows, event.Right...)
+					}
+				}
 			}
 		}
 		plans[key] = newCSVPlan(event.Base, rows)

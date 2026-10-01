@@ -46,6 +46,10 @@ original filter file.
     "ToleranceSet": true,
     "HasHeader": true,
     "AlignColumnsByName": true,
+    "ColumnMap": [
+      { "left": 0, "right": 2 },
+      { "left": 1, "right": -1, "ignore": true }
+    ],
     "LeftFormat": "auto",
     "RightFormat": "auto",
     "LeftParser": "auto",
@@ -70,6 +74,11 @@ original filter file.
 settings, declarative ignore rules, numeric tolerances, cell report settings,
 and output settings are retained. Runtime writers/callbacks are deliberately
 excluded. Unknown fields and versions other than `1` fail closed.
+
+`ColumnMap` records a manual left-to-right column pairing: one entry per output
+column, with `-1` for a side that has no such column and `ignore` to keep a
+column visible but out of the comparison. It is saved from the GUI's manual
+column mapping so a comparison with mismatched column names stays repeatable.
 
 ## CLI
 
