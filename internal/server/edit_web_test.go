@@ -208,7 +208,7 @@ func TestGutterQuickDiffAssetsAreWired(t *testing.T) {
 	}
 	// The keyboard path has to be gated on the mark, or Delete would mean
 	// something on every line.
-	if !strings.Contains(app, `if (event.key === "Delete" && c.dataset.localChange)`) {
+	if !strings.Contains(app, `if (matchesShortcut(event, "revertLine") && c.dataset.localChange)`) {
 		t.Error("app.js does not offer a keyboard revert for a marked line")
 	}
 

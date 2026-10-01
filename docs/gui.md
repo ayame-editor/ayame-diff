@@ -328,6 +328,15 @@ comparison's paths and a signature of each hunk's kind, range, and changed
 lines: reopening the same comparison restores them, and a hunk whose compared
 content changed loses its confirmation.
 
+Shortcuts are data, not fixed strings: every action is bound in one table and
+the `?` help dialog is generated from it, so the help cannot describe keys that
+no longer fire. Open **Customize shortcuts** from that dialog to move an action
+to another chord, switch between the `default` and `minimal` presets, reset to
+the preset, or export the whole binding set as JSON. A chord two actions claim is
+reported with both names, and chords the browser reserves (such as `Ctrl+W`) are
+refused. The choice is stored in `localStorage`, so it applies to the whole
+browser rather than one comparison.
+
 Enable **detect moves** to pair exact deleted/inserted blocks. Moved hunks use a
 dedicated purple color and an `↔` button jumps to the paired location. Detection
 is off by default; **move min lines** and the engine candidate cap prevent the

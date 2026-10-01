@@ -69,6 +69,19 @@ const {
   targetsFor: mergeTargetsFor,
 } = globalThis.AyameUnresolved;
 const {
+  ACTION_IDS: KEYMAP_ACTION_IDS,
+  DEFAULT_BINDINGS,
+  PRESETS: KEYMAP_PRESETS,
+  parseChord,
+  formatChord,
+  chordFromEvent,
+  eventMatchesChord,
+  isReservedChord,
+  findConflicts,
+  mergeBindings,
+  serializeBindings,
+} = globalThis.AyameKeymap;
+const {
   continuousEntries,
   windowAround,
   unloadTargets,
@@ -1827,8 +1840,9 @@ function cell(cls, lineNo, node, side) {
     c.addEventListener("click", activate);
     c.addEventListener("keydown", (event) => {
       // Delete puts a locally changed line back, so the gutter handle has a
-      // keyboard path (#292). It only acts on a line that carries a mark.
-      if (event.key === "Delete" && c.dataset.localChange) {
+      // keyboard path (#292). It only acts on a line that carries a mark, and
+      // it goes through the keymap so the chord can be remapped (#285).
+      if (matchesShortcut(event, "revertLine") && c.dataset.localChange) {
         event.preventDefault();
         if (revertLocalChange(side, Number(c.dataset.line))) c.focus();
         return;
@@ -5032,28 +5046,92 @@ async function stopServer() {
   }
 }
 
-// SHORTCUTS is the single source for the help dialog, so the list cannot drift
-// from what the handlers actually bind.
-const SHORTCUTS = [
-  ["Alt+↓ / Alt+↑", "shortcutNavigate"],
-  ["Alt+Home / Alt+End", "shortcutFirstLast"],
-  ["Alt+← / Alt+→", "shortcutChooseSide"],
-  ["Alt+B", "shortcutChooseBase"],
-  ["Ctrl+F", "shortcutSearch"],
-  ["Enter / Shift+Enter", "shortcutSearchStep"],
-  ["Esc", "shortcutClose"],
-  ["Ctrl+Enter", "shortcutCompare"],
-  ["Delete", "shortcutRevertLine"],
-];
+// ---- Keyboard shortcuts (#285) ----
+// AyameKeymap owns the chord syntax, the presets and conflict detection; this
+// table says what each action's label is. Both the help dialog and the global
+// handlers read the resolved bindings, so a remap cannot leave the help
+// describing keys that no longer fire.
+const SHORTCUT_LABELS = {
+  navigateNext: "shortcutNavigateNext",
+  navigatePrev: "shortcutNavigatePrev",
+  firstDiff: "shortcutFirst",
+  lastDiff: "shortcutLast",
+  chooseLeft: "shortcutChooseLeft",
+  chooseRight: "shortcutChooseRight",
+  chooseBase: "shortcutChooseBase",
+  search: "shortcutSearch",
+  searchNext: "shortcutSearchNext",
+  searchPrev: "shortcutSearchPrev",
+  close: "shortcutClose",
+  compare: "shortcutCompare",
+  revertLine: "shortcutRevertLine",
+};
+const SHORTCUT_ACTIONS = KEYMAP_ACTION_IDS.map((id) => ({ id, labelKey: SHORTCUT_LABELS[id] }));
+const KEYMAP_STORAGE = "ayame-keybindings";
+const KEYMAP_DEFAULT_PRESET = "default";
+
+function presetBindings(name) {
+  return Object.prototype.hasOwnProperty.call(KEYMAP_PRESETS, name) ? KEYMAP_PRESETS[name] : DEFAULT_BINDINGS;
+}
+
+// A stored choice is user data, so a damaged or unknown entry falls back to the
+// default keymap instead of taking the whole page down at start-up.
+function readKeymapState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(KEYMAP_STORAGE) || "null");
+    if (stored && typeof stored === "object") {
+      return {
+        preset: typeof stored.preset === "string" && Object.prototype.hasOwnProperty.call(KEYMAP_PRESETS, stored.preset) ? stored.preset : KEYMAP_DEFAULT_PRESET,
+        overrides: stored.overrides && typeof stored.overrides === "object" ? stored.overrides : {},
+      };
+    }
+  } catch (error) { /* fall back below */ }
+  return { preset: KEYMAP_DEFAULT_PRESET, overrides: {} };
+}
+
+let keymapState = readKeymapState();
+let keyBindings = mergeBindings(SHORTCUT_ACTIONS, presetBindings(keymapState.preset), keymapState.overrides);
+let capturingAction = null;
+
+function applyKeymapState(state) {
+  keymapState = state;
+  keyBindings = mergeBindings(SHORTCUT_ACTIONS, presetBindings(keymapState.preset), keymapState.overrides);
+  try { localStorage.setItem(KEYMAP_STORAGE, JSON.stringify(keymapState)); }
+  catch (error) { /* private mode: the choice still applies for this page */ }
+}
+
+// matchesShortcut lets the handlers ask for an action by name instead of
+// spelling out a key, which is what keeps the help and the handlers in step.
+function matchesShortcut(event, id) {
+  if (!event || event.isComposing) return false;
+  return eventMatchesChord(event, keyBindings[id]);
+}
+
+const CHORD_GLYPHS = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", Enter: "↵", Escape: "Esc", Space: "Space", Tab: "Tab" };
+function displayChord(binding) {
+  const chord = parseChord(binding);
+  if (!chord) return "";
+  const parts = [];
+  if (chord.ctrl) parts.push("Ctrl");
+  if (chord.alt) parts.push("Alt");
+  if (chord.shift) parts.push("Shift");
+  parts.push(CHORD_GLYPHS[chord.key] || chord.key);
+  return parts.join("+");
+}
+
+function actionLabel(id) {
+  const action = SHORTCUT_ACTIONS.find((entry) => entry.id === id);
+  return action ? t(action.labelKey) : id;
+}
 
 function showShortcuts() {
   const list = $("shortcutsList");
   list.innerHTML = "";
-  for (const [keys, key] of SHORTCUTS) {
+  for (const action of SHORTCUT_ACTIONS) {
     const term = document.createElement("dt");
-    term.textContent = keys;
+    term.textContent = displayChord(keyBindings[action.id]) || t("shortcutUnbound");
     const description = document.createElement("dd");
-    description.textContent = t(key);
+    description.textContent = t(action.labelKey);
     list.append(term, description);
   }
   const opener = document.activeElement;
@@ -5062,6 +5140,110 @@ function showShortcuts() {
   }, { once: true });
   $("shortcutsDialog").showModal();
 }
+
+function keymapStatus(text, isWarning) {
+  const status = $("keymapStatus");
+  status.textContent = text;
+  status.classList.toggle("warning", !!isWarning);
+}
+
+function renderKeymapStatus() {
+  const conflicts = findConflicts(keyBindings);
+  if (!conflicts.length) { keymapStatus(t("shortcutConflictNone"), false); return; }
+  keymapStatus(conflicts.map((conflict) => t("shortcutConflict", {
+    chord: displayChord(conflict.chord),
+    actions: conflict.actions.map(actionLabel).join(", "),
+  })).join(" "), true);
+}
+
+function renderKeymapEditor() {
+  const list = $("keymapList");
+  list.innerHTML = "";
+  for (const action of SHORTCUT_ACTIONS) {
+    const row = document.createElement("div");
+    row.className = "keymap-row" + (capturingAction === action.id ? " capturing" : "");
+    const label = document.createElement("span");
+    label.className = "keymap-label";
+    label.textContent = t(action.labelKey);
+    const chordButton = document.createElement("button");
+    chordButton.type = "button";
+    chordButton.className = "keymap-chord";
+    const chordText = displayChord(keyBindings[action.id]) || t("shortcutUnbound");
+    chordButton.textContent = capturingAction === action.id ? t("shortcutPressKeys") : chordText;
+    chordButton.setAttribute("aria-label", `${t(action.labelKey)}: ${chordText}`);
+    chordButton.addEventListener("click", () => { capturingAction = action.id; renderKeymapEditor(); });
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "keymap-clear";
+    clearButton.textContent = t("shortcutClear");
+    clearButton.disabled = !keyBindings[action.id];
+    clearButton.addEventListener("click", () => setKeyBinding(action.id, null));
+    row.append(label, chordButton, clearButton);
+    list.append(row);
+  }
+  renderKeymapStatus();
+  $("keymapPreset").value = keymapState.preset;
+}
+
+function setKeyBinding(id, chord) {
+  if (chord && isReservedChord(chord)) {
+    capturingAction = null;
+    renderKeymapEditor();
+    keymapStatus(t("shortcutReserved", { chord: displayChord(chord) }), true);
+    return;
+  }
+  const overrides = { ...keymapState.overrides, [id]: chord == null || chord === "" ? null : chord };
+  applyKeymapState({ preset: keymapState.preset, overrides });
+  capturingAction = null;
+  renderKeymapEditor();
+}
+
+// Capture runs in the capture phase so the key being assigned never reaches the
+// handler it would otherwise trigger. Escape and Tab always abandon the capture,
+// which is why they cannot be bound from the keyboard.
+document.addEventListener("keydown", (event) => {
+  if (!capturingAction) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === "Escape" || event.key === "Tab") { capturingAction = null; renderKeymapEditor(); return; }
+  if (event.isComposing || event.keyCode === 229) return;
+  if (["Control", "Alt", "Shift", "Meta", "OS"].includes(event.key)) return;
+  const chord = formatChord(chordFromEvent(event));
+  if (!chord) return;
+  setKeyBinding(capturingAction, chord);
+}, { capture: true });
+
+$("shortcutCustomize").addEventListener("click", () => {
+  capturingAction = null;
+  renderKeymapEditor();
+  const opener = document.activeElement;
+  $("keymapDialog").addEventListener("close", () => {
+    if (opener && typeof opener.focus === "function") opener.focus();
+  }, { once: true });
+  $("keymapDialog").showModal();
+});
+$("keymapPreset").addEventListener("change", () => {
+  capturingAction = null;
+  applyKeymapState({ preset: $("keymapPreset").value, overrides: {} });
+  renderKeymapEditor();
+});
+$("keymapReset").addEventListener("click", () => {
+  capturingAction = null;
+  applyKeymapState({ preset: keymapState.preset, overrides: {} });
+  renderKeymapEditor();
+});
+$("keymapExport").addEventListener("click", () => {
+  const blob = new Blob([serializeBindings(keymapState)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "ayame-shortcuts.json";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  keymapStatus(t("shortcutExportedJSON"), false);
+});
 
 // jumpToKind moves to the next hunk of one kind, cycling through them so
 // repeated clicks walk the group rather than sticking on the first (#110).
@@ -6065,18 +6247,20 @@ $("mergeProvenance").addEventListener("toggle", () => { if ($("mergeProvenance")
 $("simulateMerge").addEventListener("click", () => void previewMergeImpact());
 $("navHelp").addEventListener("click", showShortcuts);
 document.addEventListener("keydown", (event) => {
-  if (!event.altKey || event.ctrlKey || event.metaKey || !lastData?.hunks?.length) return;
-  let target = null;
+  if (!lastData?.hunks?.length) return;
   const active = activeHunkIndexes();
-  if (event.key === "ArrowLeft" || event.key === "ArrowRight" || (threeWayData && event.key.toLowerCase() === "b")) {
-    event.preventDefault(); const index = currentHunk >= 0 ? currentHunk : active[0];
+  let target = null;
+  if (matchesShortcut(event, "chooseLeft") || matchesShortcut(event, "chooseRight") || (threeWayData && matchesShortcut(event, "chooseBase"))) {
+    event.preventDefault();
+    const index = currentHunk >= 0 ? currentHunk : active[0];
     const key = threeWayData?.events?.[index]?.id ?? index;
-    if (index != null) chooseMerge(key, event.key === "ArrowLeft" ? "left" : (event.key === "ArrowRight" ? "right" : "base"));
+    const side = matchesShortcut(event, "chooseLeft") ? "left" : (matchesShortcut(event, "chooseRight") ? "right" : "base");
+    if (index != null) chooseMerge(key, side);
     return;
-  } else if (event.key === "ArrowDown") { event.preventDefault(); stepHunk(1); return; }
-  else if (event.key === "ArrowUp") { event.preventDefault(); stepHunk(-1); return; }
-  else if (event.key === "Home") target = active[0];
-  else if (event.key === "End") target = active[active.length - 1];
+  } else if (matchesShortcut(event, "navigateNext")) { event.preventDefault(); stepHunk(1); return; }
+  else if (matchesShortcut(event, "navigatePrev")) { event.preventDefault(); stepHunk(-1); return; }
+  else if (matchesShortcut(event, "firstDiff")) target = active[0];
+  else if (matchesShortcut(event, "lastDiff")) target = active[active.length - 1];
   if (target != null) {
     event.preventDefault();
     jumpToHunk(target);
@@ -6166,21 +6350,32 @@ $("minimapViewport").addEventListener("keydown", (event) => {
 // In-result search (#118). Ctrl+F is intercepted only when there is a result to
 // search; otherwise the browser's own find is left alone.
 document.addEventListener("keydown", (event) => {
-  const findKey = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f";
-  if (findKey && $("result").children.length) {
+  if (matchesShortcut(event, "search") && $("result").children.length) {
     event.preventDefault();
     openSearch();
     return;
   }
-  if (event.key === "Escape" && searchOpen()) {
+  if (matchesShortcut(event, "close") && searchOpen()) {
     event.preventDefault();
     closeSearch();
     return;
   }
-  if (event.key === "Enter" && searchOpen() && document.activeElement === $("searchInput")) {
+  if ((matchesShortcut(event, "searchNext") || matchesShortcut(event, "searchPrev")) && searchOpen() && document.activeElement === $("searchInput")) {
     event.preventDefault();
-    stepSearch(event.shiftKey ? -1 : 1);
+    stepSearch(matchesShortcut(event, "searchPrev") ? -1 : 1);
   }
+});
+// Run the comparison from anywhere with the bound chord. The setup inputs keep
+// their own Enter handling (compareFromKeyboard), so they are left alone here to
+// avoid running the comparison twice.
+document.addEventListener("keydown", (event) => {
+  if (event.isComposing || event.keyCode === 229) return;
+  if (!matchesShortcut(event, "compare")) return;
+  const target = event.target;
+  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+  if ($("compare").disabled) return;
+  event.preventDefault();
+  compare();
 });
 // Escape dismisses the focused message (#97), so the lane can be cleared
 // without reaching for the mouse.
