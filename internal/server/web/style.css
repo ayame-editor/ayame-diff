@@ -607,6 +607,7 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .menu-panel .opt { font-size: var(--fs-label); }
 .menu-panel .opt select { width: 100%; }
 .menu-panel button { margin: 0; width: 100%; }
+.menu-panel .report-hint { margin: 0; font-size: var(--fs-caption); color: var(--muted); }
 /* Icon-only controls: the label survives as the tooltip and the accessible name. */
 .icon-btn { min-width: 2rem; padding: 0.25rem 0.5rem; }
 .opt.inline { display: inline-flex; align-items: center; gap: 0.35rem; font-size: var(--fs-label); }

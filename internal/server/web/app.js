@@ -1021,7 +1021,7 @@ let busyOperation = null;
 // operation is in flight. Cancel is deliberately absent: stopping the running
 // operation is the one thing that must stay available.
 const EXCLUSIVE_CONTROLS = [
-  "compare", "exportPatch", "inspectCSV", "exportCSV", "saveMerge",
+  "compare", "exportPatch", "exportReport", "inspectCSV", "exportCSV", "saveMerge",
   "saveProject", "loadProject", "dirPreview", "saveDirProject", "loadDirProject",
   "addSync", "clearSync", "allLeft", "allRight", "allBase", "copyComparisonURL",
 ];
@@ -3686,6 +3686,7 @@ async function compare(options = {}) {
   return result;
 }
 async function exportPatch() { return runExclusive("exportPatch", runExportPatch); }
+async function exportReport() { return runExclusive("exportReport", runExportReport); }
 async function exportCSV() { return runExclusive("exportCSV", runExportCSV); }
 async function saveProject() { return runExclusive("saveProject", runSaveProject); }
 async function loadProject() { return runExclusive("loadProject", runLoadProject); }
@@ -4177,20 +4178,64 @@ async function runExportPatch() {
       const data = await resp.json().catch(() => ({}));
       throw apiError(data, resp);
     }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "ayame.patch";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(await resp.blob(), "ayame.patch");
     setStatus(t("exported"), "success");
   } catch (err) {
     setStatus(String(err.message || err), "error");
   } finally {
     $("exportPatch").disabled = false;
+  }
+}
+
+// downloadBlob hands a server-built attachment to the browser without leaving
+// an object URL behind.
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// The confirmation report records what was compared, under which conditions,
+// what was ignored or read, and the state needed to rerun it (#296). Confirmed
+// hunks (#288) are not part of this build; the server says so in the report
+// rather than guessing, so the UI sends only the state it actually has.
+async function runExportReport() {
+  const body = requestBody();
+  if (!validateInputs(body)) return;
+  const format = $("reportFormat").value;
+  body.format = format;
+  body.includeContent = $("reportIncludeContent").checked;
+  body.ignoredHunks = [...ignoredHunks].sort((a, b) => a - b);
+  body.readHunks = [...readHunks].sort((a, b) => a - b);
+  const state = captureComparisonState();
+  if (state) {
+    body.comparisonState = state;
+    try { body.reproduceURL = buildShareURL(location.href, state); } catch (_) { /* URL state too large for a link; the state still travels */ }
+  }
+  const extensions = { html: "html", markdown: "md", json: "json" };
+  $("exportReport").disabled = true;
+  setStatus(t("reportGenerating"), "busy");
+  try {
+    const resp = await apiFetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw apiError(data, resp);
+    }
+    downloadBlob(await resp.blob(), `ayame-report.${extensions[format] || "json"}`);
+    setStatus(t("reportExported"), "success");
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+  } finally {
+    $("exportReport").disabled = false;
   }
 }
 
@@ -4237,15 +4282,22 @@ function syncMoveMinLines() {
 	if (node) node.disabled = !$("detectMoves").checked;
 }
 
-// The patch format controls are only meaningful next to Export patch, so they
-// follow its visibility rather than sitting in the setup form (#86).
+// The patch and report controls live inside the Export menu, so the whole menu
+// disappears when neither export is available rather than leaving an empty
+// menu title in the bar.
 function syncPatchSettingsVisibility() {
-  // The patch controls now live inside the Export menu, so the whole menu
-  // disappears when there is nothing to export rather than leaving an empty
-  // menu title in the bar.
+  const patchVisible = !$("exportPatch").hidden;
+  // Patch format/context only mean something next to Export patch; with the
+  // report sharing the menu they must not linger for sorted mode (#296).
+  for (const id of ["patchFormat", "patchContext"]) {
+    const holder = $(id)?.closest("label");
+    if (holder) holder.hidden = !patchVisible;
+  }
+  const reportElement = $("exportReport");
+  const reportVisible = Boolean(reportElement && !reportElement.hidden);
   const menuExport = $("menuExport");
   if (menuExport) {
-    menuExport.hidden = $("exportPatch").hidden;
+    menuExport.hidden = !(patchVisible || reportVisible);
     if (menuExport.hidden) menuExport.open = false;
   }
 }
@@ -4263,8 +4315,15 @@ function syncViewModeVisibility() {
 }
 
 function syncExportPatchVisibility() {
-  const currentRequest = $("mode").value === "text" ? JSON.stringify(requestBody()) : null;
-  $("exportPatch").hidden = !lastData || !lastComparedRequest || currentRequest !== lastComparedRequest;
+  // A patch applies only to text mode, but the confirmation report also covers
+  // sorted mode, so they have separate visibility over the same freshness check.
+  const mode = $("mode").value;
+  const comparable = mode === "text" || mode === "sorted";
+  const currentRequest = comparable ? JSON.stringify(requestBody()) : null;
+  const fresh = Boolean(lastData && lastComparedRequest && currentRequest === lastComparedRequest);
+  $("exportPatch").hidden = !(fresh && mode === "text");
+  const report = $("exportReport");
+  if (report) report.hidden = !fresh;
   syncPatchSettingsVisibility();
   syncViewModeVisibility();
   syncContextVisibility();
@@ -4821,6 +4880,7 @@ document.addEventListener("keydown", (event) => {
   for (const menu of document.querySelectorAll(".menubar .menu[open]")) menu.open = false;
 });
 $("exportPatch").addEventListener("click", exportPatch);
+$("exportReport").addEventListener("click", exportReport);
 $("inspectCSV").addEventListener("click", inspectCSV);
 $("exportCSV").addEventListener("click", exportCSV);
 $("saveProject").addEventListener("click", saveProject);
