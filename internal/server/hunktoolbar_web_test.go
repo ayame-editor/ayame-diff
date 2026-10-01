@@ -114,7 +114,7 @@ func TestHunkToolbarKeepsBulkAndNavigationControls(t *testing.T) {
 		}
 	}
 	// Adopt buttons still appear only in merge mode.
-	if !strings.Contains(app, "function chooseMerge(index, side)") {
+	if !strings.Contains(app, "function chooseMerge(id, side)") {
 		t.Error("the hunk toolbar no longer reaches the merge choice")
 	}
 }
