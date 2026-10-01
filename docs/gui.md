@@ -299,8 +299,9 @@ each history entry carries its own set, so Back returns to the tabs that
 belonged with that comparison. **Copy link** still copies one comparison and
 never the reader's other tabs.
 
-Applied ignore settings are shown in the result summary. They affect matching
-only: rendered lines and exported patches retain the original text.
+Applied ignore settings are shown in the result summary and in the condition
+toolbar. They affect matching only: rendered lines and exported patches retain
+the original text.
 
 Browser-dropped files are copied to a private local cache. Each file is limited
 to 2 GiB and one browser session to 8 GiB; an oversized upload returns a clear
@@ -351,6 +352,23 @@ hunk-only view without re-running the comparison. Context ranges are fetched on
 demand, so opening one boundary does not send the whole unchanged file to the
 browser. In the side-by-side view, context lines remain editable on both sides
 when **Edit** is active.
+
+### Comparison conditions while reading
+
+The settings that change what counts as a difference are permanent in the result
+toolbar, each showing its current value so the policy the result was produced
+under is readable without opening a dialog: whitespace (**ignore amount**,
+**ignore all**), case, EOL (ignore EOL, ignore trailing EOL, or both), line
+filters with the number active, and move detection. The toolbar therefore
+doubles as a status display. Changing a row writes the matching control in
+**Comparison settings** and re-runs the comparison; because the inputs are
+unchanged it replaces the current history entry rather than pushing a new one.
+
+Only the toggles live in the toolbar. Values that tune how much is computed —
+**move min lines**, the **context** line count, and the line-filter definitions
+themselves — stay in **Comparison settings**, so the number of toolbar items is
+fixed and does not grow with the input. The line-filter row reports how many
+filters are active and opens that part of the dialog to edit them.
 
 ### Manual alignment and ignored differences
 

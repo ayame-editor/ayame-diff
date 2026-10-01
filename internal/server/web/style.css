@@ -520,6 +520,18 @@ body.editing .cell.chg > .ln::before { background: var(--chg-fg); }
 .merge-mode .hunk-merge { display: inline-flex; }
 .merge-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .context-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+/* Condition toolbar (#264): a fixed row per toggle, each showing its current
+   value, so the applied policy is readable without opening Settings. Only the
+   name is emphasized when a condition is off its default. */
+.condition-bar { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; }
+.condition { color: var(--muted); }
+.condition-name { white-space: nowrap; }
+.condition select { min-width: 0; max-width: 12rem; }
+.condition[data-active="true"] .condition-name { color: var(--accent); font-weight: 600; }
+.condition-filters { margin: 0; min-width: 0; padding: 0.25rem 0.5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); }
+.condition[data-active="true"] .condition-filters { border-color: var(--accent); }
+.condition-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.condition[data-active="true"] .condition-value { color: var(--accent); }
 .hunk-merge button { margin: -0.15rem 0 0; padding: 0.08rem 0.45rem; background: var(--bg); color: var(--fg); border: 1px solid var(--border); font-size: var(--fs-caption); }
 .hunk.merge-left { border-left: 4px solid var(--del-fg); }
 .hunk.merge-right { border-right: 4px solid var(--add-fg); }

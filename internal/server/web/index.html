@@ -213,6 +213,49 @@
         <button id="lastDiff" type="button" data-i18n-title="lastDiff" data-i18n-aria-label="lastDiff"><span aria-hidden="true">⇥</span></button>
         <label class="opt inline" id="viewModeWrap" hidden><span class="sr-only" data-i18n="view">view</span><select id="viewMode" data-i18n-title="view" data-i18n-aria-label="view"><option value="side" data-i18n="viewSide">side-by-side</option><option value="unified" data-i18n="viewUnified">unified</option></select></label>
         <button id="contextToggle" type="button" class="context-toggle" data-i18n="contextToggle" data-i18n-title="contextToggleTitle" aria-pressed="true" hidden>Context</button>
+        <!-- The comparison conditions that change what counts as a difference,
+             permanent in the toolbar and each showing its current value (#264).
+             JetBrains keeps exactly these in the viewer; the numeric tuning and
+             the filter definitions stay in the settings dialog, so the row
+             count is fixed. app.js mirrors the settings controls (ignoreCase,
+             whitespace, ignoreEOL/ignoreTrailingEOL, lineFilters, detectMoves)
+             rather than keeping a second copy of the state. -->
+        <div class="condition-bar" id="conditionBar" role="group" data-i18n-aria-label="conditionsGroup" hidden>
+          <label class="opt inline condition" id="tbWhitespaceWrap">
+            <span class="condition-name" data-i18n="whitespace">whitespace</span>
+            <select id="tbWhitespace" data-i18n-aria-label="whitespace">
+              <option value="none" data-i18n="whitespaceNone">do not ignore</option>
+              <option value="change" data-i18n="whitespaceChange">ignore amount</option>
+              <option value="all" data-i18n="whitespaceAll">ignore all</option>
+            </select>
+          </label>
+          <label class="opt inline condition" id="tbCaseWrap">
+            <span class="condition-name" data-i18n="caseCondition">case</span>
+            <select id="tbCase" data-i18n-aria-label="caseCondition">
+              <option value="distinguish" data-i18n="caseDistinguish">distinguish</option>
+              <option value="ignore" data-i18n="caseIgnore">ignore</option>
+            </select>
+          </label>
+          <label class="opt inline condition" id="tbEolWrap">
+            <span class="condition-name" data-i18n="eolCondition">EOL</span>
+            <select id="tbEol" data-i18n-aria-label="eolCondition">
+              <option value="as-is" data-i18n="eolKeep">as-is</option>
+              <option value="eol" data-i18n="ignoreEOL">ignore EOL</option>
+              <option value="trailing" data-i18n="ignoreTrailingEOL">ignore trailing EOL</option>
+              <option value="both" data-i18n="eolBoth">ignore both</option>
+            </select>
+          </label>
+          <span class="opt inline condition" id="tbFiltersWrap">
+            <button id="tbFilters" class="condition-filters" type="button" data-i18n-title="conditionFiltersTitle" data-i18n-aria-label="lineFilters"><span class="condition-name" data-i18n="lineFilters">line filters</span><span class="condition-value" id="tbFiltersValue">0</span></button>
+          </span>
+          <label class="opt inline condition" id="tbMovesWrap">
+            <span class="condition-name" data-i18n="conditionMoves">moves</span>
+            <select id="tbMoves" data-i18n-aria-label="conditionMoves">
+              <option value="off" data-i18n="conditionMovesOff">off</option>
+              <option value="detect" data-i18n="conditionMovesOn">detect</option>
+            </select>
+          </label>
+        </div>
         <label class="opt inline" id="dirStatusWrap" hidden><span class="sr-only" data-i18n="statusFilter">statuses</span><select id="dirStatus" data-i18n-title="statusFilter" data-i18n-aria-label="statusFilter"><option value="different" data-i18n="statusDifferent">differing</option><option value="all" data-i18n="statusAll">all</option><option value="added" data-i18n="added">added</option><option value="removed" data-i18n="removed">removed</option><option value="changed" data-i18n="changed">changed</option><option value="same" data-i18n="same">same</option></select></label>
         <label class="opt inline" id="dirSearchWrap" hidden><span class="sr-only" data-i18n="folderSearch">path search</span><input id="dirSearch" type="search" data-i18n-placeholder="folderSearchPlaceholder" data-i18n-title="folderSearch" data-i18n-aria-label="folderSearch" placeholder="Search folder results" autocomplete="off" spellcheck="false" /></label>
         <button id="dirContinuous" type="button" class="continuous-toggle" data-i18n="continuousView" aria-pressed="false" hidden>Continuous</button>
@@ -493,6 +536,7 @@
     <script src="unresolved.js"></script>
     <script src="keymap.js"></script>
     <script src="i18n.js"></script>
+    <script src="conditions.js"></script>
     <script src="messages.js"></script>
     <script src="editbuffer.js"></script>
     <script src="mergeprovenance.js"></script>
