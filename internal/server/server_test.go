@@ -17,6 +17,7 @@ import (
 
 	"github.com/ayame-editor/ayame-diff/internal/engine"
 	"github.com/ayame-editor/ayame-diff/internal/linediff"
+	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
 
 func newTestServer(t *testing.T) http.Handler {
@@ -514,6 +515,100 @@ func TestCSVMergeAPIUnresolvedTarget(t *testing.T) {
 	}
 }
 
+// TestCSVMergeAPIAdoptsBothSides is the reconcile half of #271: a difference
+// may adopt both sides; a CHANGED pair emits the left row and then the right
+// row, a one-sided difference emits whichever side exists.
+func TestCSVMergeAPIAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	left, right, output := filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	leftText, rightText := "id,name\n1,left\n2,left-only\n", "id,name\n1,right\n3,right-only\n"
+	if err := os.WriteFile(left, []byte(leftText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(right, []byte(rightText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestServer(t)
+	request := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}, MaxRows: 20}
+	body, _ := json.Marshal(request)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/csv/diff", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var compared csvResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &compared); err != nil {
+		t.Fatal(err)
+	}
+	choices := make(map[string]string)
+	for _, difference := range compared.Differences {
+		choices[difference.ID] = "right,left"
+	}
+	request.Output = output
+	mergeReq := csvMergeRequest{csvRequest: request, Choices: choices}
+	body, _ = json.Marshal(mergeReq)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []string{"1,left", "1,right", "2,left-only", "3,right-only"} {
+		if !strings.Contains(string(data), row) {
+			t.Fatalf("merged missing %q: %s", row, data)
+		}
+	}
+}
+
+// TestTextMergeAPIAdoptsBothSides is the #271 API contract: a choice value may
+// name both sides, concatenated left then right.
+func TestTextMergeAPIAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath, newPath, output := filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt"), filepath.Join(dir, "merged.txt")
+	if err := os.WriteFile(oldPath, []byte("same\nold\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("same\nnew\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := textMergeRequest{diffRequest: diffRequest{Old: oldPath, New: newPath, Mode: "text", Window: 10}, Output: output, Choices: map[string]string{"0": "right,left"}}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"resolved":1`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	merged, err := os.ReadFile(output)
+	if err != nil || string(merged) != "same\nold\nnew\n" {
+		t.Fatalf("merged=%q err=%v", merged, err)
+	}
+}
+
+// TestTextMergeAPIRejectsUnknownChoice guards the new comma-joined encoding.
+func TestTextMergeAPIRejectsUnknownChoice(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	oldPath, newPath, output := filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt"), filepath.Join(dir, "merged.txt")
+	if err := os.WriteFile(oldPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := textMergeRequest{diffRequest: diffRequest{Old: oldPath, New: newPath, Mode: "text", Window: 10}, Output: output, Choices: map[string]string{"0": "both"}}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	newTestServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCSVMergeAPIReconcilesRowsAndPreservesInputs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -571,6 +666,38 @@ func TestCSVMergeAPIReconcilesRowsAndPreservesInputs(t *testing.T) {
 	}
 }
 
+// TestThreeWayTextMergeAPIAdoptsBothSides is the three-way half of #271: a
+// conflict can adopt left and right, emitted in that order.
+func TestThreeWayTextMergeAPIAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt"), filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "base\ntail\n", left: "left\ntail\n", right: "right\ntail\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	req := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"conflicts":1`) {
+		t.Fatalf("compare status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	req.Output, req.Choices = output, map[string]string{"0": "left,right"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if string(data) != "left\nright\ntail\n" {
+		t.Fatalf("merged=%q", data)
+	}
+}
+
 func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -598,6 +725,113 @@ func TestThreeWayTextCompareAndMergeAPI(t *testing.T) {
 	data, _ := os.ReadFile(output)
 	if string(data) != "right\ntail\n" {
 		t.Fatalf("merged=%q", data)
+	}
+}
+
+// TestThreeWayTextPreviewAndProvenanceAPI covers the #257 preview endpoint and
+// the save report: the preview names each line's source, and the save counts
+// adopted versus manually typed lines.
+func TestThreeWayTextPreviewAndProvenanceAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.txt"), filepath.Join(dir, "left.txt"), filepath.Join(dir, "right.txt"), filepath.Join(dir, "merged.txt")
+	for path, value := range map[string]string{base: "a\nb\nc\n", left: "a\nB\nc\n", right: "a\nb\nC\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	req := threeWayTextRequest{diffRequest: diffRequest{Old: left, New: right, Window: 16}, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/text/preview", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var preview struct {
+		Lines      []threeway.MergedLine `json:"lines"`
+		Provenance threeway.Provenance   `json:"provenance"`
+		Unresolved int                   `json:"unresolved"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	wantProvenance := threeway.Provenance{Base: 1, Left: 1, Right: 1, Total: 3}
+	if len(preview.Lines) != 3 || preview.Unresolved != 0 || preview.Provenance != wantProvenance {
+		t.Fatalf("preview=%+v", preview)
+	}
+	var leftKey string
+	for _, line := range preview.Lines {
+		if line.Origin == threeway.OriginLeft {
+			leftKey = line.Key
+		}
+	}
+	if leftKey == "" {
+		t.Fatalf("preview has no left line: %+v", preview.Lines)
+	}
+	req.Output = output
+	req.Manual = map[string]string{leftKey: "typed"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/text", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var saved struct {
+		Provenance threeway.Provenance `json:"provenance"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	wantSaved := threeway.Provenance{Base: 1, Right: 1, Manual: 1, Total: 3}
+	if saved.Provenance != wantSaved {
+		t.Fatalf("saved provenance=%+v want=%+v", saved.Provenance, wantSaved)
+	}
+	data, _ := os.ReadFile(output)
+	if string(data) != "a\ntyped\nC\n" {
+		t.Fatalf("merged=%q", data)
+	}
+}
+
+// TestThreeWayCSVMergeAPIAdoptsBothSides mirrors the CSV contract: a conflict
+// choice of "left,right" emits both rows.
+func TestThreeWayCSVMergeAPIAdoptsBothSides(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	base, left, right, output := filepath.Join(dir, "base.csv"), filepath.Join(dir, "left.csv"), filepath.Join(dir, "right.csv"), filepath.Join(dir, "merged.csv")
+	for path, value := range map[string]string{base: "id,v\n1,b\n", left: "id,v\n1,l\n", right: "id,v\n1,r\n"} {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newTestServer(t)
+	csvReq := csvRequest{Old: left, New: right, HasHeader: true, AlignColumnsByName: true, KeyMode: "include", KeyNames: []string{"id"}}
+	req := threeWayCSVRequest{csvRequest: csvReq, Base: base}
+	body, _ := json.Marshal(req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/three-way/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("compare status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var compared struct {
+		Events []struct {
+			ID string `json:"id"`
+		} `json:"events"`
+		Conflicts int `json:"conflicts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &compared); err != nil || compared.Conflicts != 1 || len(compared.Events) != 1 {
+		t.Fatalf("compared=%+v err=%v", compared, err)
+	}
+	req.Output, req.Choices = output, map[string]string{compared.Events[0].ID: "left,right"}
+	body, _ = json.Marshal(req)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/merge/three-way/csv", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, _ := os.ReadFile(output)
+	if !strings.Contains(string(data), "1,l") || !strings.Contains(string(data), "1,r") {
+		t.Fatalf("merged=%s", data)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ayame-editor/ayame-diff/internal/mergechoice"
 	"github.com/ayame-editor/ayame-diff/internal/pathutil"
 	"github.com/ayame-editor/ayame-diff/internal/threeway"
 )
@@ -63,6 +64,14 @@ func (s *Server) handleThreeWayCSVMerge(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// A choice is one side or an ordered combination ("left,right") so a
+	// conflict can adopt both contributions (#271).
+	for _, side := range req.Choices {
+		if err := mergechoice.Validate(side, "base", "left", "right"); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid conflict choice")
+			return
+		}
 	}
 	if !validUnresolvedTarget(req.UnresolvedTarget, threeway.UnresolvedLeft, threeway.UnresolvedRight, threeway.UnresolvedBase) {
 		writeError(w, http.StatusBadRequest, "unresolvedTarget must be left, right, or base for CSV")

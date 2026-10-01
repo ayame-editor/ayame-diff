@@ -32,14 +32,40 @@ type lineEndings interface{ LineEnding(uint64) string }
 
 // TextOptions controls safe output behavior.
 type TextOptions struct {
-	Output           string
-	OldPath          string
-	NewPath          string
-	Choices          map[int]Side
+	Output  string
+	OldPath string
+	NewPath string
+	// Choices maps a hunk index to the contributions it adopts. An empty slice
+	// is unresolved; more than one entry concatenates them in canonical order
+	// (left before right) so adopting "both" is order-independent (#271).
+	Choices          map[int][]Side
 	AllowUnresolved  bool
 	UnresolvedTarget string // "left", "right", or "markers"; "" means left
 	Overwrite        bool
 	ConfirmOverwrite bool
+}
+
+// orderedSides returns the recognized sides in canonical concatenation order
+// (left before right), dropping duplicates and values that are not Left or
+// Right.
+func orderedSides(sides []Side) []Side {
+	var hasLeft, hasRight bool
+	for _, side := range sides {
+		switch side {
+		case Left:
+			hasLeft = true
+		case Right:
+			hasRight = true
+		}
+	}
+	var ordered []Side
+	if hasLeft {
+		ordered = append(ordered, Left)
+	}
+	if hasRight {
+		ordered = append(ordered, Right)
+	}
+	return ordered
 }
 
 // TextResult reports the result without retaining any input lines.
@@ -73,10 +99,9 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 		return result, fmt.Errorf("unresolvedTarget must be left, right, or markers")
 	}
 	for index := range diff.Hunks {
-		switch opts.Choices[index] {
-		case Left, Right:
+		if len(orderedSides(opts.Choices[index])) > 0 {
 			result.Resolved++
-		default:
+		} else {
 			result.Unresolved++
 		}
 	}
@@ -161,22 +186,28 @@ func WriteText(old, new linediff.Lines, diff linediff.Result, opts TextOptions) 
 			if err := writeRange(old, oldCursor, hunk.OldStart-oldCursor); err != nil {
 				return err
 			}
-			switch opts.Choices[index] {
-			case Right:
-				if err := writeRange(new, hunk.NewStart, hunk.NewLen); err != nil {
-					return err
-				}
-			case Left:
-				if err := writeRange(old, hunk.OldStart, hunk.OldLen); err != nil {
-					return err
-				}
-			default:
+			// An unresolved hunk (no adopted side) follows the unresolved
+			// target; adopted sides are concatenated in canonical order.
+			adopted := orderedSides(opts.Choices[index])
+			if len(adopted) == 0 {
 				result.ImplicitlyResolved = append(result.ImplicitlyResolved, index)
 				if err := writeUnresolved(hunk); err != nil {
 					return err
 				}
 				if target == UnresolvedMarkers {
 					result.ConflictsRemaining++
+				}
+			} else {
+				for _, side := range adopted {
+					if side == Right {
+						if err := writeRange(new, hunk.NewStart, hunk.NewLen); err != nil {
+							return err
+						}
+						continue
+					}
+					if err := writeRange(old, hunk.OldStart, hunk.OldLen); err != nil {
+						return err
+					}
 				}
 			}
 			oldCursor = hunk.OldStart + hunk.OldLen

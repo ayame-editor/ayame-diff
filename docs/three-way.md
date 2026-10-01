@@ -73,6 +73,16 @@ three-way text) standard conflict markers. Difference navigation works across
 three-way events; `Alt+Left` / `Alt+Right` chooses a side and `Alt+B` chooses
 BASE.
 
+A three-way text result can be opened as a per-line preview. Every row carries a
+gutter marker naming its source, following KDiff3's summary column: `B` base,
+`L` left, `R` right, and `m` for a line typed into the preview, which is also
+washed grey so it cannot be mistaken for an adopted line. The preview is
+computed by the same merge that the save writes, so the two cannot disagree, and
+it refreshes when a conflict choice changes. The panel also counts adopted and
+manually typed lines, and the save reports the same breakdown. The line preview
+is text-only: a keyed CSV result is a list of records rather than lines and
+keeps the per-row choices it already had.
+
 Inputs are never overwritten unless the overwrite option and destructive
 confirmation are both supplied. New result paths are written via a temporary
 sibling and rename.
