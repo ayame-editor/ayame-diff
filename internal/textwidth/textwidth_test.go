@@ -3,6 +3,8 @@ package textwidth
 import (
 	"strings"
 	"testing"
+
+	"golang.org/x/text/width"
 )
 
 func TestDisplayWidthJapanese(t *testing.T) {
@@ -19,6 +21,12 @@ func TestDisplayWidthJapanese(t *testing.T) {
 
 func TestDisplayWidthUnicodeCases(t *testing.T) {
 	t.Parallel()
+	// x/text selects Unicode 15 tables on Go 1.25/1.26 and Unicode 17
+	// tables on Go 1.27. LANDSLIDE became wide in Unicode 17.
+	landslideWidth := 2
+	if width.UnicodeVersion == "15.0.0" {
+		landslideWidth = 1
+	}
 	tests := []struct {
 		name string
 		text string
@@ -37,8 +45,8 @@ func TestDisplayWidthUnicodeCases(t *testing.T) {
 		// U+1F700 is Neutral and not Emoji_Presentation. The old broad
 		// U+1F300..U+1FAFF check incorrectly counted every such rune as wide.
 		{name: "neutral supplementary symbol", text: "\U0001f700", want: 1},
-		// Unicode 18 assigns U+1F6D8 (LANDSLIDE) East_Asian_Width=Wide.
-		{name: "landslide emoji", text: "\U0001f6d8", want: 2},
+		// U+1F6D8 follows the Unicode table selected by x/text.
+		{name: "landslide emoji", text: "\U0001f6d8", want: landslideWidth},
 	}
 	for _, tt := range tests {
 		tt := tt

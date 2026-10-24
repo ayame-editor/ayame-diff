@@ -69,7 +69,7 @@ If you want to use it without installing Go, Python, WSL, etc., download the arc
 - Linux x64 / ARM64: `ayame-diff-<version>-linux-<arch>.tar.gz`
 - macOS Intel / Apple Silicon: `ayame-diff-<version>-darwin-<arch>.tar.gz`
 
-If you have Go 1.23 or later, you can install directly from source.
+If you have Go 1.25 or later, you can install directly from source.
 
 ```bash
 go install github.com/ayame-editor/ayame-diff/cmd/ayame-diff@latest
@@ -475,7 +475,7 @@ merge contract.
 
 ## Build
 
-Requires Go 1.23 or later. No external dependencies.
+Requires Go 1.25 or later. No external dependencies.
 
 For current OS:
 

@@ -96,9 +96,9 @@ jobs:
           test "$SMOKE_RESULT" = success
 
   # Verify the minimum Go declared in go.mod actually builds and tests, so a
-  # 1.24+ only feature can't slip in while every other job runs 1.26 (#172).
-  # GOTOOLCHAIN=local forbids an auto-upgrade, so this genuinely exercises 1.23;
-  # when go.mod's go directive rises, bump go-version here to match.
+  # a newer-only feature cannot slip in while other jobs use a newer toolchain.
+  # GOTOOLCHAIN=local forbids an auto-upgrade, so this genuinely exercises the declared minimum;
+  # setup-go reads go.mod directly so the floor stays synchronized.
   minimum-go:
     runs-on: ubuntu-latest
     env:
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version-file: go.mod
           cache: true
       - run: go build ./...
       - run: go test ./...
