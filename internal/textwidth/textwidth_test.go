@@ -34,9 +34,11 @@ func TestDisplayWidthUnicodeCases(t *testing.T) {
 		{name: "Hangul Jamo", text: "각", want: 2},
 		{name: "Hangul Jamo Extended-A", text: "ꥠ", want: 2},
 		{name: "Kana Supplement", text: "𛀀", want: 2},
-		// U+1F6D8 is Neutral and not Emoji_Presentation. The old broad
+		// U+1F700 is Neutral and not Emoji_Presentation. The old broad
 		// U+1F300..U+1FAFF check incorrectly counted every such rune as wide.
-		{name: "neutral supplementary symbol", text: "\U0001f6d8", want: 1},
+		{name: "neutral supplementary symbol", text: "\U0001f700", want: 1},
+		// Unicode 18 assigns U+1F6D8 (LANDSLIDE) East_Asian_Width=Wide.
+		{name: "landslide emoji", text: "\U0001f6d8", want: 2},
 	}
 	for _, tt := range tests {
 		tt := tt
