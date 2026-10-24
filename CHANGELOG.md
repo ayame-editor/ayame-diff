@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.18 - 2026-10-24
+
+- Update the reviewed dependencies and retain the recorded security compatibility fixes.
+
 ## v0.8.17 - 2026-10-01
 
 - A three-way result now names where every line came from. Each output line is
